@@ -20,6 +20,9 @@ import { Vector3, Vector4 } from 'three';
 import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransform, placementAdvice, reflectMatrix, virtualImage, worldToCss } from '../src/render/optics.ts';
 import { RouteProfile, gridPoint, limitAt, speedLimits, tileElevation, tileOf, tileToLatLon, tileXY, type Tile, type TileSign, type TileWay } from '../src/core/maqueta.ts';
 import { indexSigns, signsAhead } from '../src/signs/ahead.ts';
+import { aim, lensOnScreen, onEdge } from '../src/find/aim.ts';
+import { ageLabel, codeFromSearch, findPeerId, parsePos, shareLink } from '../src/find/protocol.ts';
+import { MAX_PINS, addPin, loadPins, removePin } from '../src/find/pins.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -489,6 +492,64 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   const box: [number, number, number, number] = [base.lat - 0.0001, base.lon - 0.0001, near1.lat, near1.lon];
   const found = buildingsIn([t(list), t([list[0]]), t()], box).map((b) => b.id).join();
   check('buildings: buildingsIn by bbox, each once, old tiles ok', found === 'osm:w1,ms:a', found);
+}
+
+// ---- find: where a place lands on the camera picture ----
+{
+  const me = caracas;
+  const screen = { w: 400, h: 800 };
+  const lens = { hfov: 60, vfov: 90 };
+  const level = { yaw: 0, pitch: 0 };
+  const ahead = aim(me, offset(me, 0, 20), level, lens, screen);
+  check('aim: straight ahead is centred and visible', near(ahead.x, 200, 0.5) && ahead.visible && near(ahead.dist, 20, 0.2));
+  check('aim: a spot on the floor sits below the horizon', ahead.y > 400, String(ahead.y));
+  const far = aim(me, offset(me, 0, 200), level, lens, screen);
+  check('aim: farther spots climb toward the horizon', far.y < ahead.y && far.y > 400);
+  const right = aim(me, offset(me, 20, 20), level, lens, screen);
+  check('aim: 20° to the right lands right of centre', right.x > 200 && near(right.rel, 20, 0.5));
+  const edge = aim(me, offset(me, 30, 20), level, lens, screen);
+  check('aim: half the field of view lands on the screen edge', near(edge.x, 400, 1), String(edge.x));
+  const side = aim(me, offset(me, 60, 20), level, lens, screen);
+  check('aim: outside the field of view is not visible', !side.visible && side.x > 400);
+  const behind = aim(me, offset(me, 180, 20), level, lens, screen);
+  check('aim: behind the camera is not visible, and far off', !behind.visible && Math.abs(behind.x) > 2000);
+  const down = aim(me, offset(me, 0, 20), { yaw: 0, pitch: 30 }, lens, screen);
+  check('aim: looking further down pushes the floor spot up the screen', down.y < ahead.y);
+  const turned = aim(me, offset(me, 0, 20), { yaw: 350, pitch: 0 }, lens, screen);
+  check('aim: turning the phone left moves the spot right', turned.x > ahead.x && near(turned.rel, 10, 0.5));
+  check('aim: standing on the spot is not a division by zero', Number.isFinite(aim(me, me, level, lens, screen).y));
+  const pinned = onEdge(side, screen, 50);
+  check('onEdge: clamps inside the margin', pinned.x === 350 && pinned.y >= 50 && pinned.y <= 750);
+  const portrait = lensOnScreen(1080, 1920, { w: 390, h: 844 }, 63);
+  check('lensOnScreen: portrait phone sees less across than up', portrait.hfov < portrait.vfov && portrait.hfov > 30 && portrait.vfov < 100, JSON.stringify(portrait));
+}
+
+// ---- find: sharing a position ----
+{
+  check('parsePos: accepts a position', parsePos({ t: 'pos', lat: 10.5, lon: -66.9, acc: 8 })?.acc === 8);
+  check('parsePos: accuracy is optional', parsePos({ t: 'pos', lat: 10.5, lon: -66.9, acc: null })?.acc === null);
+  check('parsePos: rejects other messages', parsePos({ t: 'ping' }) === null && parsePos(null) === null && parsePos('x') === null);
+  check('parsePos: rejects strings and out-of-range numbers', parsePos({ t: 'pos', lat: '10', lon: 5 }) === null && parsePos({ t: 'pos', lat: 91, lon: 0 }) === null && parsePos({ t: 'pos', lat: 0, lon: NaN }) === null);
+  check('share link round trip', codeFromSearch(new URL(shareLink('https://x.app', '123456')).search) === '123456');
+  check('share link: ignores a malformed code', codeFromSearch('?comparte=12') === null && codeFromSearch('') === null);
+  check('findPeerId differs from the HUD ids', findPeerId('123456') === 'viaar-find-123456' && findPeerId('123456') !== hudPeerId('123456'));
+  check('ageLabel', ageLabel(12_000) === 'hace 12 s' && ageLabel(180_000) === 'hace 3 min');
+}
+
+// ---- find: saved places ----
+{
+  mem.clear();
+  const a = addPin({ lat: 1, lon: 2 }, 5, 1000);
+  const b = addPin({ lat: 3, lon: 4 }, null, 2000);
+  check('pins: saved and numbered', a.label === 'Lugar 1' && b.label === 'Lugar 2' && loadPins().length === 2);
+  removePin(a.id);
+  check('pins: removing keeps the others and the next number moves on', loadPins().length === 1 && addPin({ lat: 5, lon: 6 }, 1, 3000).label === 'Lugar 3');
+  for (let i = 0; i < MAX_PINS + 3; i++) addPin({ lat: i, lon: i }, 1, 4000 + i);
+  check('pins: capped, oldest dropped', loadPins().length === MAX_PINS);
+  mem.set('ar-nav.pins', '{not json');
+  check('pins: unreadable storage means none', loadPins().length === 0);
+  mem.set('ar-nav.pins', JSON.stringify([{ id: 'x', label: 'a', p: { lat: 'bad' } }]));
+  check('pins: drops malformed entries', loadPins().length === 0);
 }
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');
