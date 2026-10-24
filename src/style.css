@@ -262,6 +262,30 @@ h2 { margin: 0 0 4px; font-size: 20px; }
   .page { padding-bottom: calc(64px + env(safe-area-inset-bottom) + 24px); }
 }
 
+/* Maqueta: isometric 3D of the demo zone to pick the exact arrival point */
+.mq { background: var(--bg); }
+.mqView { position: absolute; inset: 0; touch-action: none; }
+.mqView canvas { display: block; }
+.mqLabels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.mqHead { position: absolute; top: max(16px, env(safe-area-inset-top)); left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; }
+.mqHead .phText { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.mqTitleTop { font-size: 18px; font-weight: 800; line-height: 1.1; }
+.mqHead .muted { font-size: 13px; }
+.mqCard { position: absolute; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom) + 14px); padding: 16px; border-radius: 28px; display: flex; flex-direction: column; gap: 12px; }
+.mqCard .dcText { margin: 0; }
+.mqChips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.mqChips:empty { display: none; }
+.mqChips button { flex: 1 0 auto; height: 44px; padding: 0 14px; border-radius: 999px; border: 2px solid var(--field); color: var(--text); font-size: 13px; font-weight: 700; white-space: nowrap; }
+.mqChips button[aria-pressed='true'] { border-color: var(--pri); background: var(--pri); color: var(--onpri); font-weight: 800; }
+.mqBadge { position: absolute; transform: translate(-50%, -50%); min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 88%, transparent); color: var(--text); font-size: 12px; font-weight: 800; white-space: nowrap; }
+.mqPin { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--text); border: 3px solid var(--bg); }
+.mqPin.on { width: 22px; height: 22px; margin: -11px 0 0 -11px; background: var(--haz); box-shadow: 0 0 0 9px color-mix(in srgb, var(--haz) 30%, transparent); }
+.mqPinLabel { position: absolute; transform: translate(-50%, 18px); padding: 4px 12px; border-radius: 13px; background: var(--surf); border: 1.5px solid var(--haz); font-size: 12px; font-weight: 700; white-space: nowrap; }
+@media (orientation: landscape) and (max-height: 540px) {
+  .mqHead { right: auto; width: min(380px, 48vw); }
+  .mqCard { left: auto; width: min(360px, 44vw); bottom: calc(64px + env(safe-area-inset-bottom) + 12px); }
+}
+
 /* Dispositivos and other scrolling pages */
 .page {
   overflow-y: auto;

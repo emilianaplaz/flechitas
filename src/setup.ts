@@ -1,6 +1,7 @@
 // Destination and drive options on the phone: mode, origin, destination (typed, pasted or shared from Maps/Waze).
 import { extractUrl, resolveDestination } from './core/links.ts';
 import type { LatLon } from './core/geo.ts';
+import type { Arrival } from './remote/protocol.ts';
 import { app, type Display, type Mode } from './core/state.ts';
 import { $, setText, setupMsg } from './core/ui.ts';
 import { syncCalibProfile } from './render/calibDock.ts';
@@ -41,9 +42,10 @@ export function onDest(fn: () => void) {
 }
 
 /** Destination picked on the map. `labelOnly`: same point, only its name arrived. */
-export function setDestination(d: { point: LatLon; label: string }, labelOnly = false) {
+export function setDestination(d: { point: LatLon; label: string }, labelOnly = false, arrival: Arrival | null = null) {
   if (labelOnly && (app.dest?.point.lat !== d.point.lat || app.dest?.point.lon !== d.point.lon)) return; // another tap since
   app.dest = d;
+  if (!labelOnly) app.arrival = arrival;
   $<HTMLInputElement>('dest').value = d.label;
   setupMsg('');
   setText('dcTitle', d.label);
@@ -58,6 +60,7 @@ export async function resolveDestInput(): Promise<void> {
     destListeners.forEach((fn) => fn());
     return;
   }
+  app.arrival = null;
   showDest('Buscando…', raw);
   try {
     app.dest = await resolveDestination(raw);

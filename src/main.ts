@@ -23,8 +23,10 @@ import { remoteGps, remotePhone, remoteTilt, startHudLink } from './remote/hudLi
 import { connectHud, disconnectHud, hudLinked, onHudState, sendFix, sendRoute, sendStop, setDriveProvider, type LinkState } from './remote/phoneLink.ts';
 import { normalizeCode } from './remote/protocol.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
-import { initShell } from './ui/shell.ts';
-import { initDestino } from './ui/destino.ts';
+import { destZone, initDestino } from './ui/destino.ts';
+import { initMaqueta, prepareMaqueta } from './ui/maqueta.ts';
+import { go, initShell } from './ui/shell.ts';
+import { setDestination } from './setup.ts';
 import { clearSigns, setSigns, signsAheadOf } from './signs/store.ts';
 import { align, sensorsActive, startSensors, stopSensors, updateView } from './walk/view.ts';
 
@@ -99,6 +101,12 @@ if (hudRole) {
   // Phone: link to the iPad by the code it shows; the HUD then follows every drive.
   initShell();
   initDestino();
+  // Maqueta: "Confirmar punto y conducir" sets the exact arrival point and starts the drive.
+  initMaqueta(({ arrival, label }) => {
+    setDestination({ point: { lat: arrival.lat, lon: arrival.lon }, label }, false, arrival);
+    go('destino');
+    $('start').click();
+  });
   const show = (s: LinkState) => {
     const el = $('linkState');
     el.hidden = s === 'off';
@@ -204,6 +212,22 @@ function clearScene(yaw: number) {
 
 $('start').onclick = async () => {
   const btn = $<HTMLButtonElement>('start');
+  // Destination inside a maqueta zone and no exact point yet: pick it in the maqueta first.
+  const zone = destZone();
+  if (zone && !app.arrival && app.dest) {
+    btn.disabled = true;
+    setupMsg('Cargando la maqueta…');
+    try {
+      await prepareMaqueta(zone, app.dest.point);
+      setupMsg('');
+      go('maqueta');
+    } catch (e) {
+      setupMsg((e as Error).message);
+    } finally {
+      btn.disabled = false;
+    }
+    return;
+  }
   btn.disabled = true;
   setupMsg('');
   try {

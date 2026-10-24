@@ -71,6 +71,32 @@
         </div>
       </div>
 
+      <!-- 2 · Maqueta: elegir el punto exacto de llegada -->
+      <div id="scrMaqueta" class="screen mq" hidden>
+        <div id="mqView" class="mqView" role="img" aria-label="Maqueta 3D de la zona demo: toca un edificio"></div>
+        <div id="mqLabels" class="mqLabels" aria-hidden="true"></div>
+        <header class="mqHead">
+          <button class="roundBtn" type="button" data-go="destino" aria-label="Volver al mapa">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
+          <div class="phText">
+            <span class="mqTitleTop">Maqueta</span>
+            <span id="mqZone" class="muted">Zona demo · toca un edificio</span>
+          </div>
+          <button id="mqRotate" class="roundBtn" type="button" aria-label="Girar la maqueta">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" class="icoLink"><path d="M20 12 A8 8 0 1 1 15 4.6 M20 4 V9 H15" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
+        </header>
+        <div id="mqCard" class="mqCard surface">
+          <div class="dcText">
+            <span id="mqTitle" class="dcTitle">Toca un edificio</span>
+            <span id="mqSub" class="dcSub">Elige el punto exacto de llegada</span>
+          </div>
+          <div id="mqChips" class="mqChips" role="group" aria-label="Punto de llegada"></div>
+          <button id="mqGo" class="primary" type="button" disabled>Confirmar punto y conducir</button>
+        </div>
+      </div>
+
       <!-- 4 · Dispositivos y calibración -->
       <div id="scrDispositivos" class="screen page" hidden>
         <header class="pageHead">

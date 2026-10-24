@@ -4,18 +4,21 @@ import { $ } from '../core/ui.ts';
 import { getCalib, onCalibChange, setCalibValue } from '../render/calibDock.ts';
 import type { Calib } from '../render/calib.ts';
 import { showDestinoMap } from './destino.ts';
+import { showMaqueta } from './maqueta.ts';
 
-export type Screen = 'destino' | 'dispositivos';
-const SCREENS: Record<Screen, string> = { destino: 'scrDestino', dispositivos: 'scrDispositivos' };
+export type Screen = 'destino' | 'maqueta' | 'dispositivos';
+const SCREENS: Record<Screen, string> = { destino: 'scrDestino', maqueta: 'scrMaqueta', dispositivos: 'scrDispositivos' };
 
 export function go(screen: Screen) {
   for (const [name, id] of Object.entries(SCREENS)) $(id).hidden = name !== screen;
+  const tab = screen === 'maqueta' ? 'destino' : screen; // the maqueta belongs to the Mapa tab
   document.querySelectorAll<HTMLElement>('.bottomNav [data-go]').forEach((b) => {
-    if (b.dataset.go === screen) b.setAttribute('aria-current', 'page');
+    if (b.dataset.go === tab) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
   if (screen === 'dispositivos') renderCalib(getCalib());
   if (screen === 'destino') void showDestinoMap();
+  if (screen === 'maqueta') showMaqueta();
 }
 
 /** Horizon line of the preview: tilting the camera down (more pitch) moves the horizon up in the picture. */

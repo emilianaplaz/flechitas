@@ -343,7 +343,7 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   }
 }
 
-function loadTile(key: string): Promise<Tile | null> {
+export function loadTile(key: string): Promise<Tile | null> {
   let req = tileReqs.get(key);
   if (!req) {
     req = fetchJson<Tile>(`/maqueta/${MAQUETA_ZOOM}/${key}.json`);

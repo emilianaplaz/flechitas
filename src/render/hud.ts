@@ -104,7 +104,7 @@ export function renderHud(h: HudInput) {
     // ETA card: minutes, arrival time and place, distance left.
     setText('etaMin', mins ? `${mins} min` : '—');
     const at = mins ? new Date(Date.now() + mins * 60000).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : '';
-    const place = app.dest?.label.split(',')[0] ?? '';
+    const place = app.arrival?.label ?? app.dest?.label.split(',')[0] ?? '';
     setText('etaDest', [at && `Llegada: ${at}`, place].filter(Boolean).join(' · '));
     setText('etaKm', formatDistance(h.remaining));
   }

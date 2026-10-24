@@ -190,7 +190,7 @@ export function setSimOrigin(p: LatLon | null) {
 async function syncDest() {
   const d = app.dest;
   const zone = destZone();
-  setText('startLabel', zone ? 'Elegir punto exacto' : 'Conducir');
+  setText('startLabel', zone && !app.arrival ? 'Elegir punto exacto' : 'Conducir');
   if (!d) {
     destMarker?.remove();
     destMarker = null;
@@ -204,7 +204,7 @@ async function syncDest() {
   }
   const seq = ++previewSeq;
   const from = await origin();
-  const zoneNote = zone ? `Zona de la maqueta · ${zoneLabel(zone)}` : '';
+  const zoneNote = app.arrival ? app.arrival.label : zone ? `Zona de la maqueta · ${zoneLabel(zone)}` : '';
   setText('destLabel', zoneNote || (from ? 'Calculando ruta…' : 'Te ubico al empezar'));
   if (!from) {
     map?.easeTo({ center: [d.point.lon, d.point.lat], zoom: Math.max(map.getZoom(), 15) });
