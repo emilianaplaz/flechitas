@@ -100,5 +100,6 @@ Source is split by module so teammates can work in parallel. Each folder has one
 - `src/remote/`: phone as remote camera. `protocol.ts` shared messages and URLs, `display.ts` QR + receiving side, `phone.ts` the phone's camera page (`/?cam=<id>`), `orient.ts` keeping its picture upright
 - `src/hazards/`: hazard mapping. `store.ts`, `cloud.ts` sync, `bump.ts` accelerometer detection, `ahead.ts` hazards along a route, `ui.ts` reporting UI. Navigation only calls `reindexHazards`, `aheadOf`, `trackPosition`
 - `api/expand.ts`: serverless function that expands `maps.app.goo.gl` links
+- `pipeline3d/`: phone video → textured 3D street model (COLMAP + OpenMVS), step by step in [pipeline3d/README.md](pipeline3d/README.md)
 
 The public OSRM and Nominatim servers are fine for a demo but rate-limited.

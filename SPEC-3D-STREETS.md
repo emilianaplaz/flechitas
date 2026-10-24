@@ -65,6 +65,8 @@ One person can hold several roles. Hand off through the files named at the end o
 **Done when**: a manual flick-through shows no long runs of blurred or repeated frames.
 
 ### Step 3 — Reconstruct
+
+> Exact commands for Steps 2–5 with COLMAP + OpenMVS, tested on a pilot street: [pipeline3d/README.md](pipeline3d/README.md).
 1. Run structure from motion and multi-view stereo. Tools: Polycam, RealityCapture, Metashape, or COLMAP.
 2. Export a textured mesh. Keep the camera poses (COLMAP `images.txt`, or the tool's equivalent), because Step 4 needs them.
 3. Clean the mesh: remove floating fragments, cars and sky. Close obvious holes on the ground.
