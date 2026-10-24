@@ -28,11 +28,14 @@ export function phoneUrl(origin: string, peerId: string): string {
 }
 
 /**
- * The origin a phone on the same Wi-Fi can reach. `localhost` only works on the laptop itself,
- * so in development it's swapped for the laptop's network address.
+ * The origin a phone on the same Wi-Fi can reach. In development the laptop is opened at
+ * `localhost` or at any of its addresses (VPN, WSL, Wi-Fi…), and only the Wi-Fi one (`lanHost`,
+ * picked by vite.config.ts) works from a phone, so any localhost or raw IP is swapped for it.
+ * Named hosts (the deployed site, a tunnel) are kept as they are.
  */
 export function reachableOrigin(loc: { protocol: string; hostname: string; port: string; origin: string }, lanHost: string): string {
-  const local = loc.hostname === 'localhost' || loc.hostname.startsWith('127.') || loc.hostname === '[::1]';
+  const h = loc.hostname;
+  const local = h === 'localhost' || h === '[::1]' || h.endsWith('.localhost') || /^\d{1,3}(\.\d{1,3}){3}$/.test(h);
   if (!local || !lanHost) return loc.origin;
   return `${loc.protocol}//${lanHost}${loc.port ? `:${loc.port}` : ''}`;
 }

@@ -213,6 +213,9 @@ const at = (url: string) => {
 check('localhost is swapped for the LAN address', reachableOrigin(at('https://localhost:5173/x'), '192.168.1.20') === 'https://192.168.1.20:5173');
 check('127.0.0.1 is swapped too', reachableOrigin(at('http://127.0.0.1:5175/'), '10.0.0.5') === 'http://10.0.0.5:5175');
 check('a published site keeps its own origin', reachableOrigin(at('https://flechitas.vercel.app/'), '192.168.1.20') === 'https://flechitas.vercel.app');
+// Opened at the VPN or WSL address the dev server also lists: the phone can only reach the Wi-Fi one.
+check('VPN address is swapped for the Wi-Fi one', reachableOrigin(at('https://10.80.0.14:5173/'), '192.168.21.47') === 'https://192.168.21.47:5173');
+check('WSL address is swapped too', reachableOrigin(at('https://172.19.192.1:5173/'), '192.168.21.47') === 'https://192.168.21.47:5173');
 check('no LAN address known: keep localhost', reachableOrigin(at('https://localhost:5173/'), '') === 'https://localhost:5173');
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');
