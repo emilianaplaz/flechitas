@@ -1,6 +1,6 @@
 // Quick logic tests: `npm test` (Node 22+). No browser needed.
-import { angleDiff, bearing, bearingAt, buildPolyline, decodeGeohash, haversine, offset, pointAt, project } from '../src/geo.ts';
-import { extractUrl, parseInput } from '../src/links.ts';
+import { angleDiff, bearing, bearingAt, buildPolyline, decodeGeohash, haversine, offset, pointAt, project } from '../src/core/geo.ts';
+import { extractUrl, parseInput } from '../src/core/links.ts';
 // Minimal localStorage for the upload-queue tests (Node has none).
 const mem = new Map<string, string>();
 (globalThis as unknown as { localStorage: Storage }).localStorage = {
@@ -8,10 +8,10 @@ const mem = new Map<string, string>();
   setItem: (k: string, v: string) => void mem.set(k, v),
   removeItem: (k: string) => void mem.delete(k),
 } as Storage;
-import { cancel, enqueue, flush, pending } from '../src/cloud.ts';
-import { BumpDetector } from '../src/bump.ts';
-import { poseFromEuler } from '../src/orientation.ts';
-import { describe, formatDistance } from '../src/route.ts';
+import { cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
+import { BumpDetector } from '../src/hazards/bump.ts';
+import { poseFromEuler } from '../src/walk/orientation.ts';
+import { describe, formatDistance } from '../src/core/route.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
