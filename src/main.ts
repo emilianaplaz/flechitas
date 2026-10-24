@@ -32,14 +32,18 @@ function setRoute(r: Route) {
   reindexHazards();
 }
 
-async function enterImmersive() {
+/** Fullscreen and wake lock are best-effort: some browsers never settle these promises, so nothing waits on them. */
+function enterImmersive() {
   try {
-    await document.documentElement.requestFullscreen?.();
+    document.documentElement.requestFullscreen?.().catch(() => {});
   } catch {
     /* not supported (e.g. iOS) */
   }
   try {
-    wakeLock = await (navigator as unknown as { wakeLock?: { request(t: string): Promise<{ release(): Promise<void> }> } }).wakeLock?.request('screen') ?? null;
+    (navigator as unknown as { wakeLock?: { request(t: string): Promise<{ release(): Promise<void> }> } }).wakeLock
+      ?.request('screen')
+      .then((lock) => (wakeLock = lock))
+      .catch(() => {});
   } catch {
     /* ignore */
   }
@@ -55,7 +59,16 @@ $('start').onclick = async () => {
   setupMsg('');
   try {
     // First awaits in the handler: iOS only shows the sensor permission prompts inside the tap.
-    if ($<HTMLInputElement>('detectBumps').checked && app.mode !== 'replay') await startBumpWatcher();
+    // Bump detection is optional: without motion permission the drive still starts, just without it.
+    let bumpWarning = '';
+    if ($<HTMLInputElement>('detectBumps').checked && app.mode !== 'replay') {
+      try {
+        await startBumpWatcher();
+      } catch (e) {
+        stopBumpWatcher();
+        bumpWarning = `Sin detección de huecos: ${(e as Error).message}`;
+      }
+    }
     if ($<HTMLInputElement>('useSensors').checked && app.mode !== 'replay') await startSensors();
     await startAutoTilt(); // measures the mount's tilt by itself; no-op without permission
     if (!ar) throw new Error('Este navegador no puede dibujar 3D (WebGL desactivado). Activa la aceleración por hardware en Chrome: chrome://settings/system');
@@ -66,7 +79,8 @@ $('start').onclick = async () => {
     $('setup').hidden = true;
     $('hud').hidden = false;
     $<HTMLButtonElement>('align').hidden = !sensorsActive();
-    await enterImmersive();
+    enterImmersive();
+    if (bumpWarning) toast(bumpWarning, 5000);
     app.running = true;
     lastFrame = performance.now();
     requestAnimationFrame(frame);
@@ -95,6 +109,7 @@ $('stop').onclick = async () => {
   $('align').hidden = true;
   app.route = null;
   await wakeLock?.release().catch(() => {});
+  wakeLock = null;
   if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
   hideHud();
   $('setup').hidden = false;
@@ -103,7 +118,7 @@ $('stop').onclick = async () => {
 };
 
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && app.running && !wakeLock) await enterImmersive();
+  if (document.visibilityState === 'visible' && app.running && !wakeLock) enterImmersive();
 });
 
 function frame(now: number) {
