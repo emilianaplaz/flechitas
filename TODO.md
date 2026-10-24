@@ -22,6 +22,10 @@
 - [x] 3D overlay on the camera feed: ribbon, chevrons, turn arrow, hazard markers
 - [x] HUD: speed, remaining distance and time, next maneuver, hazard banner
 - [x] Calibration dock with a separate profile for portrait and landscape
+- [x] Automatic calibration, no button (`render/autocalib.ts`, SPEC §6.1): field of view from the video and screen, pitch and roll of the mount from gravity while stopped; a slider moved by hand wins until *Restablecer*
+- [ ] Check automatic calibration on a real drive against careful hand calibration
+- [ ] Lens field of view per phone model (63° assumed; one iPhone measured 56° with COLMAP)
+- [ ] Automatic mount yaw (*Giro del soporte*) from the optical-flow focus of expansion on straight stretches; validate against COLMAP poses of a recorded drive
 - [ ] Fix the UI: review the HUD, settings panel (⚙) and report buttons on a real phone, in portrait and landscape, and list what's hard to use while driving
 - [x] Make the main controls bigger and easier to tap at a glance
 - [x] HUD render style (wider edge lines, solid chevrons, fewer elements)
@@ -39,6 +43,16 @@
 - [ ] Load only hazards near the route instead of the latest 5000 rows
 - [ ] Import speed bumps from OpenStreetMap (`traffic_calming=bump|hump|table`; about 670 nodes around Caracas) along the route at start
 
+## Remote camera (`remote/`)
+
+- [x] Pair a phone with a laptop/iPad by QR; the phone streams its camera over WebRTC (PeerJS) and sends GPS, tilt and field of view (SPEC §6.2)
+- [x] QR points at the laptop's Wi-Fi address in dev, not localhost/VPN/WSL
+- [x] Phone sends an upright 1280×720 landscape picture whatever way it's held, rotation lock included; ⟳ Girar as backup
+- [x] Lost-phone detection (1 s ping, 5 s timeout) and reconnect mid-drive
+- [ ] Field test: iPhone mounted horizontally + iPad, ≥ 15 min drive (SPEC milestone R0)
+- [ ] Replace the PeerJS public broker (self-hosted or Supabase Realtime) and add TURN before outside users
+- [ ] Relay bump detection and *Usar sensores* from the phone too
+
 ## Core and destinations (`core/`)
 
 - [x] Google Maps / Waze links, including the Android share sheet and short-link expansion
@@ -48,9 +62,9 @@
 
 ## Project structure
 
-- [x] Source split into `core/`, `drive/`, `walk/`, `render/` and `hazards/` (see `SETUP.md`)
-- [x] `SPEC.md` and `SETUP.md` updated for the new layout
-- [ ] Tests for the newer seams: `drive/navigation`, `hazards/ahead` and `walk/view` (`tests/run.ts` covers geometry, links, the upload queue, bump detection, orientation and routing text)
+- [x] Source split into `core/`, `drive/`, `walk/`, `render/`, `hazards/` and `remote/` (see `SETUP.md`)
+- [x] `SPEC.md` and `SETUP.md` updated for the new layout, automatic calibration and remote camera
+- [ ] Tests for the newer seams: `drive/navigation`, `hazards/ahead` and `walk/view` (`tests/run.ts` covers geometry, links, the upload queue, bump detection, orientation, routing text, automatic calibration and the remote camera's pure parts)
 - [ ] Smoke-test every mode (GPS, sim, replay, with and without sensors) on a phone
 - [ ] Remove the `render/calibDock.ts` dependency on `drive/sources.ts`
 

@@ -41,6 +41,27 @@ export class GpsSource implements Source {
   }
 }
 
+/**
+ * GPS fixes sent by another phone (the one used as a remote camera, see src/remote/).
+ * Fixes are pushed as they arrive and re-stamped with this device's clock.
+ */
+export class RemoteGpsSource implements Source {
+  readonly name = 'gps' as const;
+  onFix: (f: Fix) => void = () => {};
+  private last: Fix | null = null;
+  push(f: Fix) {
+    this.last = f;
+    this.onFix(f);
+  }
+  start() {}
+  stop() {
+    this.onFix = () => {};
+  }
+  current(): Fix | null {
+    return this.last;
+  }
+}
+
 /** Drives along the route at a set speed. Used for indoor development and stage demos. */
 export class RouteSim implements Source {
   readonly name = 'sim' as const;

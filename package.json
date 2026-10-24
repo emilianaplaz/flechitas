@@ -10,6 +10,8 @@
     "test": "node --experimental-strip-types tests/run.ts"
   },
   "dependencies": {
+    "peerjs": "^1.5.5",
+    "qrcode-generator": "^2.0.4",
     "three": "^0.170.0"
   },
   "devDependencies": {

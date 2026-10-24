@@ -13,6 +13,9 @@ import { BumpDetector } from '../src/hazards/bump.ts';
 import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
 import { defaultsFor, loadCalib, loadFlip, saveCalib, saveFlip } from '../src/render/calib.ts';
+import { DEFAULT_LENS_HFOV, TiltWindow, steadyMean, visibleVfov } from '../src/render/autocalib.ts';
+import { PEER_PREFIX, newPeerId, phoneUrl, reachableOrigin } from '../src/remote/protocol.ts';
+import { interfaceAngle, physicalAngle, uprightPlan } from '../src/remote/orient.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -183,6 +186,72 @@ await (async () => {
   saveFlip({ mirrorX: false, flipY: false });
   check('flip state toggles properly', loadFlip().mirrorX === false && loadFlip().flipY === false);
 })();
+
+// ---- auto calibration ----
+// 63° lens, 1080p stream filling a 16:9 screen: the whole frame is visible, vfov = 2·atan(540/f).
+const f1080 = 960 / Math.tan((63 * Math.PI) / 360);
+check('vfov landscape, video fills the screen', near(visibleVfov(63, 1920, 1080, 1600, 900), (2 * Math.atan(540 / f1080) * 180) / Math.PI, 0.01));
+check('vfov landscape ≈ 38° (close to the 40° default)', near(visibleVfov(DEFAULT_LENS_HFOV, 1920, 1080, 1600, 900), 38.1, 0.3));
+check('vfov portrait: long side is vertical ≈ lens hfov', near(visibleVfov(63, 1080, 1920, 900, 1600), 63, 0.01));
+// A 20:9 phone crops the top and bottom of a 16:9 video, so less is visible vertically.
+check('vfov on a tall 20:9 screen is smaller (cover crop)', visibleVfov(63, 1920, 1080, 2400, 1080) < visibleVfov(63, 1920, 1080, 1920, 1080));
+const still = Array.from({ length: 40 }, (_, i) => ({ pitch: 6 + (i % 2 ? 0.2 : -0.2), roll: -2 + (i % 3) * 0.1 }));
+const m = steadyMean(still);
+check('steady tilt averages', !!m && near(m.pitch, 6, 0.05) && near(m.roll, -1.9, 0.05), JSON.stringify(m));
+check('moving phone is rejected', steadyMean(still.map((s, i) => ({ ...s, pitch: s.pitch + (i % 2 ? 4 : -4) }))) === null);
+check('too few samples are rejected', steadyMean(still.slice(0, 5)) === null);
+
+// Tilt window: 60 Hz readings; only a full, still window with the car stopped counts.
+const feed = (w: TiltWindow, from: number, ms: number, moving: (t: number) => boolean, pitch = 7) => {
+  for (let t = from; t <= from + ms; t += 16) w.push(t, { pitch: pitch + Math.sin(t) * 0.1, roll: 1 }, moving(t));
+};
+const tw = new TiltWindow(2500);
+feed(tw, 0, 1000, () => false);
+check('tilt window: too short is not trusted', tw.steady() === null);
+feed(tw, 1016, 2000, () => false);
+const st = tw.steady();
+check('tilt window: still phone, car stopped gives the tilt', !!st && near(st.pitch, 7, 0.1) && near(st.roll, 1, 0.01), JSON.stringify(st));
+const tw2 = new TiltWindow(2500);
+feed(tw2, 0, 3000, (t) => t > 2000);
+check('tilt window: ignored while the car moves (braking tilts gravity)', tw2.steady() === null);
+feed(tw2, 3016, 2600, () => false);
+check('tilt window: trusted again once stopped for the whole window', tw2.steady() !== null);
+
+// ---- remote camera pairing ----
+const pid = newPeerId();
+check('peer id has prefix and 8 safe chars', pid.startsWith(PEER_PREFIX) && /^[a-z2-9]{8}$/.test(pid.slice(PEER_PREFIX.length)), pid);
+check('peer ids differ', newPeerId() !== newPeerId());
+check('phone url carries the id', phoneUrl('https://via.app', 'viaar-abc') === 'https://via.app/?cam=viaar-abc');
+const at = (url: string) => {
+  const u = new URL(url);
+  return { protocol: u.protocol, hostname: u.hostname, port: u.port, origin: u.origin };
+};
+check('localhost is swapped for the LAN address', reachableOrigin(at('https://localhost:5173/x'), '192.168.1.20') === 'https://192.168.1.20:5173');
+check('127.0.0.1 is swapped too', reachableOrigin(at('http://127.0.0.1:5175/'), '10.0.0.5') === 'http://10.0.0.5:5175');
+check('a published site keeps its own origin', reachableOrigin(at('https://flechitas.vercel.app/'), '192.168.1.20') === 'https://flechitas.vercel.app');
+// Opened at the VPN or WSL address the dev server also lists: the phone can only reach the Wi-Fi one.
+check('VPN address is swapped for the Wi-Fi one', reachableOrigin(at('https://10.80.0.14:5173/'), '192.168.21.47') === 'https://192.168.21.47:5173');
+check('WSL address is swapped too', reachableOrigin(at('https://172.19.192.1:5173/'), '192.168.21.47') === 'https://192.168.21.47:5173');
+
+// ---- remote camera: keep the picture upright ----
+check('phone upright portrait = 0', physicalAngle(85, 0, 0) === 0);
+check('phone turned left (top to the left) = 90', physicalAngle(5, -85, 0) === 90);
+check('phone turned right = 270', physicalAngle(5, 85, 0) === 270);
+check('phone in a mount tilted back 30°, sideways = 90', physicalAngle(3, -60, 0) === 90);
+check('lying flat keeps the last position', physicalAngle(2, 3, 90) === 90);
+// beta 30°, gamma −35.26°: "up" points exactly 45° between portrait and landscape.
+check('halfway between positions keeps the last one', physicalAngle(30, -35.26, 0) === 0 && physicalAngle(30, -35.26, 90) === 90);
+check('22° off upright still counts as upright', physicalAngle(60, -45, 90) === 0);
+check('window.orientation -90 is 270', interfaceAngle(undefined, -90) === 270 && interfaceAngle(90, undefined) === 90);
+// Rotation lock on, phone horizontal: frames arrive portrait (720×1280) and must turn 90°.
+const locked = uprightPlan(720, 1280, 90, 63, 1280, 720);
+check('locked portrait frames: turned and filling 1280×720', locked.rot === 90 && near(locked.scale, 1, 1e-9));
+check('locked portrait frames keep the full lens width', near(locked.hfov, 63, 0.01), String(locked.hfov));
+// Phone held upright: the upright picture is portrait, so the landscape output is a narrow crop.
+const upright = uprightPlan(720, 1280, 0, 63, 1280, 720);
+check('upright phone: narrower field of view (crop)', upright.hfov < 40 && upright.hfov > 30, String(upright.hfov));
+check('rotation is normalised', uprightPlan(1280, 720, -90, 63, 1280, 720).rot === 270);
+check('no LAN address known: keep localhost', reachableOrigin(at('https://localhost:5173/'), '') === 'https://localhost:5173');
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');
 process.exit(failed ? 1 : 0);

@@ -1,6 +1,6 @@
 # Vía AR — Product Spec
 
-Status: draft v0.1 · Baseline: current `ar-nav` codebase (v0.1.0, Vite + TypeScript + Three.js PWA)
+Status: draft v0.2 (2026-10-24: automatic calibration §6.1 and remote camera §6.2 built) · Baseline: current `ar-nav` codebase (v0.1.0, Vite + TypeScript + Three.js PWA)
 
 ## 1. Goal
 
@@ -11,8 +11,9 @@ Show turn-by-turn navigation as **3D graphics anchored to the road ahead**, in t
 | **Camera AR** | Phone screen: live camera video with the 3D overlay on top | Built (demo-grade) |
 | **Windshield HUD** | Phone lying on the dashboard; its image reflects off the bare windshield. No camera video, overlay only | New |
 | **Walking AR** | Phone held up, camera pointed at the street; same camera overlay, foot routing, heading from device sensors | New (variant of Camera AR) |
+| **Remote camera** | Phone mounted horizontally is only the camera (plus GPS and tilt); a laptop or iPad shows the Camera AR view, e.g. on a projector. Paired by QR code (§6.2) | Built (demo-grade) |
 
-Out of scope for now: native apps, dedicated HUD hardware, combiner film, a two-phone setup (iOS needs no second device: geolocation works in iOS Safari), lane detection / computer vision, voice guidance, offline maps, multi-stop routes.
+Out of scope for now: native apps, dedicated HUD hardware, combiner film, lane detection / computer vision, voice guidance, offline maps, multi-stop routes. A phone + screen pair is supported as the remote camera (§6.2) but single-phone use stays the default: iOS needs no second device, geolocation works in iOS Safari.
 
 ## 2. Users and key scenarios
 
@@ -24,6 +25,8 @@ Primary user: a driver in a city with poor road data and poor road surface (the 
 4. **Drive with the windshield HUD.** Phone lies flat on the dashboard, screen up. Driver sees the arrow, distance and speed floating over the road, with no video competing for attention.
 5. **Report a hazard** with one tap while driving.
 6. **Demo / develop without driving**: simulation and recorded-drive replay (already built; keep).
+7. **Show it on a big screen.** iPhone mounted horizontally on the windshield as the camera; a laptop or iPad (or a projector behind it) shows the guide over the live video, for demos and for a passenger. No GPS needed on the big screen.
+8. **Mount and go.** No calibration step: the field of view is set when the camera starts, tilt and roll are measured at the first stop. Sliders remain for fine-tuning.
 
 ## 3. What exists today (reuse as-is)
 
@@ -39,6 +42,8 @@ Primary user: a driver in a city with poor road data and poor road surface (the 
 | [src/core/route.ts](src/core/route.ts) | OSRM routing, Spanish instructions | Unchanged (see §8) |
 | [src/drive/sources.ts](src/drive/sources.ts) | `GpsSource`, `RouteSim`, `TrackReplay` | Unchanged |
 | [src/render/calib.ts](src/render/calib.ts) | `pitch, fov, height, yawOffset, lateral, ribbonWidth` in localStorage | One calibration profile per display mode (§5.3) |
+| [src/render/autocalib.ts](src/render/autocalib.ts) | Automatic calibration math: visible FOV from lens + video + screen, steady-tilt window, hand-set flags, mount roll (§6.1) | FOV auto still applies; tilt measures the phone, but in HUD mode `pitch` means something else (§5.3), so auto tilt stays off there |
+| [src/remote/](src/remote/) | Remote camera: `protocol.ts` messages + URLs, `display.ts` QR and receiving side, `phone.ts` the phone's camera page, `orient.ts` upright picture (§6.2) | Not used in HUD mode |
 | [src/hazards/store.ts](src/hazards/store.ts), [src/core/links.ts](src/core/links.ts), [api/expand.ts](api/expand.ts) | Hazards, destination parsing, short-link expansion | Unchanged |
 
 ### Module ownership
@@ -52,13 +57,14 @@ The source is split so teammates can work in parallel with few merge conflicts (
 | `walk/` | Navigation for walking, with sensors: compass/tilt/roll steer the camera | `updateView(now, dt)` returns a `View` or `null` (fall back to route bearing) |
 | `render/` | 3D overlay (Three.js), HUD, calibration | `ArScene.update(FrameInput)` and `renderHud(HudInput)`; knows nothing about sensors |
 | `hazards/` | Hazard store, cloud sync, bump detection, reporting UI | `reindexHazards()`, `aheadOf(along)`, `trackPosition(now, p)` |
+| `remote/` | Phone as remote camera: pairing QR, WebRTC video, GPS/tilt/FOV over a data channel | `remoteStream()`, `remoteGps`, `remoteTilt(now)`, `remoteHfov()`; `isPhoneCamPage()` + `initPhoneCam()` on the phone |
 
 Driving and walking differ only in where the camera pose comes from. Both feed the same renderer. `bump.ts` uses the accelerometer but belongs to hazards, so "no sensors" for driving means no orientation sensors.
 
 ### How the current rendering works (the part that matters for HUD)
 
 - A **virtual camera** sits at `calib.height` above the road, yawed to the route bearing, pitched by `calib.pitch`, with FOV `calib.fov`. Road geometry from the route polyline is drawn in this camera, so it lines up with the real road *if* the calibration matches the phone's real camera.
-- Heading is **not read from the compass or gyro**. Yaw = bearing of the route at the car's position (snapped), eased at ~4 Hz; off-route it falls back to GPS heading. Pitch/roll are fixed from calibration.
+- Heading is **not read from the compass or gyro**. Yaw = bearing of the route at the car's position (snapped), eased at ~4 Hz; off-route it falls back to GPS heading. Pitch and roll are constants of the mount, **measured automatically** from gravity while the car is stopped, and FOV is computed from the camera video and the screen (§6.1); hand-set slider values override them.
 - Position is GPS (1 Hz) smoothed by dead-reckoning between fixes and snapped to the route when within 25 m.
 
 This is a cheap, robust trick for a rigidly mounted phone. It is also why the HUD mode is feasible: **a windshield HUD is the same virtual camera, with the "physical camera" replaced by the driver's eye.**
@@ -89,7 +95,7 @@ This is a cheap, robust trick for a rigidly mounted phone. It is also why the HU
 
 - True optical accuracy (collimated virtual image), head tracking, eye tracking.
 - Augmenting other vehicles or pedestrians.
-- Using the phone as both HUD and camera at once (second device could be the camera later).
+- Using the phone as both HUD and camera at once (a second phone as remote camera, §6.2, could feed the HUD later).
 
 ## 5. Design
 
@@ -143,12 +149,58 @@ The camera mode works for a demo. To be dependable on the road:
 | ID | Gap | Proposed fix |
 |---|---|---|
 | C1 | **Built for gps and sim modes (opt-in checkbox + ⌖ align button):** pitch, roll and compass yaw drive the camera; see `src/walk/orientation.ts`. Not yet: automatic yaw correction toward the route, tuning on real phones. Original gap: yaw comes from the route, so the overlay can't react to the car's actual heading change during a turn or lane change | Fuse `DeviceOrientationEvent` (gyro/compass) for short-term yaw/pitch/roll; keep route bearing as the long-term reference when driving |
-| C2 | No pitch/roll compensation: bumps and slopes shift the ribbon off the road | Same fusion for pitch and roll (high-pass the gyro, low-pass toward the calibrated value) |
+| C2 | **Partly built:** the mount's static pitch and roll are now measured automatically (§6.1). Still open: dynamic compensation, so bumps and slopes still shift the ribbon off the road while driving | Same fusion for pitch and roll (high-pass the gyro, low-pass toward the auto-calibrated value) |
 | C6 | **Walking** (phone in hand): route-derived yaw and fixed pitch are wrong because the phone points wherever the hand does | New `walk` profile: yaw, pitch and roll come from device orientation (iOS needs `DeviceOrientationEvent.requestPermission()` from a tap); camera height ~1.5 m; ribbon narrower (~1.2 m); route requested with a foot profile; no speed-based dead-reckoning assumptions above ~2 m/s; re-route threshold smaller (~20 m). C1/C2 are a prerequisite |
 | C7 | Public OSRM demo server only serves the `driving` profile | Walking needs a foot profile: self-host OSRM with `foot.lua` or use a router that supports pedestrian routing. Until then, walking mode snaps to driving routes and is demo-only |
 | C3 | Re-routing only in GPS mode and never when the OSRM request fails repeatedly | Surface a persistent "sin conexión" state; keep last route; retry with backoff |
 | C4 | Hazard pool is 10 markers; hazards are filtered to 20 m from the route | Keep; document. Raise only if a field test shows pop-in |
 | C5 | Public OSRM/Nominatim are rate-limited demo servers | Self-host or use a paid router before real users (§8) |
+
+### 6.1 Automatic calibration — built
+
+The phone calibrates itself; there is no button. Code: [src/render/autocalib.ts](src/render/autocalib.ts) (pure, tested) and [src/render/calibDock.ts](src/render/calibDock.ts) (wiring).
+
+| ID | Requirement | Acceptance | Status |
+|---|---|---|---|
+| A1 | **Field of view from the camera.** `fov` = vertical FOV actually visible on screen, from the lens's horizontal FOV across the video's long side, the video size and the `object-fit: cover` crop to the screen. Recomputed when the camera starts, when the video size changes and when the screen rotates | 63° lens, 1080p video on a 16:9 landscape screen → 38°; on a portrait screen with portrait video → 63°; a taller 20:9 screen gives a smaller value (crop) | Built, unit-tested |
+| A2 | **Lens FOV.** Default `DEFAULT_LENS_HFOV` = 63° (typical phone main camera, 16:9 video). Overridable per device with `localStorage['ar-nav.lens'] = {"hfov": …}`. With a remote camera, the phone's own value is used (R6) | COLMAP measured 56° on one iPhone video (WhatsApp-compressed, likely stabilised); measure per phone model before relying on it (§8) | Built; per-model values open |
+| A3 | **Pitch and roll of the mount from gravity**, via `DeviceOrientationEvent` beta/gamma → `poseFromEuler`. Readings are trusted only when the last 2.5 s were steady (std dev ≤ 0.8°) **and the car is stopped** (GPS speed ≤ 1 m/s), since braking and accelerating tilt apparent gravity by several degrees. First steady window applies at once; later ones blend in at 50 % so a nudged mount is followed smoothly | Still phone at 9° → `pitch` 9; readings while moving are ignored; a toast says "Calibrado solo…" once per drive | Built, unit-tested, verified with simulated sensors; not yet on a real drive |
+| A4 | **Roll** has no slider: stored per layout (`ar-nav.mount.<layout>`) and applied to the 3D camera (`FrameInput.mountRoll`). Before this, a fixed mount's roll was never corrected | Overlay horizon matches a phone mounted 3° off level | Built |
+| A5 | **Hand-set values win.** Moving *Inclinación* or *Campo de visión* marks that value as manual for that orientation (`ar-nav.manual.<layout>`); automatic calibration then never changes it. *Restablecer* clears the flags, resets roll, re-measures and recomputes FOV | Slider to 3° and 45° → auto leaves them; Restablecer → back to 38° / measured pitch | Built, verified in browser |
+| A6 | **Where it runs.** Permission is asked in the *Iniciar* tap (iOS); without it calibration stays manual, silently. Not used in Repetición (the phone isn't in the mount) nor with *Usar sensores* (tilt is already live). With a remote camera, tilt comes from the phone, not the screen device (R5) | — | Built |
+
+Known limits: on a slope the measured pitch includes the slope (calibrate on flat ground or let later stops average it in); yaw offset, height and lane position are still manual (yaw from the optical-flow focus of expansion is the next step, see TODO.md).
+
+### 6.2 Remote camera: phone as the camera, laptop/iPad as the screen — built
+
+A phone mounted horizontally streams its camera, GPS and tilt to the app on a laptop or iPad, paired by scanning a QR code. Code: [src/remote/](src/remote/).
+
+```
+ Laptop / iPad (screen)                           iPhone (camera)
+ ───────────────────────                          ─────────────────────────────
+ 📱 Usar la cámara de un teléfono                 scans QR → /?cam=<peer id>
+ PeerJS peer "viaar-xxxxxxxx" ◀── broker ──▶      PeerJS peer (random id)
+ QR = <Wi-Fi origin>/?cam=<id>                    getUserMedia(back camera)
+                                                  redraw upright → canvas 1280×720
+ MediaConnection.answer() ◀──── WebRTC video ──── canvas.captureStream(30)
+ DataConnection ◀──── JSON messages ──────────── fix (GPS) · tilt (10 Hz) ·
+                                                  cam {hfov} · ping (1 Hz)
+ app.stream = remote video, app.source = remoteGps, auto tilt = remoteTilt, FOV lens = remoteHfov
+```
+
+| ID | Requirement | Acceptance | Status |
+|---|---|---|---|
+| R1 | **Pair by QR.** Setup screen button opens a sheet with a QR of `<origin>/?cam=<peer id>`, the URL as text, a status line and warnings. A new random id per page load | Phone camera app opens the URL | Built |
+| R2 | **Reachable address in dev.** `npm run dev` lists every laptop address (VPN, WSL, Wi-Fi); only the Wi-Fi one works from a phone. Vite injects it (`__LAN_HOST__`, dev only); the QR swaps `localhost` and any raw IP for it and keeps named hosts (deployed site, tunnels). Warns when the URL is localhost-only or not https | Opened at `https://10.80.0.14:5173` (VPN) → QR points at `https://192.168.21.47:5173` | Built, unit-tested |
+| R3 | **Phone page.** `?cam=` turns the app into a camera page: *Conectar* asks motion permission (first await of the tap, iOS), opens the back camera at 1280×720, connects to the screen, keeps the screen awake, and shows exactly the picture it sends | — | Built |
+| R4 | **Upright landscape picture, whatever way the phone is held.** Camera frames follow the phone's *screen* orientation, which with rotation lock on (or sideways in a mount) isn't where up is. The phone finds physical up from gravity (0/90/180/270°, 35° snap zone, keeps the last value when flat or in between), rotates each frame by physical − screen angle and draws it cover-fitted into a 1280×720 canvas, which is what it sends. *⟳ Girar* adds 90° as a manual backup (remembered on the phone) | Rotation lock on, phone horizontal, portrait 720×1280 frames → the screen gets an upright 1280×720 picture | Built, unit-tested, verified with a simulated phone |
+| R5 | **Tilt relative to the sent picture** (`poseFromEuler` with the physical-up angle), at 10 Hz, used by automatic calibration on the screen instead of the screen device's own sensors | Phone sideways with rotation lock → measured roll ≈ 4°, not ≈ 90° | Built |
+| R6 | **Field of view of the sent picture** (`cam {hfov}`, every second): the lens FOV when the phone is horizontal, narrower when it's upright (the landscape picture is then a crop). The screen's A1 uses it | Upright phone → hfov ≈ 38° instead of 63° | Built, unit-tested |
+| R7 | **Phone GPS.** Fixes are sent as they arrive, re-stamped with the screen's clock, and used as the position source in Manejar (`RemoteGpsSource`) and as the start point in Simulación; the ● recorder records the phone's video and fixes | Manejar works on a Wi-Fi-only iPad | Built |
+| R8 | **Lost phone.** The phone pings every second; the screen drops the remote camera after 5 s of silence (a closed tab or locked phone says nothing and WebRTC can take ~30 s), says so, and asks to scan again. Reconnecting mid-drive swaps the picture back in | Closing the phone page → screen reports it within ~2 s | Built, verified in browser |
+| R9 | **Cost.** PeerJS (~117 KB) is loaded only when pairing; the main bundle doesn't grow. The remote stream is never stopped by *Terminar*, so the next run reuses it | — | Built |
+
+Not relayed yet: bump detection and *Usar sensores* still read the screen device's sensors. Network needs: both devices online (the PeerJS public broker introduces them); video goes directly between them over WebRTC with Google STUN and **no TURN relay**, so same Wi-Fi or the iPhone's hotspot works, two different mobile networks may not, and Wi-Fi networks that isolate clients (common in buildings and events) block it.
 
 ## 7. Shared requirements
 
@@ -160,14 +212,18 @@ The camera mode works for a demo. To be dependable on the road:
 
 ### 7.2 Data and privacy
 
-- Hazard reports stay on-device unless exported by the user. A shared hazard database is a separate decision (§10).
+- Hazard reports are shared through the Supabase database (anonymous, public anon key: anyone with the app can read and add, nobody can edit or delete from the app); file export kept.
 - GPS track recording is local only, user-initiated.
+- Remote camera (§6.2): video, GPS and tilt go directly between the two paired devices over WebRTC (encrypted). The PeerJS public broker only sees the peer ids and network addresses needed to connect them; the peer id is random per page load and the QR is only shown on the screen device.
+- Calibration values stay in the device's localStorage.
 - No accounts, no analytics in v1.
 
 ### 7.3 Performance and platform
 
 - 60 fps target on a mid-range Android phone; the per-frame loop already avoids allocations in the ribbon (preallocated buffers) — keep it that way.
 - Requires HTTPS (camera/GPS), landscape, wake lock. **Android + iOS PWA** are both v1 targets. Android Chrome gets fullscreen, orientation lock and the share-sheet entry. iOS Safari: GPS, camera and wake lock (16.4+) work; **no orientation lock** (show a "rotate your phone" overlay in portrait), **no fullscreen on iPhone** unless installed to the home screen (use `display: standalone`), **no Web Share Target** (paste-only destination), and `DeviceOrientationEvent` needs a user-gesture permission prompt. Test every milestone on one iPhone and one Android phone.
+- Fullscreen and wake lock are best-effort and never block *Iniciar* (some browsers never settle those promises); bump detection is optional, so a denied motion permission doesn't stop a drive.
+- Remote camera: the phone page needs https for the camera (dev: `npm run dev` with its self-signed certificate, accepted once on the phone; or the deployed site). It works with iPhone rotation lock on (R4). Test on a real iPhone + iPad pair before demos.
 
 ### 7.4 Safety and legal
 
@@ -187,6 +243,12 @@ The camera mode works for a demo. To be dependable on the road:
 | **Phone heat in sun** (camera + GPS + GPU + max brightness) | Throttling, shutdown | HUD mode needs no camera; cap pixel ratio at 2 (already); consider a 30 fps option |
 | iOS limitations (no orientation lock, no share target, no iPhone fullscreen) | Rougher setup flow | Rotate overlay, standalone install prompt, paste-first destination UI; verify on a real iPhone at M1 |
 | Gyro/compass noise and magnetic interference (walking, and in-car metal) | Ribbon swings or points off-road | Complementary filter, ignore compass when accuracy is poor, re-anchor yaw to route bearing when on-route and moving |
+| **Lens FOV assumption** (63° for every phone) | Ribbon too wide or narrow as it recedes | Measure per phone model (record a drive, run COLMAP on it as done for the 3D street work: one iPhone gave 56°), ship a small model → FOV table, keep the per-device override |
+| Auto tilt on a slope or with a soft mount | Pitch off by the slope angle; ribbon floats or sinks | Average over several stops; hand-set value wins (A5); dynamic compensation C2 |
+| **PeerJS public broker** (free, no SLA, rate-limited) | Pairing fails during a demo | Self-host `peerjs-server` or signal through Supabase Realtime (already a dependency) before real users |
+| **No TURN relay** for the remote camera | No video between two different mobile networks or behind strict NAT | Same Wi-Fi or the iPhone's hotspot for now; add a TURN service if remote camera becomes a product feature |
+| Wi-Fi client isolation (buildings, events) | Phone can't open the laptop's dev server at all | Use the iPhone's hotspot, or the deployed https site (pairing then goes through the broker, not the LAN) |
+| Phone heat and battery as remote camera (camera + canvas redraw + WebRTC encode + GPS) | Throttled frame rate, shutdown in sun | 1280×720 at 30 fps is the cap; drop to 15 fps or 960×540 if field tests show heat |
 
 ## 9. Milestones
 
@@ -199,12 +261,15 @@ The camera mode works for a demo. To be dependable on the road:
 | M3 | **Drive test, HUD** | One real drive of ≥ 15 min on a known route; log of misregistration, missed turns, legibility; fix top 3 |
 | M4 | **Sensor fusion + walking mode** | C1/C2 behind a flag; A/B on a recorded drive via replay; C6 works on a 10-minute walk on a street with the device-orientation permission flow on iOS and Android |
 | M5 | **Foot routing + hazard sharing decision** | C7 resolved (self-hosted foot profile or provider); hazard sharing decided after M3 drive-test data |
+| A0 | **Automatic calibration** (§6.1) | Built 2026-10-24. Remaining: one real drive comparing auto pitch/roll/FOV against careful hand calibration; per-model lens FOV |
+| R0 | **Remote camera field test** (§6.2) | iPhone mounted horizontally + iPad/laptop, ≥ 15 min drive on a known route: no sideways or flipping picture, latency and dropouts logged, reconnect after a phone lock works, guide registration as good as single-phone mode |
 
-HUD work (M0 onward) starts after D0. M1 and M2 can be developed and demoed entirely indoors using the existing simulation mode.
+HUD work (M0 onward) starts after D0. M1 and M2 can be developed and demoed entirely indoors using the existing simulation mode. The remote camera also helps D0: the audience sees the guide on a projector while the phone stays on the windshield.
 
 ## 10. Testing
 
-- Existing: `npm test` runs geometry and link-parsing tests ([tests/run.ts](tests/run.ts)). Extend to cover: the HUD calibration profile migration, the `degraded fix` rule (H9), and the HUD phrasing function.
+- Existing: `npm test` ([tests/run.ts](tests/run.ts)) covers geometry, links, the upload queue, bump detection, orientation, routing text, automatic calibration (visible FOV, steady-tilt mean, tilt window with car moving/stopped) and the remote camera (peer ids, phone URL, reachable address, physical-up angle, upright plan and its FOV). Extend to cover: the HUD calibration profile migration, the `degraded fix` rule (H9), and the HUD phrasing function.
+- Remote camera end to end: two browser tabs, one as the screen and one as the phone with a fake camera (a canvas stream drawn sideways), fake GPS and fake orientation events; checks pairing through the real broker, the upright picture on the screen, phone GPS routing, auto calibration from the phone's tilt, and the lost-phone message.
 - Visual: screenshot the HUD at 1080p landscape in sim mode with mirror on/off; verify nothing but black and the intended elements are drawn.
 - Replay: record one real drive (existing recorder) and use it as the regression fixture for registration changes (C1/C2, calibration).
 - Field: M0 and M3 checklists, with a passenger operating the phone.
@@ -220,16 +285,22 @@ Decided:
 | Hazard sharing | Built on Supabase (uploads, offline queue with undo window, shared loading); file export kept. Merging duplicates and expiry are still open (see TODO.md) |
 | Routing | Public OSRM for now; walking requires a foot profile (C7), so a router change is likely at M5 |
 | Platforms | Android + iOS PWA |
-| Two-phone setup | Not needed. iOS supports geolocation; its gaps are UI/OS features, handled in §7.3 |
+| Two devices | Not needed to navigate: one phone does everything (iOS supports geolocation; its gaps are UI/OS features, §7.3). Supported as an option: phone as remote camera + laptop/iPad as the screen (§6.2), for demos, projection and passengers |
+| Calibration | Automatic by default (§6.1), no button. A slider moved by hand wins for that value and orientation until *Restablecer* |
+| Remote camera transport | WebRTC through PeerJS's public broker, Google STUN, no TURN; phone sends an upright 1280×720 landscape picture |
 
 Still open:
 
 1. Is walking mode meant for pedestrians navigating a city, or mostly a way to demo the app without driving? That decides whether C7 (foot routing) is v1 or later.
 2. If the bare-windshield double image at M0 is unacceptable, do we accept adding a cheap film, or drop HUD to a fallback of screen-space cues only?
+3. Remote camera signaling: keep the PeerJS public broker, or move to Supabase Realtime / a self-hosted broker plus a TURN relay before anyone outside the team uses it?
+4. Should bump detection and *Usar sensores* also come from the remote phone, so the screen device can sit anywhere?
+5. Lens FOV: a per-model table, a one-time measurement flow, or both?
 
 ## 12. Assumptions made in this draft
 
 - The HUD is a phone screen reflected on the bare windshield, not custom optics.
 - Android Chrome and iOS Safari are both supported; iOS has a reduced setup flow (§7.3).
-- Spanish UI, Venezuelan hazard set, no accounts. The only backend is the Supabase hazard database.
-- The existing virtual-camera approach (route-derived yaw, calibrated pitch/FOV) is kept and extended, not replaced by a computer-vision pipeline.
+- Spanish UI, Venezuelan hazard set, no accounts. The only backend is the Supabase hazard database; the remote camera also uses the PeerJS public broker to introduce devices.
+- The existing virtual-camera approach (route-derived yaw, automatically calibrated pitch/roll/FOV) is kept and extended, not replaced by a computer-vision pipeline.
+- The phone used as a remote camera is mounted horizontally; held upright it still works, with a narrower picture.

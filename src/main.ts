@@ -4,6 +4,7 @@
 //   walk/     phone orientation sensors that steer the camera view
 //   render/   Three.js overlay, HUD and calibration dock
 //   hazards/  hazard store, cloud sync, bump detection and reporting UI
+//   remote/   a phone paired by QR code streams its camera, GPS and tilt to this screen
 import './style.css';
 import { app } from './core/state.ts';
 import { $, setupMsg, toast } from './core/ui.ts';
@@ -12,9 +13,11 @@ import { initDriveControls } from './drive/controls.ts';
 import { advance, resetProgress } from './drive/navigation.ts';
 import { startSource, stopDrive, stopSource } from './drive/start.ts';
 import { aheadOf, initHazardUi, loadHazards, reindexHazards, startBumpWatcher, startCloudSync, stopBumpWatcher, stopHazards, trackPosition } from './hazards/ui.ts';
-import { getCalib, initCalibDock } from './render/calibDock.ts';
+import { autoTiltTick, getCalib, getMountRoll, initCalibDock, startAutoTilt, stopAutoTilt } from './render/calibDock.ts';
 import { hideHud, initHudControls, renderHud, showHud } from './render/hud.ts';
 import { ar } from './render/scene.ts';
+import { initRemoteDisplay } from './remote/display.ts';
+import { initPhoneCam, isPhoneCamPage } from './remote/phone.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
 import { align, sensorsActive, startSensors, stopSensors, updateView } from './walk/view.ts';
 
@@ -26,6 +29,9 @@ initHudControls();
 initHazardUi();
 initDriveControls();
 initSetupScreen();
+// Opened from a pairing QR: this phone is only a camera for another screen.
+if (isPhoneCamPage()) initPhoneCam();
+else initRemoteDisplay();
 
 function setRoute(r: Route) {
   app.route = r;
@@ -70,8 +76,18 @@ $('start').onclick = async () => {
   setupMsg('');
   try {
     // First awaits in the handler: iOS only shows the sensor permission prompts inside the tap.
-    if ($<HTMLInputElement>('detectBumps').checked && app.mode !== 'replay') await startBumpWatcher();
+    // Bump detection is optional: without motion permission the drive still starts, just without it.
+    let bumpWarning = '';
+    if ($<HTMLInputElement>('detectBumps').checked && app.mode !== 'replay') {
+      try {
+        await startBumpWatcher();
+      } catch (e) {
+        stopBumpWatcher();
+        bumpWarning = `Sin detección de huecos: ${(e as Error).message}`;
+      }
+    }
     if ($<HTMLInputElement>('useSensors').checked && app.mode !== 'replay') await startSensors();
+    await startAutoTilt(); // measures the mount's tilt by itself; no-op without permission
     if (!ar) throw new Error('Este navegador no puede dibujar 3D (WebGL desactivado). Activa la aceleración por hardware en Chrome: chrome://settings/system');
     if ($<HTMLInputElement>('dest').value.trim() && !app.dest) await resolveDestInput();
     await loadHazards();
@@ -83,7 +99,8 @@ $('start').onclick = async () => {
       toast('Sube el brillo de la pantalla al máximo para el HUD');
     }
     $<HTMLButtonElement>('align').hidden = !sensorsActive();
-    await enterImmersive();
+    enterImmersive();
+    if (bumpWarning) toast(bumpWarning, 5000);
     app.running = true;
     lastFrame = performance.now();
     requestAnimationFrame(frame);
@@ -91,6 +108,7 @@ $('start').onclick = async () => {
     setupMsg((e as Error).message);
     stopSource();
     stopSensors();
+    stopAutoTilt();
     stopBumpWatcher();
   } finally {
     btn.disabled = false;
@@ -106,6 +124,7 @@ $('stop').onclick = async () => {
   app.running = false;
   await stopDrive();
   stopSensors();
+  stopAutoTilt();
   stopHazards();
   $('align').hidden = true;
   app.route = null;
@@ -119,7 +138,7 @@ $('stop').onclick = async () => {
 };
 
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && app.running && !wakeLock) await enterImmersive();
+  if (document.visibilityState === 'visible' && app.running && !wakeLock) enterImmersive();
 });
 
 function frame(now: number) {
@@ -137,6 +156,8 @@ function frame(now: number) {
   const nav = advance(fix, route, now, dt, calib.lateral, setRoute);
   const { ahead, nearest } = aheadOf(nav.along);
   const view = updateView(now, dt);
+  // Braking and accelerating tilt the apparent gravity: only trust tilt readings with the car stopped.
+  autoTiltTick(now, app.mode === 'gps' && nav.speed > 1);
 
   // Safe fallback (H9): if GPS accuracy > 30m or fix age > 3s, fade the ribbon to avoid misleading graphics
   const staleFix = fix.t ? now - fix.t > 3000 : false;
@@ -155,6 +176,7 @@ function frame(now: number) {
     pose: view ? { pitch: view.pitch, roll: view.roll } : undefined,
     display: app.display,
     degraded,
+    mountRoll: getMountRoll(),
   });
   renderHud({ route, speed: nav.speed, remaining: nav.remaining, next: nav.next, distToNext: nav.distToNext, nearestHazard: nearest, offRoute: !nav.onRoute && app.mode === 'gps' });
 }

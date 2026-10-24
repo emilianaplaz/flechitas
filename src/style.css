@@ -344,3 +344,31 @@ input[type='range'] { width: 100%; accent-color: var(--guide); }
 @media (max-width: 520px) {
   .modes { grid-template-columns: 1fr; }
 }
+
+/* ---------- remote camera (QR pairing) ---------- */
+.pairBtn { width: 100%; margin-bottom: 4px; }
+.pairState { display: block; min-height: 1em; margin-bottom: 12px; font-size: 13px; color: var(--ok); }
+.pair { z-index: 20; text-align: center; }
+.pair h2 { margin: 0 0 6px; font-size: 20px; }
+.pairQr { width: min(280px, 70vw); margin: 8px auto 10px; padding: 10px; background: #fff; border-radius: 12px; }
+.pairQr svg { display: block; width: 100%; height: auto; }
+.pairUrl { margin: 0; font-size: 12px; color: var(--muted); word-break: break-all; user-select: all; }
+.pairStatus { margin: 10px 0 14px; font-size: 15px; }
+.pairStatus.ok { color: var(--ok); font-weight: 700; }
+body.phonecam #ar, body.phonecam #hud { display: none; }
+.phonecam {
+  position: fixed;
+  z-index: 10;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.phonecam p { margin: 0; font-size: 15px; }
+.phonecam p.ok { color: var(--ok); font-weight: 700; }
+.phonecam p.error { color: var(--amber); }
+.phonecam small { color: var(--muted); font-size: 12px; }
+.phonecam .row button.primary { flex: 1; }
+.phonecam .row button.primary[hidden] + .ghost { flex: 1; }

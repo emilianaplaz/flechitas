@@ -28,6 +28,7 @@ export interface FrameInput {
   pose?: { pitch: number; roll: number }; // phone sensors: replaces the calibrated pitch and adds roll
   display?: Display;
   degraded?: boolean; // Safe fallback: GPS signal poor/stale -> hide ribbon, keep turn glyph
+  mountRoll?: number; // fixed mount tilted sideways, degrees (measured by Auto); unused when `pose` is set
 }
 
 function arrowShape(): THREE.Shape {
@@ -236,7 +237,7 @@ export class ArScene {
     this.camera.position.set(0, calib.height, 0);
     this.camera.rotation.y = -toRad(f.yaw + calib.yawOffset);
     this.camera.rotation.x = -toRad(f.pose ? f.pose.pitch : calib.pitch);
-    this.camera.rotation.z = f.pose ? -toRad(f.pose.roll) : 0;
+    this.camera.rotation.z = -toRad(f.pose ? f.pose.roll : (f.mountRoll ?? 0));
 
     this.updateRibbon(f);
     this.updateTurn(f);
