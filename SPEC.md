@@ -183,36 +183,46 @@ The phone calibrates itself; there is no button. Code: [src/render/autocalib.ts]
 
 Known limits: on a slope the measured pitch includes the slope (calibrate on flat ground or let later stops average it in); yaw offset, height and lane position are still manual (yaw from the optical-flow focus of expansion is the next step, see TODO.md).
 
-### 6.2 Remote camera: phone as the camera, laptop/iPad as the screen — built
+### 6.2 Phone runs the app and is the camera; the iPad is only the HUD — built
 
-A phone mounted horizontally streams its camera, GPS and tilt to the app on a laptop or iPad, paired by scanning a QR code. Code: [src/remote/](src/remote/).
+The phone has the whole UI (MapZ design, see 6.3), its own GPS and sensors, and stays mounted on the dash as the camera: while driving it shows the camera AR view. The iPad lies under the windshield and only draws the reflected HUD. They are linked by a 6-digit code over a WebRTC data channel (no video). Code: [src/remote/](src/remote/).
 
 ```
- Laptop / iPad (screen)                           iPhone (camera)
- ───────────────────────                          ─────────────────────────────
- 📱 Usar la cámara de un teléfono                 scans QR → /?cam=<peer id>
- PeerJS peer "viaar-xxxxxxxx" ◀── broker ──▶      PeerJS peer (random id)
- QR = <Wi-Fi origin>/?cam=<id>                    getUserMedia(back camera)
-                                                  redraw upright → canvas 1280×720
- MediaConnection.answer() ◀──── WebRTC video ──── canvas.captureStream(30)
- DataConnection ◀──── JSON messages ──────────── fix (GPS) · tilt (10 Hz) ·
-                                                  cam {hfov} · ping (1 Hz)
- app.stream = remote video, app.source = remoteGps, auto tilt = remoteTilt, FOV lens = remoteHfov
+ iPhone (UI + camera, on the dash)                 iPad (windshield HUD)
+ ─────────────────────────────────                 ─────────────────────────────
+ Dispositivos → types "616 081"                    "Esta pantalla es el HUD" → shows a code
+ PeerJS peer (random) ──── broker ────▶            PeerJS peer "viaar-hud-616081"
+ DataConnection ─── route {pts, steps, duration, arrival} ──▶  runs navigation itself
+                ─── fix (GPS, ≤10/s) · tilt (20 Hz) · ping (1 Hz) ──▶
+                ─── stop ──▶                       back to the code screen
 ```
 
 | ID | Requirement | Acceptance | Status |
 |---|---|---|---|
-| R1 | **Pair by QR.** Setup screen button opens a sheet with a QR of `<origin>/?cam=<peer id>`, the URL as text, a status line and warnings. A new random id per page load | Phone camera app opens the URL | Built |
-| R2 | **Reachable address in dev.** `npm run dev` lists every laptop address (VPN, WSL, Wi-Fi); only the Wi-Fi one works from a phone. Vite injects it (`__LAN_HOST__`, dev only); the QR swaps `localhost` and any raw IP for it and keeps named hosts (deployed site, tunnels). Warns when the URL is localhost-only or not https | Opened at `https://10.80.0.14:5173` (VPN) → QR points at `https://192.168.21.47:5173` | Built, unit-tested |
-| R3 | **Phone page.** `?cam=` turns the app into a camera page: *Conectar* asks motion permission (first await of the tap, iOS), opens the back camera at 1280×720, connects to the screen, keeps the screen awake, and shows exactly the picture it sends | — | Built |
-| R4 | **Upright landscape picture, whatever way the phone is held.** Camera frames follow the phone's *screen* orientation, which with rotation lock on (or sideways in a mount) isn't where up is. The phone finds physical up from gravity (0/90/180/270°, 35° snap zone, keeps the last value when flat or in between), rotates each frame by physical − screen angle and draws it cover-fitted into a 1280×720 canvas, which is what it sends. *⟳ Girar* adds 90° as a manual backup (remembered on the phone) | Rotation lock on, phone horizontal, portrait 720×1280 frames → the screen gets an upright 1280×720 picture | Built, unit-tested, verified with a simulated phone |
-| R5 | **Tilt relative to the sent picture** (`poseFromEuler` with the physical-up angle), at 10 Hz, used by automatic calibration on the screen instead of the screen device's own sensors | Phone sideways with rotation lock → measured roll ≈ 4°, not ≈ 90° | Built |
-| R6 | **Field of view of the sent picture** (`cam {hfov}`, every second): the lens FOV when the phone is horizontal, narrower when it's upright (the landscape picture is then a crop). The screen's A1 uses it | Upright phone → hfov ≈ 38° instead of 63° | Built, unit-tested |
-| R7 | **Phone GPS.** Fixes are sent as they arrive, re-stamped with the screen's clock, and used as the position source in Manejar (`RemoteGpsSource`) and as the start point in Simulación; the ● recorder records the phone's video and fixes | Manejar works on a Wi-Fi-only iPad | Built |
-| R8 | **Lost phone.** The phone pings every second; the screen drops the remote camera after 5 s of silence (a closed tab or locked phone says nothing and WebRTC can take ~30 s), says so, and asks to scan again. Reconnecting mid-drive swaps the picture back in | Closing the phone page → screen reports it within ~2 s | Built, verified in browser |
-| R9 | **Cost.** PeerJS (~117 KB) is loaded only when pairing; the main bundle doesn't grow. The remote stream is never stopped by *Terminar*, so the next run reuses it | — | Built |
+| L1 | **Roles.** `?role=hud` or "Usar esta pantalla como HUD" (remembered) makes a device the HUD: black screen with a big code and 📐 measurements, nothing else | — | Built |
+| L2 | **Pair by code.** The iPad registers `viaar-hud-<6 digits>` (kept across reloads, a new one if taken); the phone types it in Dispositivos (spaces and dashes ignored). Status chip: Conectando / Conectado / Reintentando; Conducir shows "iPad conectado" | Code typed → "Conectado" in ~2 s | Built, unit-tested |
+| L3 | **Route message.** When a drive starts, and on every reroute, the phone sends the route and the exact arrival point (entrance, building outline and height). Reconnecting mid-drive resends it | iPad switches to the HUD with the same instruction as the phone | Built, unit-tested round trip |
+| L4 | **The iPad navigates by itself** from route + phone fixes (`RemoteGpsSource`, `advance()`, maqueta elevation and signs), so a late message doesn't freeze the HUD. Car body pitch/roll for the optics come from the phone's tilt minus its resting tilt | — | Built |
+| L5 | **Lost link.** 1 s pings; after 5 s of silence the iPad keeps the last picture, and after 15 s without the phone goes back to the code screen. The phone retries by itself | — | Built |
+| L6 | **Cost.** PeerJS (~117 KB) loads only when linking | — | Built |
 
-Not relayed yet: bump detection and *Usar sensores* still read the screen device's sensors. Network needs: both devices online (the PeerJS public broker introduces them); video goes directly between them over WebRTC with Google STUN and **no TURN relay**, so same Wi-Fi or the iPhone's hotspot works, two different mobile networks may not, and Wi-Fi networks that isolate clients (common in buildings and events) block it.
+Network: both devices need internet for the PeerJS broker; data then goes directly over WebRTC with Google STUN and no TURN relay. Same Wi-Fi or the iPhone's hotspot works; Wi-Fi that isolates clients blocks it. The older "phone streams its video to a laptop by QR" path is retired.
+
+### 6.3 Official phone UI (MapZ design) — built
+
+From the "MapZ App UI" canvas: blue `#2563EB` / `#1A56C4`, Manrope, dark and light themes following the system, no login. Code: [src/ui/](src/ui/), [index.html](index.html), [src/style.css](src/style.css).
+
+| Screen | What it does | Status |
+|---|---|---|
+| **Destino** | Real map (MapLibre + OpenFreeMap tiles in the app palette, loaded only here, ~800 KB). Origin "Mi ubicación actual" (typed in Simulación), destination by search, pasted Maps/Waze link or tap on the map (street name by reverse geocoding). Caminar/Manejar, recenter, layers Huecos / Reductores, route preview with minutes and km. The maqueta zone is the dashed blue frame; a destination inside it turns the button into **Elegir punto exacto** | Built |
+| **Maqueta** | Isometric 3D of the zone (Three.js, orthographic): buildings from footprints, streets from the tiles. Letters A–E on the buildings around the destination, tap to select, entrance chips or "Frente al edificio", rotate, drag, pinch. **Confirmar punto y conducir** sets the exact arrival point and starts | Built |
+| **Conducir** | Phone camera AR. Chips "iPad conectado" / "Cámara fija", maneuver card, speed and limit, ⚠ Hueco / Policía acostado, the bump prompt, ● record, ETA card (min · Llegada: hh:mm · Edif. C · Entrada · km) with Pausar / Terminar. Portrait and landscape (phone on the dash) | Built |
+| **Dispositivos** | iPad code and status, phone row, CALIBRAR LA VISTA preview with the horizon line, sliders *Altura de vista* (`calib.height`) and *Horizonte* (`calib.pitch`; a hand-set value wins over auto calibration), Modo (Real / Simulación / Repetición), Detectar huecos, Avanzado | Built |
+| Registrar lugar, Perfil | In the canvas; the ⊕ button is shown disabled | Later |
+
+### 6.4 Exact arrival point — built
+
+The chosen entrance travels as `app.arrival` `{lat, lon, label, outline, height}`. The route goes to it (OSRM snaps to the street); in the AR scene the green pin and beam stand on the entrance itself, at the maqueta's elevation, and the building's edges (ground, roof, corners) light up in green when less than 300 m of route are left. The iPad gets the same through the route message, so the HUD optics draw it in the glass. Code: `updateOutline` in [src/render/ar.ts](src/render/ar.ts).
 
 ## 7. Shared requirements
 

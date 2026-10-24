@@ -31,9 +31,20 @@ Contenido de cada tesela:
   "sources": ["OpenStreetMap", "Copernicus DEM 90 m (Open-Meteo)"],
   "elev": { "rows": 13, "cols": 13, "z": [/* metros, de norte a sur y de oeste a este, cubriendo el borde de la tesela */] },
   "signs": [{ "id": "osm:n123", "type": "traffic_signals", "lat": 10.51, "lon": -66.85, "dir": null, "verified": false }],
-  "ways": [{ "id": "osm:w456", "name": "Avenida San Juan Bosco", "oneway": true, "lanes": 2, "maxspeed": 30, "turnLanes": null, "pts": [[10.51, -66.85]] }]
+  "ways": [{ "id": "osm:w456", "name": "Avenida San Juan Bosco", "oneway": true, "lanes": 2, "maxspeed": 30, "turnLanes": null, "pts": [[10.51, -66.85]] }],
+  "buildings": [{ "id": "ms:10.510790,-66.852097", "name": null, "height": 9, "levels": null, "source": "ms", "outline": [[10.5107, -66.8521]], "entrances": [] }]
 }
 ```
+
+`buildings` (opcional en teselas viejas): huellas de OSM `building=*` y de Microsoft Global ML Building Footprints, sin duplicados (si se solapan más de 50 %, gana OSM). Cada edificio va completo en la tesela que contiene su centro. Altura: `height` de OSM, si no `building:levels` × 3 m, si no 9 m. Los de Microsoft se identifican por su centro, así los overrides los encuentran después de reconstruir. En San Juan Bosco hay 1.027 en las 4 teselas (195 dentro de la zona), ninguno con nombre ni entradas todavía.
+
+Nombres, alturas y entradas van a mano en `scripts/maqueta/overrides/{x}_{y}.json` (o `.jsonc` con comentarios); hay una plantilla sin aplicar en `overrides/ejemplo_20597_30843.jsonc`:
+
+```jsonc
+{ "buildings": [{ "id": "ms:10.510790,-66.852097", "name": "Torre B", "height": 24, "entrances": [{ "name": "Entrada 2", "lat": 10.51075, "lon": -66.85215 }] }] }
+```
+
+Sin entradas, la app propone una sola, **Frente al edificio**: el medio de la fachada que da a la calle más cercana (`entrancesOf` en `core/maqueta.ts`).
 
 Los tipos de `signs` son: `traffic_signals`, `stop`, `give_way`, `crossing`, `bump`, `hump`, `table` y `speed_camera`. `dir` se llena con `direction`, `traffic_signals:direction` o `forward/backward` cuando OSM lo trae.
 
@@ -78,7 +89,7 @@ Los tipos de `signs` son: `traffic_signals`, `stop`, `give_way`, `crossing`, `bu
      - hay tests nuevos en `tests/run.ts` para la matemática de teselas, la interpolación, `routeProfile` con una pendiente sintética del 13 % y el filtro de sentido de señales.
 2. **Una zona: Altamira y Los Palos Grandes.** Mismo script con una caja más grande. Una prueba de manejo real grabada con el recorder, y la repetición como fixture de regresión.
 3. **Carriles.** Ancho de la cinta y `lateral` por tramo según `lanes` y `oneway`. Guía de carril antes de un giro cuando hay `turn:lanes`.
-4. **Edificios y simulador.**
+4. **Edificios y simulador.** *Hecho: huellas en las teselas, pantalla Maqueta para elegir edificio y entrada, y el edificio de destino iluminado en la AR y el HUD al llegar (ver SPEC.md §6.3–6.4). Falta: nombres y entradas medidas en los overrides, y la malla que oculta la flecha detrás de las esquinas.*
    - Huellas de edificios (Microsoft Global ML Building Footprints) con alturas estimadas y corregibles en `overrides`.
    - En la app se usan como malla invisible que solo escribe profundidad, para que la flecha de giro quede oculta detrás de las esquinas.
    - En Simulación sirven de fondo 3D cuando no hay cámara, para la demo.
@@ -87,7 +98,7 @@ Los tipos de `signs` son: `traffic_signals`, `stop`, `give_way`, `crossing`, `bu
 ## Reglas
 
 - No tocar `core/` sin avisar al equipo (ver `SPEC.md`). `core/maqueta.ts` es nuevo y no cambia nada existente.
-- Sin dependencias nuevas en la app. El script puede usar solo `fetch` de Node.
+- Sin dependencias nuevas para la maqueta (la pantalla Maqueta usa Three.js, que ya estaba; MapLibre es solo del mapa de Destino). El script puede usar solo `fetch` de Node.
 - Ninguna consulta a Overpass ni a Open-Meteo desde la app. Todo sale de `public/maqueta/`.
 - Los ejes son los de `core/geo.ts`: x este, z sur, y arriba.
 - `npm test` y `npm run build` tienen que pasar en cada fase.

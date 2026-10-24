@@ -29,6 +29,7 @@ export interface Arrival {
   lon: number;
   label: string; // "Edif. B · Entrada 2"
   outline?: [number, number][]; // the destination building's footprint, [lat, lon]
+  height?: number; // m, the building's height (for its lit outline)
 }
 
 /** A route as it travels over the wire: plain numbers, rebuilt into a Route on the other side. */

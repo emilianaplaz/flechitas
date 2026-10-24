@@ -16,27 +16,32 @@ Open the network URL on your phone (same Wi-Fi) and accept the self-signed certi
 
 Mirror the repo to a personal one (see the hackathon README), import it in Vercel, framework = Vite. `api/expand.ts` deploys automatically as the function that expands Google Maps short links. Put the Vercel URL in `platanus-hack-project.jsonc`.
 
+## Demo setup: phone = app + camera, iPad = windshield HUD
+
+1. **iPad**: open the app, **Dispositivos → Avanzado → Usar esta pantalla como HUD** (or open `/?role=hud`). It remembers it and shows a 6-digit code. Lay it on the dash under the windshield; 📐 sets the car and iPad measurements (Toyota Fortuner 2015 preset).
+2. **Phone**: open the app, **Dispositivos**, type the iPad's code, **Conectar** → "Conectado". On iPhone accept the motion permission (used for tilt).
+3. **Destino**: search, paste a Maps/Waze link or tap the map. Inside the maqueta zone (dashed blue frame, Av. San Juan Bosco) the button says **Elegir punto exacto**: pick the building and entrance in the Maqueta, then **Confirmar punto y conducir**.
+4. Mount the phone on the dash **horizontally**, back camera to the road. It shows the camera AR view; the iPad switches to the HUD by itself and goes back to its code when you tap **Terminar**.
+
+Both devices need internet and https (deployed site, or `npm run dev` and accept the certificate on each device). Same Wi-Fi or the iPhone's hotspot; Wi-Fi that isolates clients blocks the link. To stop being the HUD: **Usar como teléfono** on the iPad's code screen.
+
 ## Modes
 
-- **Manejar**: real camera + GPS. Mount the phone on the windshield, pointing at the road, in landscape or portrait. Each orientation keeps its own calibration (portrait starts with a taller field of view and a later guide start). The ● button records video + GPS track together for later replay.
-- **Simulación**: drives along the route at the speed on the slider. Use it indoors and on stage. "Desde" sets the start point.
-- **Repetición**: load a recorded video + its `.json` track and the overlay runs on top of the real drive. Use ⚙ → "Sincronía" if the video and GPS drift apart.
+In **Dispositivos → Modo**:
 
-## Phone as the camera, laptop or iPad as the screen
+- **Real**: camera + GPS. Mount the phone on the dash, pointing at the road, in landscape or portrait. Each orientation keeps its own calibration. The ● button records video + GPS track together for later replay.
+- **Simulación**: drives along the route at the speed on the slider. Use it indoors and on stage. "Desde" on the map screen sets the start point (empty = your location).
+- **Repetición**: load a recorded video + its `.json` track and the overlay runs on top of the real drive. Use the calibration sliders → "Sincronía" if the video and GPS drift apart.
 
-On the laptop/iPad, tap **📱 Usar la cámara de un teléfono** and scan the QR with the iPhone camera. The phone opens a camera page; tap **Conectar**. From then on the app on the big screen uses the phone's **camera, GPS and tilt** (for auto calibration), so it works on an iPad or laptop with no GPS. Then pick Manejar or Simulación and **Iniciar** as usual; the ● recorder records the phone's video.
-
-- The phone needs **https** for its camera: use `npm run dev` (the QR uses the laptop's network IP, accept the certificate warning on the phone too) or the deployed site.
-- Both devices need internet: [PeerJS](https://peerjs.com)'s free public server introduces them, then video goes directly between them over WebRTC. Same Wi-Fi (or the iPhone's hotspot) works best; on two different mobile networks it can fail, since there is no relay (TURN) server.
-- Keep the phone screen on: if it locks or the page closes, the big screen says so within a few seconds; scan again to reconnect.
-- Hold or mount the phone **horizontally**. It works with rotation lock on: the phone redraws every frame upright from gravity and always sends a landscape 1280×720 picture, so the big screen never gets it sideways or flipping when the phone turns. Its tilt and field of view are sent relative to that picture (held upright, the picture is a narrower crop and the field of view is adjusted). If a phone still sends it sideways, tap **⟳ Girar** on the phone (remembered on that phone).
-- Not relayed yet: bump detection and "Usar sensores" still use the screen device's own sensors.
+Caminar / Manejar on the map: Caminar uses the phone sensors (phone in the hand), Manejar assumes a fixed mount.
 
 ## Phone sensors (walking, phone in hand)
 
 Tick **Usar sensores del teléfono** before **Iniciar**. The camera then looks wherever the phone points (compass, tilt and roll) instead of assuming it faces along the route. On iPhone, accept the motion permission prompt. If the ribbon is turned off the street, tap ⌖ while pointing the phone along the street to align it. Leave it off for a fixed car mount, where the compass is unreliable. In Simulación it also works, which lets you test it indoors.
 
-## Calibrate (⚙), once per mount
+## Calibrate, once per mount
+
+*Altura de vista* and *Horizonte* are in **Dispositivos → Calibrar la vista**; every value (one slider at a time) is in the sliders button at the top right of Conducir.
 
 Two values calibrate themselves, no button needed (`src/render/autocalib.ts`):
 - **Campo de visión** is computed from the camera video size and the screen as soon as the camera starts, and again when the phone rotates. It assumes a 63° main lens (`DEFAULT_LENS_HFOV`); a measured value can be stored in `localStorage['ar-nav.lens'] = {"hfov": …}`.
@@ -92,12 +97,13 @@ Install the deployed site to the home screen (Chrome menu → Install app). It t
 Source is split by module so teammates can work in parallel. Each folder has one owner area; `core/` is shared, so tell the team before changing it.
 
 - `src/main.ts`: composition root: wires the modules, start/stop, per-frame loop
-- `src/setup.ts`: setup screen (mode, destination, share target)
+- `src/setup.ts`: destination and drive options (mode, origin, destination, share target)
+- `src/ui/`: phone screens. `shell.ts` screen switching + Dispositivos calibration, `destino.ts` the MapLibre map, `maqueta.ts` the 3D building picker
 - `src/core/`: shared. `geo.ts` geometry, `route.ts` OSRM routing + Spanish instructions, `links.ts` Maps/Waze links + geocoding, `maqueta.ts` map tiles (elevation profile, speed limits, signs), `types.ts` (`Fix`, `Source`), `state.ts` (`app`), `ui.ts` DOM helpers
 - `src/drive/`: navigation without orientation sensors. `sources.ts` GPS/sim/replay, `navigation.ts` route following + rerouting, `start.ts` per-mode startup, `controls.ts` record/sim buttons, `recorder.ts`
 - `src/walk/`: navigation with sensors. `orientation.ts` compass/tilt/roll to camera pose, `view.ts` smoothing + "Alinear"
 - `src/render/`: 3D and HUD. `ar.ts` Three.js overlay, `signMarkers.ts` road signs in 3D, `scene.ts`, `hud.ts`, `calib.ts` + `calibDock.ts`
-- `src/remote/`: phone as remote camera. `protocol.ts` shared messages and URLs, `display.ts` QR + receiving side, `phone.ts` the phone's camera page (`/?cam=<id>`), `orient.ts` keeping its picture upright
+- `src/remote/`: phone ↔ iPad link. `protocol.ts` code and messages, `phoneLink.ts` the phone side (route, fixes, tilt), `hudLink.ts` the iPad side, `orient.ts` tilt relative to the mounted phone
 - `src/signs/`: road signs from the maqueta. `store.ts` signs of the current route, `ahead.ts` which ones apply to our street and direction. Navigation only calls `setSigns`, `signsAheadOf`, `clearSigns`
 - `src/hazards/`: hazard mapping. `store.ts`, `cloud.ts` sync, `bump.ts` accelerometer detection, `ahead.ts` hazards along a route, `ui.ts` reporting UI. Navigation only calls `reindexHazards`, `aheadOf`, `trackPosition`
 - `api/expand.ts`: serverless function that expands `maps.app.goo.gl` links
@@ -108,7 +114,7 @@ The public OSRM and Nominatim servers are fine for a demo but rate-limited.
 
 ## Maqueta (map tiles)
 
-The overlay follows the road's slope and shows OSM road signs and the speed limit where there are tiles in `public/maqueta/`. Elsewhere the road is drawn flat, as before. To build or refresh a zone listed in `scripts/maqueta/zones.json`:
+The overlay follows the road's slope and shows OSM road signs and the speed limit where there are tiles in `public/maqueta/`. The tiles also carry building footprints (OSM + Microsoft), used by the Maqueta screen and the lit destination building. Elsewhere the road is drawn flat, as before. To build or refresh a zone listed in `scripts/maqueta/zones.json`:
 
 ```bash
 npm run maqueta -- san-juan-bosco

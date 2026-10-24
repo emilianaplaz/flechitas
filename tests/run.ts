@@ -231,10 +231,12 @@ check('code shown in two groups', formatCode('012345') === '012 345');
 {
   // A route survives the trip to the iPad: same geometry, steps and arrival point.
   const r = { poly: buildPolyline([caracas, corner, end]), steps: [{ kind: 'left' as const, text: 'Gira a la izquierda', street: 'Av. X', location: corner, along: 200 }], duration: 95 };
-  const arrival = { lat: end.lat, lon: end.lon, label: 'Edif. B · Entrada 2' };
+  const outline: [number, number][] = [[end.lat, end.lon], [end.lat + 0.0001, end.lon], [end.lat + 0.0001, end.lon + 0.0001], [end.lat, end.lon]];
+  const arrival = { lat: end.lat, lon: end.lon, label: 'Edif. B · Entrada 2', outline, height: 12 };
   const back = decodeRoute(JSON.parse(JSON.stringify(encodeRoute(r, arrival))));
   check('route round-trip: same length', near(back.route.poly.length, r.poly.length, 0.5), `${back.route.poly.length} vs ${r.poly.length}`);
   check('route round-trip: steps and arrival kept', back.route.steps[0].kind === 'left' && back.route.steps[0].along === 200 && back.arrival?.label === arrival.label && back.route.duration === 95);
+  check('route round-trip: building outline and height kept', back.arrival?.outline?.length === 4 && back.arrival?.height === 12);
 }
 
 // ---- remote camera: keep the picture upright ----

@@ -55,6 +55,43 @@ export interface FrameInput {
   /** Ground height in metres at a distance along the route (maqueta). Absent: flat road, as before. */
   elevAlong?: ((d: number) => number) | null;
   signs?: SignView[];
+  /** Exact arrival point picked in the maqueta (an entrance) and its building: pin there, outline lit. */
+  arrival?: { p: LatLon; outline?: [number, number][]; height?: number } | null;
+}
+
+const OUTLINE_SHOW = 300; // m of route left when the destination building lights up
+const OUTLINE_CORE = 0.3; // m: width of the bright edge
+const OUTLINE_GLOW = 1.1; // m: width of the soft halo around it
+
+/** Glowing edges of a building (no fill): ground ring, roof ring and the corners, around `anchor`. */
+function buildingOutline(anchor: LatLon, outline: [number, number][], height: number): THREE.Group {
+  const g = new THREE.Group();
+  const core = new THREE.MeshBasicMaterial({ color: DEST, transparent: true, opacity: 0.95, depthWrite: false });
+  const glow = new THREE.MeshBasicMaterial({ color: DEST, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending });
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const edge = (a: THREE.Vector3, b: THREE.Vector3) => {
+    const len = a.distanceTo(b);
+    if (len < 0.2) return;
+    for (const [mat, w] of [[glow, OUTLINE_GLOW], [core, OUTLINE_CORE]] as const) {
+      const m = new THREE.Mesh(box, mat);
+      m.scale.set(w, w, len + w);
+      m.position.copy(a).add(b).multiplyScalar(0.5);
+      m.lookAt(b);
+      g.add(m);
+    }
+  };
+  const pts = outline.map(([lat, lon]) => {
+    const l = toLocal(anchor, { lat, lon });
+    return new THREE.Vector3(l.x, 0, l.z);
+  });
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    edge(a.clone().setY(0.15), b.clone().setY(0.15));
+    edge(a.clone().setY(height), b.clone().setY(height));
+    edge(a.clone().setY(0), a.clone().setY(height));
+  }
+  return g;
 }
 
 function arrowShape(): THREE.Shape {
@@ -278,6 +315,9 @@ export class ArScene {
   private pin = new THREE.Group();
   private beam: THREE.Mesh;
   private destPulse: THREE.Group;
+  private outline: THREE.Group | null = null; // destination building, lit near arrival
+  private outlineKey = '';
+  private outlineAnchor: LatLon | null = null;
 
   private signMarkers = new SignMarkers();
   // Road height along the route for this frame, relative to the ground under the car.
@@ -481,6 +521,7 @@ export class ArScene {
     this.updateTurn(f, now);
     this.updateHazards(f, now);
     this.signMarkers.update(f.poly ? (f.signs ?? []) : [], f.origin, f.along, this.heightAt);
+    this.updateOutline(f);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -622,7 +663,7 @@ export class ArScene {
     const since = now - this.visibleSince;
     // Pops in when it first appears, shrinks away in the last few metres past the turn.
     const pop = easeOutBack(clamp01(since / 0.5)) * clamp01((d + 5) / 5);
-    const c = toLocal(f.origin, this.corner!);
+    const c = toLocal(f.origin, arrive && f.arrival ? f.arrival.p : this.corner!);
     const y = this.heightAt(this.cornerAlong);
     const s = this.readableScale(d, ARROW_H, 5);
 
@@ -664,6 +705,31 @@ export class ArScene {
       this.gateSince ??= now;
       this.updateGate(c, y, gateScale, turnSide, d, now - this.gateSince, now);
     }
+  }
+
+  /** The destination building's edges, lit once the route has less than OUTLINE_SHOW m left. */
+  private updateOutline(f: FrameInput) {
+    const a = f.arrival;
+    const key = a?.outline ? `${a.outline.length}:${a.outline[0]}:${a.height}` : '';
+    if (key !== this.outlineKey) {
+      this.outlineKey = key;
+      if (this.outline) {
+        this.world.remove(this.outline);
+        this.outline.traverse((o) => (o as THREE.Mesh).geometry?.dispose?.());
+      }
+      this.outline = null;
+      if (a?.outline && a.outline.length > 2) {
+        this.outlineAnchor = { lat: a.outline[0][0], lon: a.outline[0][1] };
+        this.outline = buildingOutline(this.outlineAnchor, a.outline, a.height ?? 9);
+        this.world.add(this.outline);
+      }
+    }
+    if (!this.outline || !this.outlineAnchor) return;
+    const left = f.poly ? f.poly.length - f.along : Infinity;
+    this.outline.visible = left < OUTLINE_SHOW && left > -30;
+    if (!this.outline.visible || !f.poly) return;
+    const c = toLocal(f.origin, this.outlineAnchor);
+    this.outline.position.set(c.x, this.heightAt(f.poly.length), c.z);
   }
 
   /** The signs stand across the road past the turn point, facing the driver's approach, chevrons toward the turn. */

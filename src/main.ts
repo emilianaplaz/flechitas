@@ -85,8 +85,9 @@ if (hudRole) {
   app.display = 'hud';
   syncCalibProfile();
   startHudLink({
-    onRoute: (route) => {
+    onRoute: (route, arrival) => {
       clearTimeout(lostTimer);
+      app.arrival = arrival;
       if (app.running) setRoute(route); // the phone rerouted
       else void startRemoteDrive(route);
     },
@@ -126,7 +127,7 @@ if (hudRole) {
     if (!code) return toast('Escribe los 6 dígitos que muestra el iPad');
     void connectHud(code);
   };
-  setDriveProvider(() => (app.running && app.route ? { route: app.route, arrival: null } : null));
+  setDriveProvider(() => (app.running && app.route ? { route: app.route, arrival: app.arrival } : null));
 }
 
 /** iPad: the phone started a drive. Position comes from the phone's GPS; this device only draws. */
@@ -150,6 +151,7 @@ function stopRemoteDrive() {
   if (!app.running) return;
   app.running = false;
   app.source = null;
+  app.arrival = null;
   stopAutoTilt();
   stopHazards();
   app.route = null;
@@ -165,7 +167,7 @@ function stopRemoteDrive() {
 function setRoute(r: Route) {
   app.route = r;
   resetProgress();
-  if (hudLinked()) sendRoute(r, null); // the iPad follows every new route, reroutes included
+  if (hudLinked()) sendRoute(r, app.arrival); // the iPad follows every new route, reroutes included
   // The maqueta loads in the background; until then, and where it has no tiles, the road is flat.
   maqueta = null;
   clearSigns();
@@ -342,6 +344,7 @@ function frame(now: number) {
     attitude: app.display === 'hud' ? carAttitude(now, dt, calib.pitch, getMountRoll()) : undefined,
     elevAlong: maqueta?.profile?.at ?? null,
     signs: signsAheadOf(nav.along),
+    arrival: app.arrival ? { p: { lat: app.arrival.lat, lon: app.arrival.lon }, outline: app.arrival.outline, height: app.arrival.height } : null,
   });
   renderHud({
     route,

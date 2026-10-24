@@ -401,7 +401,7 @@ export function initMaqueta(confirm: (c: MaquetaChoice) => void) {
     if (!selected || !entrances[entIdx]) return toast('Toca un edificio primero');
     const en = entrances[entIdx];
     onConfirm({
-      arrival: { lat: en.lat, lon: en.lon, label: `Edif. ${selected.letter} · ${en.name}`, outline: selected.b.outline },
+      arrival: { lat: en.lat, lon: en.lon, label: `Edif. ${selected.letter} · ${en.name}`, outline: selected.b.outline, height: selected.b.height },
       label: selected.b.name ?? `Edificio ${selected.letter}`,
     });
   };
