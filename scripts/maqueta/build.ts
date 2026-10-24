@@ -1,14 +1,17 @@
 // Builds the maqueta tiles for one zone (see MAQUETA.md):
 //   npm run maqueta -- <zone>        e.g. npm run maqueta -- san-juan-bosco
 // Zones live in zones.json (bbox: south, west, north, east). For each z16 tile covering the zone it
-// asks Overpass for signs and roads and Open-Meteo for a ground elevation grid, smooths the grid,
-// applies the hand corrections in overrides/{x}_{y}.json, and writes public/maqueta/16/{x}/{y}.json
-// plus public/maqueta/index.json. Uses only Node's fetch; waits between requests to be polite.
+// asks Overpass for signs, roads, buildings and entrances and Open-Meteo for a ground elevation grid,
+// smooths the grid, adds the Microsoft Global ML Building Footprints that OSM lacks, applies the hand
+// corrections in overrides/{x}_{y}.json (or .jsonc, with // comments), and writes
+// public/maqueta/16/{x}/{y}.json plus public/maqueta/index.json. Uses only Node's fetch; waits between
+// requests to be polite.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gridPoint, MAQUETA_ZOOM, tileKey, tileOf, tileToLatLon, type MaquetaIndex, type SignType, type Tile, type TileSign, type TileWay } from '../../src/core/maqueta.ts';
+import { gridPoint, insideOutline, MAQUETA_ZOOM, tileKey, tileOf, tileToLatLon, type MaquetaIndex, type SignType, type Tile, type TileBuilding, type TileEntrance, type TileSign, type TileWay } from '../../src/core/maqueta.ts';
 import { bearing } from '../../src/core/geo.ts';
+import { applyBuildingOverrides, buildingHeight, closeRing, dedupe, ringArea, ringCenter, stitchRings, type AddedBuilding, type BuildingOverride, type Ring } from './buildings.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, '../../public/maqueta');
@@ -16,6 +19,10 @@ const GRID = 13; // rows and cols of the elevation grid (edges included): ~50 m 
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
 const ELEVATION = 'https://api.open-meteo.com/v1/elevation';
 const PAUSE_MS = 1500;
+// Microsoft Global ML Building Footprints: one gzipped GeoJSON-lines file per z9 quadkey, listed here.
+const MS_LINKS = 'https://minedbuildings.z5.web.core.windows.net/global-buildings/dataset-links.csv';
+const MS_ZOOM = 9;
+const BUILDING_MARGIN = 0.0005; // ° (~55 m) around a tile, so footprints crossing its edge are de-duplicated whole
 const UA = 'flechitas-maqueta/0.1 (https://github.com/emilianaplaz/flechitas)';
 
 interface Zone {
@@ -28,6 +35,8 @@ interface Override {
   signs?: (Omit<TileSign, 'verified'> & { verified?: boolean })[]; // added or corrected by hand (same id replaces)
   removeSigns?: string[]; // ids that OSM has wrong
   elev?: { r: number; c: number; z: number }[]; // grid heights measured by hand
+  buildings?: BuildingOverride[]; // names, heights, entrances measured by hand, or hide
+  addBuildings?: AddedBuilding[]; // buildings no dataset has
 }
 
 interface OsmNode {
@@ -44,6 +53,19 @@ interface OsmWay {
   geometry: { lat: number; lon: number }[];
   tags?: Record<string, string>;
 }
+interface OsmRelation {
+  type: 'relation';
+  id: number;
+  members: { type: string; ref: number; role: string; geometry?: { lat: number; lon: number }[] }[];
+  tags?: Record<string, string>;
+}
+type OsmElement = OsmNode | OsmWay | OsmRelation;
+
+/** A footprint from an open dataset, before it gets an id and a tile. */
+interface Footprint {
+  ring: Ring;
+  height: number | null;
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -55,25 +77,161 @@ async function readJson<T>(path: string): Promise<T | null> {
   }
 }
 
+/** JSON with // comments (whole-line or trailing, outside strings): for the hand-written overrides. */
+async function readJsonc<T>(path: string): Promise<T | null> {
+  let text: string;
+  try {
+    text = await readFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+  const clean = text.replace(/("(?:[^"\\]|\\.)*")|\/\/[^\n]*/g, (_m, str: string | undefined) => str ?? '');
+  try {
+    return JSON.parse(clean) as T;
+  } catch (e) {
+    throw new Error(`${path}: ${(e as Error).message}`);
+  }
+}
+
 function tileBox(x: number, y: number): [number, number, number, number] {
   const nw = tileToLatLon(x, y);
   const se = tileToLatLon(x + 1, y + 1);
   return [se.lat, nw.lon, nw.lat, se.lon];
 }
 
-async function overpass(box: [number, number, number, number]): Promise<(OsmNode | OsmWay)[]> {
+async function overpass(box: [number, number, number, number], wide: [number, number, number, number]): Promise<OsmElement[]> {
   const b = box.join(',');
+  const w = wide.join(',');
   const roads = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link';
   const query = `[out:json][timeout:60];
 (
   node["highway"~"^(traffic_signals|stop|give_way|crossing|speed_camera)$"](${b});
   node["traffic_calming"~"^(bump|hump|table)$"](${b});
   way["highway"~"^(${roads})$"](${b});
+  way["building"]["building"!="no"](${w});
+  relation["building"]["building"!="no"](${w});
+  node["entrance"](${w});
 );
 out geom;`;
   const res = await fetch(OVERPASS, { method: 'POST', headers: { 'User-Agent': UA }, body: new URLSearchParams({ data: query }) });
   if (!res.ok) throw new Error(`Overpass respondió ${res.status}`);
-  return ((await res.json()) as { elements: (OsmNode | OsmWay)[] }).elements;
+  return ((await res.json()) as { elements: OsmElement[] }).elements;
+}
+
+function quadkey(x: number, y: number, zoom: number): string {
+  let key = '';
+  for (let i = zoom; i > 0; i--) {
+    const m = 1 << (i - 1);
+    key += String((x & m ? 1 : 0) + (y & m ? 2 : 0));
+  }
+  return key;
+}
+
+const boxesTouch = (a: [number, number, number, number], b: [number, number, number, number]) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+
+function ringBox(ring: Ring): [number, number, number, number] {
+  const lats = ring.map((p) => p[0]);
+  const lons = ring.map((p) => p[1]);
+  return [Math.min(...lats), Math.min(...lons), Math.max(...lats), Math.max(...lons)];
+}
+
+/**
+ * Microsoft's footprints touching box. Finds the z9 quadkey files in dataset-links.csv and streams
+ * them (gzip, one GeoJSON feature per line), keeping only what touches the box. Heights of -1 mean
+ * the model had no estimate.
+ */
+async function msFootprints(box: [number, number, number, number]): Promise<Footprint[]> {
+  const a = tileOf({ lat: box[2], lon: box[1] }, MS_ZOOM);
+  const b = tileOf({ lat: box[0], lon: box[3] }, MS_ZOOM);
+  const keys = new Set<string>();
+  for (let x = a.x; x <= b.x; x++) for (let y = a.y; y <= b.y; y++) keys.add(quadkey(x, y, MS_ZOOM));
+
+  const res = await fetch(MS_LINKS, { headers: { 'User-Agent': UA } });
+  if (!res.ok) throw new Error(`Microsoft Buildings (índice) respondió ${res.status}`);
+  const urls: string[] = [];
+  for (const line of (await res.text()).split('\n')) {
+    const m = /,(\d+),(https:[^,]+),/.exec(line); // Location,QuadKey,Url,Size,UploadDate
+    if (m && keys.has(m[1])) urls.push(m[2]);
+  }
+
+  const out: Footprint[] = [];
+  const take = (line: string) => {
+    if (!line.trim()) return;
+    const f = JSON.parse(line) as { properties?: { height?: number }; geometry: { type: string; coordinates: unknown } };
+    const polys = (f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates]) as number[][][][];
+    for (const poly of polys) {
+      const ring = poly[0].map(([lon, lat]): [number, number] => [lat, lon]);
+      if (ring.length < 4 || !boxesTouch(ringBox(ring), box)) continue;
+      const h = f.properties?.height ?? -1;
+      out.push({ ring, height: h > 0 ? h : null });
+    }
+  };
+  for (const url of urls) {
+    await sleep(PAUSE_MS);
+    const r = await fetch(url, { headers: { 'User-Agent': UA } });
+    if (!r.ok || !r.body) throw new Error(`Microsoft Buildings respondió ${r.status} (${url})`);
+    let rest = '';
+    for await (const chunk of r.body.pipeThrough(new DecompressionStream('gzip')).pipeThrough(new TextDecoderStream())) {
+      const lines = (rest + chunk).split('\n');
+      rest = lines.pop() ?? '';
+      lines.forEach(take);
+    }
+    take(rest);
+  }
+  return out;
+}
+
+function entranceName(t: Record<string, string>): string {
+  if (t['name']) return t['name'];
+  if (t['ref']) return `Entrada ${t['ref']}`;
+  if (t['entrance'] === 'main') return 'Entrada principal';
+  if (t['entrance'] === 'garage') return 'Entrada de garaje';
+  if (t['entrance'] === 'service') return 'Entrada de servicio';
+  return 'Entrada';
+}
+
+/** OSM `building` ways and multipolygons, with their `entrance` nodes. */
+function osmBuildings(elements: OsmElement[]): TileBuilding[] {
+  const out: TileBuilding[] = [];
+  const nodesOf = new Map<string, number[]>();
+  for (const e of elements) {
+    const t = e.tags ?? {};
+    if (!t['building'] || e.type === 'node') continue;
+    let ring: Ring | null = null;
+    let id: string;
+    if (e.type === 'way') {
+      if (!e.geometry || e.geometry.length < 4) continue;
+      ring = e.geometry.map((g): [number, number] => [g.lat, g.lon]);
+      id = `osm:w${e.id}`;
+      nodesOf.set(id, e.nodes);
+    } else {
+      const outer = e.members.filter((m) => m.type === 'way' && m.role !== 'inner' && m.geometry?.length);
+      const rings = stitchRings(outer.map((m) => m.geometry!.map((g): [number, number] => [g.lat, g.lon])));
+      ring = rings.sort((p, q) => ringArea(q) - ringArea(p))[0] ?? null;
+      id = `osm:r${e.id}`;
+    }
+    if (!ring) continue;
+    const { height, levels } = buildingHeight(t);
+    out.push({ id, name: t['name'] ?? null, height, levels, source: 'osm', outline: closeRing(ring), entrances: [] });
+  }
+  // Entrances are usually nodes of the outline; otherwise take the building they fall in.
+  for (const e of elements) {
+    if (e.type !== 'node' || !e.tags?.['entrance']) continue;
+    const b = out.find((b) => nodesOf.get(b.id)?.includes(e.id)) ?? out.find((b) => insideOutline(b.outline, e));
+    const entrance: TileEntrance = { name: entranceName(e.tags), lat: e.lat, lon: e.lon };
+    b?.entrances.push(entrance);
+  }
+  return out;
+}
+
+/** Footprint → building with a stable id: its centre, so overrides can name it across rebuilds. */
+function datasetBuilding(f: Footprint, source: 'ms' | 'google', seen: Set<string>): TileBuilding {
+  const outline = closeRing(f.ring);
+  const c = ringCenter(outline);
+  let id = `${source}:${c.lat.toFixed(6)},${c.lon.toFixed(6)}`;
+  for (let n = 2; seen.has(id); n++) id = `${source}:${c.lat.toFixed(6)},${c.lon.toFixed(6)}#${n}`;
+  seen.add(id);
+  return { id, name: null, ...buildingHeight({}, f.height), source, outline, entrances: [] };
 }
 
 async function elevations(points: { lat: number; lon: number }[]): Promise<number[]> {
@@ -169,12 +327,13 @@ function toWay(w: OsmWay): TileWay {
   };
 }
 
-async function buildTile(x: number, y: number): Promise<Tile> {
+async function buildTile(x: number, y: number, ms: Footprint[]): Promise<Tile> {
   const box = tileBox(x, y);
-  const elements = await overpass(box);
+  const wide: [number, number, number, number] = [box[0] - BUILDING_MARGIN, box[1] - BUILDING_MARGIN, box[2] + BUILDING_MARGIN, box[3] + BUILDING_MARGIN];
+  const elements = await overpass(box, wide);
   await sleep(PAUSE_MS);
 
-  const osmWays = elements.filter((e): e is OsmWay => e.type === 'way' && !!e.geometry);
+  const osmWays = elements.filter((e): e is OsmWay => e.type === 'way' && !!e.geometry && !!e.tags?.['highway']);
   const waysByNode = new Map<number, OsmWay[]>();
   for (const w of osmWays) for (const n of w.nodes) waysByNode.set(n, [...(waysByNode.get(n) ?? []), w]);
 
@@ -195,19 +354,37 @@ async function buildTile(x: number, y: number): Promise<Tile> {
   const z = smooth(await elevations(points), GRID, GRID);
 
   // Hand corrections always win over OSM and the elevation model.
-  const ov = (await readJson<Override>(join(HERE, 'overrides', `${x}_${y}.json`))) ?? {};
+  const ovDir = join(HERE, 'overrides');
+  const ov = (await readJsonc<Override>(join(ovDir, `${x}_${y}.json`))) ?? (await readJsonc<Override>(join(ovDir, `${x}_${y}.jsonc`))) ?? {};
   for (const id of ov.removeSigns ?? []) signs.delete(id);
   for (const s of ov.signs ?? []) signs.set(s.id, { ...s, verified: s.verified ?? true });
   for (const e of ov.elev ?? []) z[e.r * GRID + e.c] = e.z;
+
+  // Buildings: OSM first, then dataset footprints OSM doesn't already have. Matched over the wide box so
+  // a building crossing the edge is compared whole; each one then goes to the tile holding its centre.
+  const osm = osmBuildings(elements);
+  const seen = new Set<string>();
+  const extra = dedupe(osm, ms.filter((f) => boxesTouch(ringBox(f.ring), wide)).map((f) => datasetBuilding(f, 'ms', seen)));
+  const mine = (b: TileBuilding) => {
+    const t = tileOf(ringCenter(b.outline));
+    return t.x === x && t.y === y;
+  };
+  const merged = applyBuildingOverrides([...osm, ...extra].filter(mine), ov);
+  for (const id of merged.unknown) console.warn(`\n  aviso: overrides/${x}_${y} nombra el edificio ${id}, que no está en la tesela`);
+  const buildings = merged.buildings;
+
+  const sources = ['OpenStreetMap', 'Copernicus DEM 90 m (Open-Meteo)'];
+  if (buildings.some((b) => b.source === 'ms')) sources.push('Microsoft Global ML Building Footprints (ODbL)');
 
   return {
     v: 1,
     tile: [MAQUETA_ZOOM, x, y],
     built: new Date().toISOString(),
-    sources: ['OpenStreetMap', 'Copernicus DEM 90 m (Open-Meteo)'],
+    sources,
     elev: { rows: GRID, cols: GRID, z },
     signs: [...signs.values()],
     ways: osmWays.map(toWay),
+    buildings,
   };
 }
 
@@ -222,16 +399,26 @@ async function main() {
   const [south, west, north, east] = zone.bbox;
   const a = tileOf({ lat: north, lon: west });
   const b = tileOf({ lat: south, lon: east });
+  // Microsoft's footprints for every tile of the zone at once (they come in files much larger than a tile).
+  const nw = tileToLatLon(a.x, a.y);
+  const se = tileToLatLon(b.x + 1, b.y + 1);
+  process.stdout.write('huellas de Microsoft… ');
+  const ms = await msFootprints([se.lat - BUILDING_MARGIN, nw.lon - BUILDING_MARGIN, nw.lat + BUILDING_MARGIN, se.lon + BUILDING_MARGIN]);
+  console.log(`${ms.length}`);
+  if (!ms.length) console.warn('  aviso: Microsoft no tiene huellas aquí; habría que probar Google Open Buildings v3');
+
   const keys: string[] = [];
   for (let x = a.x; x <= b.x; x++) {
     for (let y = a.y; y <= b.y; y++) {
       process.stdout.write(`tesela ${tileKey(x, y)}… `);
-      const tile = await buildTile(x, y);
+      const tile = await buildTile(x, y, ms);
       const dir = join(OUT, String(MAQUETA_ZOOM), String(x));
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, `${y}.json`), JSON.stringify(tile) + '\n');
       const zs = tile.elev.z;
-      console.log(`${tile.signs.length} señales, ${tile.ways.length} vías, altura ${Math.min(...zs).toFixed(0)}–${Math.max(...zs).toFixed(0)} m`);
+      const bs = tile.buildings ?? [];
+      const by = (s: string) => bs.filter((b) => b.source === s).length;
+      console.log(`${tile.signs.length} señales, ${tile.ways.length} vías, ${bs.length} edificios (osm ${by('osm')}, ms ${by('ms')}, manual ${by('manual')}), altura ${Math.min(...zs).toFixed(0)}–${Math.max(...zs).toFixed(0)} m`);
       keys.push(tileKey(x, y));
     }
   }

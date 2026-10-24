@@ -1,0 +1,64 @@
+// PLANTILLA DE OVERRIDES DE EDIFICIOS — tesela 16/20597/30843 (Av. San Juan Bosco, lado oeste).
+//
+// Este archivo NO se aplica: build.ts solo lee overrides/{x}_{y}.json o overrides/{x}_{y}.jsonc.
+// Para usarlo, cópialo como 20597_30843.jsonc, cambia los datos por los medidos y vuelve a correr
+//   npm run maqueta -- san-juan-bosco
+//
+// TODO LO QUE SIGUE ES DE RELLENO: nombres, alturas y entradas inventados para mostrar el formato.
+// Hay que medirlos en sitio (o con una foto de Street View) antes de usarlos en la demo.
+//
+// Formato (JSON con comentarios //):
+//   "buildings":    correcciones a edificios que ya están en la tesela, por id. Solo cambia los campos
+//                   que pongas: name, height (m), levels, entrances, outline. "hide": true lo quita.
+//   "addBuildings": edificios que no tiene ningún dataset. Van con source "manual".
+//   Las correcciones a mano siempre ganan sobre OSM y Microsoft, igual que en "signs" y "elev".
+//
+// Los ids salen de public/maqueta/16/20597/30843.json:
+//   osm:w123 / osm:r123  -> el edificio de OpenStreetMap (mejor aún: corregirlo en OSM).
+//   ms:{lat},{lon}       -> huella de Microsoft, nombrada por su centro. Es estable mientras Microsoft no
+//                           cambie el dataset; si la build avisa "nombra el edificio … que no está en la
+//                           tesela", busca el id nuevo en la tesela.
+// Las entradas son [lat, lon] de la puerta, donde debe aparecer el pin de llegada.
+{
+  "buildings": [
+    {
+      "id": "ms:10.510790,-66.852097",
+      "name": "EDIFICIO A (PLACEHOLDER, POR MEDIR)",
+      "height": 30, // POR MEDIR: ~10 pisos × 3 m
+      "levels": 10, // POR MEDIR
+      "entrances": [
+        // POR MEDIR: hoy es el punto calculado "Frente al edificio".
+        { "name": "Entrada principal (POR MEDIR)", "lat": 10.510889, "lon": -66.85196 }
+      ]
+    },
+    {
+      "id": "ms:10.511141,-66.852110",
+      "name": "EDIFICIO B (PLACEHOLDER, POR MEDIR)",
+      "height": 24, // POR MEDIR
+      "entrances": [
+        { "name": "Lobby (POR MEDIR)", "lat": 10.51116, "lon": -66.852048 },
+        { "name": "Estacionamiento (POR MEDIR)", "lat": 10.51108, "lon": -66.85203 }
+      ]
+    },
+    {
+      // Ejemplo de huella que no es un edificio (un techo de estacionamiento, una cancha…).
+      "id": "ms:10.510432,-66.852367",
+      "hide": true // POR CONFIRMAR en sitio
+    }
+  ],
+  "addBuildings": [
+    {
+      // Ejemplo de edificio dibujado a mano: anillo [lat, lon]; si no lo cierras, la build lo cierra.
+      "id": "manual:kiosco-ejemplo",
+      "name": "KIOSCO (PLACEHOLDER, POR MEDIR)",
+      "height": 3,
+      "outline": [
+        [10.51060, -66.85205],
+        [10.51063, -66.85205],
+        [10.51063, -66.85202],
+        [10.51060, -66.85202]
+      ],
+      "entrances": [{ "name": "Ventanilla (POR MEDIR)", "lat": 10.510615, "lon": -66.85202 }]
+    }
+  ]
+}

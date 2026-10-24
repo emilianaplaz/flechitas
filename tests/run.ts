@@ -405,5 +405,89 @@ check('incidence at the glass is past Brewster (more reflection)', fi.incidenceD
   check('signs: window ahead skips the ones well behind', ahead.length === 1 && ahead[0].type === 'traffic_signals');
 }
 
+// ---- maqueta: buildings (footprints, de-duplication, entrances, overrides) ----
+// (imports are hoisted; kept here so this block stays self-contained)
+import { buildingsIn, entrancesOf, ENTRANCE_FALLBACK_NAME, insideOutline, type TileBuilding } from '../src/core/maqueta.ts';
+import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRings } from '../scripts/maqueta/buildings.ts';
+{
+  const base = { lat: 10.511, lon: -66.852 };
+  // Axis-aligned square `size` m wide, its SW corner `east` m east and `north` m north of base. Closed ring.
+  const square = (east: number, north: number, size: number): [number, number][] => {
+    const sw = offset(offset(base, 90, east), 0, north);
+    const ne = offset(offset(sw, 90, size), 0, size);
+    return [
+      [sw.lat, sw.lon],
+      [ne.lat, sw.lon],
+      [ne.lat, ne.lon],
+      [sw.lat, ne.lon],
+      [sw.lat, sw.lon],
+    ];
+  };
+  const bld = (id: string, outline: [number, number][], source: TileBuilding['source'] = 'ms'): TileBuilding => ({ id, name: null, height: 9, levels: null, source, outline, entrances: [] });
+
+  // De-duplication: an ML footprint that mostly covers an OSM one is dropped, a neighbour is kept.
+  const osm = bld('osm:w1', square(0, 0, 20), 'osm');
+  check('buildings: overlap of squares shifted a quarter', near(overlapShare(osm.outline, square(5, 0, 20)), 0.75, 0.05), String(overlapShare(osm.outline, square(5, 0, 20))));
+  check('buildings: no overlap between neighbours', overlapShare(osm.outline, square(25, 0, 20)) === 0);
+  const ms = [bld('ms:shifted', square(5, 0, 20)), bld('ms:inside', square(4, 4, 6)), bld('ms:quarter', square(15, 0, 20)), bld('ms:next', square(25, 0, 20))];
+  const kept = dedupe([osm], ms).map((b) => b.id).join();
+  check('buildings: keeps OSM when footprints overlap > 50 %', kept === 'ms:quarter,ms:next', kept);
+  // L-shaped OSM outline (20 × 20 m without its NE 12 × 12 m): a footprint in the notch is another building.
+  const pt = (east: number, north: number): [number, number] => {
+    const p = offset(offset(base, 90, east), 0, north);
+    return [p.lat, p.lon];
+  };
+  const L = [pt(0, 0), pt(0, 20), pt(8, 20), pt(8, 8), pt(20, 8), pt(20, 0), pt(0, 0)];
+  check('buildings: point in an L-shaped outline', insideOutline(L, offset(offset(base, 90, 3), 0, 15)) && !insideOutline(L, offset(offset(base, 90, 15), 0, 15)));
+  check('buildings: a footprint in the notch of an L is kept', dedupe([bld('osm:L', L, 'osm')], [bld('ms:notch', square(11, 11, 8))]).length === 1);
+
+  // Heights.
+  check('buildings: height tag wins', buildingHeight({ height: '24 m', 'building:levels': '4' }).height === 24);
+  check('buildings: levels × 3 m', buildingHeight({ 'building:levels': '5' }).height === 15 && buildingHeight({ 'building:levels': '5' }).levels === 5);
+  check('buildings: 9 m by default', buildingHeight({}).height === 9 && buildingHeight({}, -1).height === 9);
+
+  // Multipolygon pieces join into one ring.
+  const sq = square(0, 0, 10);
+  const rings = stitchRings([sq.slice(0, 3), sq.slice(2, 5).reverse()]);
+  check('buildings: stitches outer pieces of a multipolygon', rings.length === 1 && rings[0].length === 5, JSON.stringify(rings));
+
+  // Entrances: the ones defined, else the outline point nearest to the closest way.
+  const road: TileWay = { id: 'w', name: 'Calle', oneway: false, lanes: 2, maxspeed: null, turnLanes: null, pts: [[offset(base, 270, 50).lat, offset(base, 270, 50).lon], [offset(base, 90, 50).lat, offset(base, 90, 50).lon]] };
+  const far: TileWay = { ...road, id: 'far', pts: road.pts.map(([lat, lon]): [number, number] => [lat + 0.002, lon]) };
+  const house = bld('ms:house', square(-10, 10, 20)); // south wall 10 m north of the road, centred on base
+  const [front] = entrancesOf(house, [far, road]);
+  check('buildings: computed entrance faces the closest way', front?.name === ENTRANCE_FALLBACK_NAME && near(haversine(front, offset(base, 0, 10)), 0, 0.5), JSON.stringify(front));
+  check('buildings: computed entrance lies on the outline', near(haversine(front, base), 10, 0.5));
+  const named = { ...house, entrances: [{ name: 'Lobby', lat: 10.5111, lon: -66.852 }] };
+  check('buildings: defined entrances win', entrancesOf(named, [road]).map((e) => e.name).join() === 'Lobby');
+  check('buildings: no entrances without ways', entrancesOf(house, []).length === 0);
+
+  // Overrides: manual wins, hide removes, added buildings come in as manual, unknown ids are reported.
+  const list = [bld('osm:w1', square(0, 0, 20), 'osm'), bld('ms:a', square(30, 0, 10)), bld('ms:b', square(50, 0, 10))];
+  const merged = applyBuildingOverrides(list, {
+    buildings: [
+      { id: 'osm:w1', name: 'Torre Prueba', height: 40, entrances: [{ name: 'Principal', lat: 10.511, lon: -66.852 }] },
+      { id: 'ms:a', hide: true },
+      { id: 'ms:gone', name: 'X' },
+    ],
+    addBuildings: [{ id: 'manual:kiosco', name: 'Kiosco', outline: square(70, 0, 4).slice(0, 4) }],
+  });
+  const byId = new Map(merged.buildings.map((b) => [b.id, b]));
+  const torre = byId.get('osm:w1');
+  check('buildings: override renames, sets height and entrances', torre?.name === 'Torre Prueba' && torre.height === 40 && torre.entrances.length === 1 && torre.source === 'osm');
+  check('buildings: override keeps fields it does not set', torre?.levels === null && torre.outline.length === 5);
+  check('buildings: hide removes the building', !byId.has('ms:a') && byId.has('ms:b'));
+  const kiosco = byId.get('manual:kiosco');
+  check('buildings: added building is manual, closed, 9 m', kiosco?.source === 'manual' && kiosco.outline.length === 5 && kiosco.height === 9 && kiosco.name === 'Kiosco');
+  check('buildings: reports override ids that match nothing', merged.unknown.join() === 'ms:gone');
+
+  // buildingsIn: by bbox, once per id across tiles; tiles built before buildings still load.
+  const t = (buildings?: TileBuilding[]): Tile => ({ v: 1, tile: [16, 20597, 30843], built: '', sources: [], elev: { rows: 2, cols: 2, z: [0, 0, 0, 0] }, signs: [], ways: [], ...(buildings && { buildings }) });
+  const near1 = offset(base, 45, 50); // ~35 m east: reaches ms:a (30–40 m), not ms:b (50–60 m)
+  const box: [number, number, number, number] = [base.lat - 0.0001, base.lon - 0.0001, near1.lat, near1.lon];
+  const found = buildingsIn([t(list), t([list[0]]), t()], box).map((b) => b.id).join();
+  check('buildings: buildingsIn by bbox, each once, old tiles ok', found === 'osm:w1,ms:a', found);
+}
+
 console.log(failed ? `\n${failed} failed` : '\nall passed');
 process.exit(failed ? 1 : 0);

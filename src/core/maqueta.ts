@@ -1,8 +1,8 @@
 // Maqueta: our own map data for the overlay, precompiled into static tiles under public/maqueta/
 // by scripts/maqueta/build.ts (see MAQUETA.md). Each tile has a ground elevation grid, OSM signs
-// and ways. The app only reads these files. Where a route has no tile, it behaves as before:
+// and ways, and building footprints. The app only reads these files. Where a route has no tile, it behaves as before:
 // flat road, no signs, no speed limit.
-import { angleDiff, bearingAt, pointAt, toLocal, type LatLon, type Polyline } from './geo.ts';
+import { angleDiff, bearingAt, fromLocal, pointAt, toLocal, type LatLon, type Polyline } from './geo.ts';
 
 export const MAQUETA_ZOOM = 16;
 const PROFILE_STEP = 5; // m between route elevation samples
@@ -30,6 +30,24 @@ export interface TileWay {
   pts: [number, number][]; // [lat, lon] in the way's own direction
 }
 
+export interface TileEntrance {
+  name: string;
+  lat: number;
+  lon: number;
+}
+
+export type BuildingSource = 'osm' | 'ms' | 'google' | 'manual';
+
+export interface TileBuilding {
+  id: string; // osm:w123 / osm:r123, ms:{lat},{lon} of the footprint's centre, or any id for hand-drawn ones
+  name: string | null;
+  height: number; // m: OSM `height`, else `building:levels` × 3, else 9; overrides win
+  levels: number | null;
+  source: BuildingSource; // where the outline came from
+  outline: [number, number][]; // [lat, lon], closed ring (last point = first)
+  entrances: TileEntrance[]; // hand-measured or from OSM; may be empty (see entrancesOf)
+}
+
 export interface Tile {
   v: 1;
   tile: [number, number, number]; // [zoom, x, y]
@@ -39,6 +57,8 @@ export interface Tile {
   elev: { rows: number; cols: number; z: number[] };
   signs: TileSign[];
   ways: TileWay[];
+  /** Footprints whose centre is in this tile (whole outline, may cross the edge). Missing in older tiles. */
+  buildings?: TileBuilding[];
 }
 
 export interface MaquetaIndex {
@@ -189,6 +209,124 @@ export interface RouteMaqueta {
 export function limitAt(limits: Uint8Array, d: number): number | null {
   const v = limits[Math.min(limits.length - 1, Math.max(0, Math.round(d / LIMIT_STEP)))];
   return v || null;
+}
+
+// ---- buildings ----
+
+export const ENTRANCE_FALLBACK_NAME = 'Frente al edificio';
+
+/** Whether p is inside a [lat, lon] ring (ray casting; fine at building scale). */
+export function insideOutline(outline: [number, number][], p: LatLon): boolean {
+  let inside = false;
+  for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
+    const [ai, oi] = outline[i];
+    const [aj, oj] = outline[j];
+    if (ai > p.lat !== aj > p.lat && p.lon < ((oj - oi) * (p.lat - ai)) / (aj - ai) + oi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Buildings from these tiles whose outline touches bbox (south, west, north, east), each once. */
+export function buildingsIn(tiles: Tile[], bbox: [number, number, number, number]): TileBuilding[] {
+  const [s, w, n, e] = bbox;
+  const out = new Map<string, TileBuilding>();
+  for (const t of tiles) {
+    for (const b of t.buildings ?? []) {
+      if (out.has(b.id)) continue;
+      let bs = Infinity;
+      let bw = Infinity;
+      let bn = -Infinity;
+      let be = -Infinity;
+      for (const [lat, lon] of b.outline) {
+        bs = Math.min(bs, lat);
+        bn = Math.max(bn, lat);
+        bw = Math.min(bw, lon);
+        be = Math.max(be, lon);
+      }
+      if (bs <= n && bn >= s && bw <= e && be >= w) out.set(b.id, b);
+    }
+  }
+  return [...out.values()];
+}
+
+type XZ = { x: number; z: number };
+
+/** Nearest point of segment a-c to q. */
+function nearestOnSegment(q: XZ, a: XZ, c: XZ): XZ {
+  const dx = c.x - a.x;
+  const dz = c.z - a.z;
+  const len2 = dx * dx + dz * dz;
+  const t = len2 ? Math.min(1, Math.max(0, ((q.x - a.x) * dx + (q.z - a.z) * dz) / len2)) : 0;
+  return { x: a.x + t * dx, z: a.z + t * dz };
+}
+
+function distToPolyline(q: XZ, pts: XZ[]): number {
+  let best = Infinity;
+  for (let k = 0; k < pts.length - 1; k++) {
+    const r = nearestOnSegment(q, pts[k], pts[k + 1]);
+    best = Math.min(best, Math.hypot(r.x - q.x, r.z - q.z));
+  }
+  return best;
+}
+
+/**
+ * Where to arrive at a building: its own entrances, else one computed entrance "Frente al edificio",
+ * the point of the outline nearest to the closest way. When a whole façade runs along that way (all
+ * of it within 1 m of the nearest distance), the middle of that façade. Empty when it has neither
+ * entrances nor ways.
+ */
+export function entrancesOf(b: TileBuilding, ways: TileWay[]): TileEntrance[] {
+  if (b.entrances.length) return b.entrances;
+  if (b.outline.length < 2) return [];
+  const origin = { lat: b.outline[0][0], lon: b.outline[0][1] };
+  const local = (pts: [number, number][]) => pts.map(([lat, lon]) => toLocal(origin, { lat, lon }));
+  const ring = local(b.outline);
+
+  // Closest way. Between two polylines that don't cross, the closest pair has a vertex of one of them.
+  let best = Infinity;
+  let closest: XZ[] | null = null;
+  for (const w of ways) {
+    const pts = local(w.pts);
+    if (pts.length < 2) continue;
+    let d = Infinity;
+    for (const q of ring) d = Math.min(d, distToPolyline(q, pts));
+    for (const q of pts) d = Math.min(d, distToPolyline(q, ring));
+    if (d < best) {
+      best = d;
+      closest = pts;
+    }
+  }
+  if (!closest) return [];
+
+  // Outline sampled every metre (ring is closed, so the last edge returns to the start).
+  const samples: { p: XZ; d: number }[] = [];
+  for (let k = 0; k < ring.length - 1; k++) {
+    const a = ring[k];
+    const c = ring[k + 1];
+    const n = Math.max(1, Math.ceil(Math.hypot(c.x - a.x, c.z - a.z)));
+    for (let i = 0; i < n; i++) {
+      const p = { x: a.x + ((c.x - a.x) * i) / n, z: a.z + ((c.z - a.z) * i) / n };
+      samples.push({ p, d: distToPolyline(p, closest) });
+    }
+  }
+  const dMin = Math.min(...samples.map((s) => s.d));
+  const front = samples.map((s) => s.d <= dMin + 1);
+  let at = samples.find((s) => s.d === dMin)!.p;
+  // Longest run of front samples, walking round the ring from a sample that isn't one.
+  const start = front.indexOf(false);
+  if (start >= 0) {
+    let run: number[] = [];
+    let longest: number[] = [];
+    for (let i = 1; i <= samples.length; i++) {
+      const j = (start + i) % samples.length;
+      if (front[j]) run.push(j);
+      else run = [];
+      if (run.length > longest.length) longest = [...run];
+    }
+    at = samples[longest[Math.floor(longest.length / 2)]].p;
+  }
+  const p = fromLocal(origin, at.x, at.z);
+  return [{ name: ENTRANCE_FALLBACK_NAME, lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6) }];
 }
 
 // ---- loading ----
