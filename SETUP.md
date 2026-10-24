@@ -28,7 +28,13 @@ Tick **Usar sensores del teléfono** before **Iniciar**. The camera then looks w
 
 ## Calibrate (⚙), once per mount
 
-Park on a straight street, then adjust:
+Two values calibrate themselves, no button needed (`src/render/autocalib.ts`):
+- **Campo de visión** is computed from the camera video size and the screen as soon as the camera starts, and again when the phone rotates. It assumes a 63° main lens (`DEFAULT_LENS_HFOV`); a measured value can be stored in `localStorage['ar-nav.lens'] = {"hfov": …}`.
+- **Inclinación** and the sideways roll of the mount are read from gravity whenever the phone has been still for 2.5 s with the car stopped (accelerating and braking tilt gravity, so readings while moving are ignored). The first reading applies at once; later ones blend in. Roll has no slider and is applied directly. Needs the motion permission on iPhone (asked at **Iniciar**); without it, calibration stays manual. Not used in Repetición, nor with **Usar sensores**, which already reads the tilt live. On a slope the measured tilt includes the slope.
+
+Moving **Inclinación** or **Campo de visión** by hand wins: from then on that value is not changed automatically for this orientation. **Restablecer** goes back to automatic.
+
+Then fine-tune the rest by hand:
 0. **Inicio de la guía** moves the start of the ribbon away from the bonnet or dashboard.
 1. **Inclinación** until the guide sits on the asphalt rather than floating or sinking.
 2. **Campo de visión** until the guide's width matches the lane as it recedes.

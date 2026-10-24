@@ -12,6 +12,7 @@ import { cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
 import { BumpDetector } from '../src/hazards/bump.ts';
 import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
+import { DEFAULT_LENS_HFOV, TiltWindow, steadyMean, visibleVfov } from '../src/render/autocalib.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -168,6 +169,36 @@ await (async () => {
   await flush({ send: ok, now: 9100, force: true });
   check('force flush ignores the undo window (drive ended)', sent.at(-1) === 'd' && pending().length === 0);
 })();
+
+// ---- auto calibration ----
+// 63° lens, 1080p stream filling a 16:9 screen: the whole frame is visible, vfov = 2·atan(540/f).
+const f1080 = 960 / Math.tan((63 * Math.PI) / 360);
+check('vfov landscape, video fills the screen', near(visibleVfov(63, 1920, 1080, 1600, 900), (2 * Math.atan(540 / f1080) * 180) / Math.PI, 0.01));
+check('vfov landscape ≈ 38° (close to the 40° default)', near(visibleVfov(DEFAULT_LENS_HFOV, 1920, 1080, 1600, 900), 38.1, 0.3));
+check('vfov portrait: long side is vertical ≈ lens hfov', near(visibleVfov(63, 1080, 1920, 900, 1600), 63, 0.01));
+// A 20:9 phone crops the top and bottom of a 16:9 video, so less is visible vertically.
+check('vfov on a tall 20:9 screen is smaller (cover crop)', visibleVfov(63, 1920, 1080, 2400, 1080) < visibleVfov(63, 1920, 1080, 1920, 1080));
+const still = Array.from({ length: 40 }, (_, i) => ({ pitch: 6 + (i % 2 ? 0.2 : -0.2), roll: -2 + (i % 3) * 0.1 }));
+const m = steadyMean(still);
+check('steady tilt averages', !!m && near(m.pitch, 6, 0.05) && near(m.roll, -1.9, 0.05), JSON.stringify(m));
+check('moving phone is rejected', steadyMean(still.map((s, i) => ({ ...s, pitch: s.pitch + (i % 2 ? 4 : -4) }))) === null);
+check('too few samples are rejected', steadyMean(still.slice(0, 5)) === null);
+
+// Tilt window: 60 Hz readings; only a full, still window with the car stopped counts.
+const feed = (w: TiltWindow, from: number, ms: number, moving: (t: number) => boolean, pitch = 7) => {
+  for (let t = from; t <= from + ms; t += 16) w.push(t, { pitch: pitch + Math.sin(t) * 0.1, roll: 1 }, moving(t));
+};
+const tw = new TiltWindow(2500);
+feed(tw, 0, 1000, () => false);
+check('tilt window: too short is not trusted', tw.steady() === null);
+feed(tw, 1016, 2000, () => false);
+const st = tw.steady();
+check('tilt window: still phone, car stopped gives the tilt', !!st && near(st.pitch, 7, 0.1) && near(st.roll, 1, 0.01), JSON.stringify(st));
+const tw2 = new TiltWindow(2500);
+feed(tw2, 0, 3000, (t) => t > 2000);
+check('tilt window: ignored while the car moves (braking tilts gravity)', tw2.steady() === null);
+feed(tw2, 3016, 2600, () => false);
+check('tilt window: trusted again once stopped for the whole window', tw2.steady() !== null);
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');
 process.exit(failed ? 1 : 0);

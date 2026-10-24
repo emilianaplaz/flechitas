@@ -12,7 +12,7 @@ import { initDriveControls } from './drive/controls.ts';
 import { advance, resetProgress } from './drive/navigation.ts';
 import { startSource, stopDrive, stopSource } from './drive/start.ts';
 import { aheadOf, initHazardUi, loadHazards, reindexHazards, startBumpWatcher, startCloudSync, stopBumpWatcher, stopHazards, trackPosition } from './hazards/ui.ts';
-import { getCalib, initCalibDock } from './render/calibDock.ts';
+import { autoTiltTick, getCalib, getMountRoll, initCalibDock, startAutoTilt, stopAutoTilt } from './render/calibDock.ts';
 import { hideHud, renderHud } from './render/hud.ts';
 import { ar } from './render/scene.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
@@ -57,6 +57,7 @@ $('start').onclick = async () => {
     // First awaits in the handler: iOS only shows the sensor permission prompts inside the tap.
     if ($<HTMLInputElement>('detectBumps').checked && app.mode !== 'replay') await startBumpWatcher();
     if ($<HTMLInputElement>('useSensors').checked && app.mode !== 'replay') await startSensors();
+    await startAutoTilt(); // measures the mount's tilt by itself; no-op without permission
     if (!ar) throw new Error('Este navegador no puede dibujar 3D (WebGL desactivado). Activa la aceleración por hardware en Chrome: chrome://settings/system');
     if ($<HTMLInputElement>('dest').value.trim() && !app.dest) await resolveDestInput();
     await loadHazards();
@@ -73,6 +74,7 @@ $('start').onclick = async () => {
     setupMsg((e as Error).message);
     stopSource();
     stopSensors();
+    stopAutoTilt();
     stopBumpWatcher();
   } finally {
     btn.disabled = false;
@@ -88,6 +90,7 @@ $('stop').onclick = async () => {
   app.running = false;
   await stopDrive();
   stopSensors();
+  stopAutoTilt();
   stopHazards();
   $('align').hidden = true;
   app.route = null;
@@ -118,6 +121,8 @@ function frame(now: number) {
   const nav = advance(fix, route, now, dt, calib.lateral, setRoute);
   const { ahead, nearest } = aheadOf(nav.along);
   const view = updateView(now, dt);
+  // Braking and accelerating tilt the apparent gravity: only trust tilt readings with the car stopped.
+  autoTiltTick(now, app.mode === 'gps' && nav.speed > 1);
 
   ar?.update({
     origin: nav.origin,
@@ -129,6 +134,7 @@ function frame(now: number) {
     hazards: ahead,
     calib,
     pose: view ? { pitch: view.pitch, roll: view.roll } : undefined,
+    mountRoll: getMountRoll(),
   });
   renderHud({ route, speed: nav.speed, remaining: nav.remaining, next: nav.next, distToNext: nav.distToNext, nearestHazard: nearest, offRoute: !nav.onRoute && app.mode === 'gps' });
 }
