@@ -32,14 +32,18 @@ function setRoute(r: Route) {
   reindexHazards();
 }
 
-async function enterImmersive() {
+/** Fullscreen and wake lock are best-effort: some browsers never settle these promises, so nothing waits on them. */
+function enterImmersive() {
   try {
-    await document.documentElement.requestFullscreen?.();
+    document.documentElement.requestFullscreen?.().catch(() => {});
   } catch {
     /* not supported (e.g. iOS) */
   }
   try {
-    wakeLock = await (navigator as unknown as { wakeLock?: { request(t: string): Promise<{ release(): Promise<void> }> } }).wakeLock?.request('screen') ?? null;
+    (navigator as unknown as { wakeLock?: { request(t: string): Promise<{ release(): Promise<void> }> } }).wakeLock
+      ?.request('screen')
+      .then((lock) => (wakeLock = lock))
+      .catch(() => {});
   } catch {
     /* ignore */
   }
@@ -92,6 +96,7 @@ $('stop').onclick = async () => {
   $('align').hidden = true;
   app.route = null;
   await wakeLock?.release().catch(() => {});
+  wakeLock = null;
   if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
   hideHud();
   $('setup').hidden = false;

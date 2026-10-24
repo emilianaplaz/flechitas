@@ -7,7 +7,7 @@ import type { Step, TurnKind } from '../core/route.ts';
 import { HAZARD_LABEL, type HazardType } from '../hazards/store.ts';
 import type { HazardView } from '../hazards/ahead.ts';
 
-const GUIDE = 0x00e5ff;
+const GUIDE = 0x00e676;
 const RIBBON_STEP = 2; // m between ribbon samples
 const RIBBON_LEN = 160; // m of road ahead to draw
 const MAX_SAMPLES = Math.ceil(RIBBON_LEN / RIBBON_STEP) + 2;
