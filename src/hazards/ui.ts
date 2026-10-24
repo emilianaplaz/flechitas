@@ -2,6 +2,7 @@
 // prompt, undo/export, and the background upload queue. Navigation only calls the small
 // functions at the bottom (`reindexHazards`, `aheadOf`, `trackPosition`).
 import type { LatLon } from '../core/geo.ts';
+import type { TileSign } from '../core/maqueta.ts';
 import { app } from '../core/state.ts';
 import { $, download, toast } from '../core/ui.ts';
 import { hazardsAhead, indexOnRoute, type RouteHazard } from './ahead.ts';
@@ -23,6 +24,14 @@ export function reindexHazards() {
 
 /** Hazards to draw from `along`, and the nearest one worth a banner. */
 export const aheadOf = (along: number) => hazardsAhead(onRoute, along);
+
+/** Speed bumps from the maqueta tiles of the current route (OSM `traffic_calming`), shown like reported ones. */
+export function setOsmHazards(signs: TileSign[]) {
+  hazards.osm = signs
+    .filter((s) => s.type === 'bump' || s.type === 'hump' || s.type === 'table')
+    .map((s) => ({ id: s.id, type: 'policia', lat: s.lat, lon: s.lon, createdAt: '', heading: s.dir ?? undefined, source: 'osm' }));
+  reindexHazards();
+}
 
 export async function loadHazards() {
   await hazards.loadSeeds();
@@ -104,6 +113,7 @@ export function stopHazards() {
   clearInterval(syncTimer);
   void flush({ force: true });
   trail = [];
+  hazards.osm = [];
 }
 
 export function initHazardUi() {

@@ -7,6 +7,7 @@ import type { Hazard, HazardType } from './store.ts';
 export interface HazardView {
   p: LatLon;
   type: HazardType;
+  along: number; // distance along the route
 }
 
 export interface RouteHazard {
@@ -35,7 +36,7 @@ export function hazardsAhead(list: RouteHazard[], along: number): { ahead: Hazar
   for (const { h, along: ha } of list) {
     const d = ha - along;
     if (d < -8 || d > 220) continue;
-    ahead.push({ p: h, type: h.type });
+    ahead.push({ p: h, type: h.type, along: ha });
     if (d > 0 && d < 150 && (!nearest || d < nearest.dist)) nearest = { type: h.type, dist: d };
   }
   return { ahead, nearest };

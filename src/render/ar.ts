@@ -1,13 +1,16 @@
 // The 3D overlay drawn on top of the camera feed: a guide ribbon on the road, floating chevrons,
 // a standing arrow plus roadside chevron signs at the next turn, a destination pin with a light
-// beam, and markers on reported hazards.
+// beam, markers on reported hazards and the maqueta's road signs. With a maqueta elevation profile
+// everything follows the road's slope; without one the road is flat.
 import * as THREE from 'three';
-import { bearingAt, pointAt, toLocal, toRad, type LatLon, type Polyline } from '../core/geo.ts';
+import { bearingAt, pointAt, toDeg, toLocal, toRad, type LatLon, type Polyline } from '../core/geo.ts';
 import type { Calib } from './calib.ts';
 import type { Display } from '../core/state.ts';
 import type { Step, TurnKind } from '../core/route.ts';
 import { HAZARD_LABEL, type HazardType } from '../hazards/store.ts';
 import type { HazardView } from '../hazards/ahead.ts';
+import type { SignView } from '../signs/ahead.ts';
+import { SignMarkers } from './signMarkers.ts';
 import { mirrorCamera, virtualImage, type Optics } from './optics.ts';
 
 const GUIDE = 0x00e676;
@@ -49,6 +52,9 @@ export interface FrameInput {
   optics?: Optics | null;
   /** Car body pitch/roll relative to the road, degrees (braking dive, slopes); HUD optics only. */
   attitude?: { pitch: number; roll: number };
+  /** Ground height in metres at a distance along the route (maqueta). Absent: flat road, as before. */
+  elevAlong?: ((d: number) => number) | null;
+  signs?: SignView[];
 }
 
 function arrowShape(): THREE.Shape {
@@ -255,6 +261,7 @@ export class ArScene {
   // The next maneuver. Its bearings are worked out once, when it becomes the next step.
   private step: Step | null = null;
   private corner: LatLon | null = null;
+  private cornerAlong = 0;
   private bearingIn = 0;
   private visibleSince: number | null = null;
   private gateSince: number | null = null; // the signs show up later than the arrow, with their own entrance
@@ -271,6 +278,12 @@ export class ArScene {
   private pin = new THREE.Group();
   private beam: THREE.Mesh;
   private destPulse: THREE.Group;
+
+  private signMarkers = new SignMarkers();
+  // Road height along the route for this frame, relative to the ground under the car.
+  private elevAlong: ((d: number) => number) | null = null;
+  private elevBase = 0;
+  private heightAt = (d: number) => (this.elevAlong ? this.elevAlong(d) - this.elevBase : 0);
 
   private hazardPool: { group: THREE.Group; label: THREE.Sprite; pulse: THREE.Group; type: HazardType | null }[] = [];
   private labelMats = new Map<HazardType, THREE.SpriteMaterial>();
@@ -399,7 +412,7 @@ export class ArScene {
     this.destPulse = pulseRings(DEST, 2);
     this.dest.add(this.pin, this.beam, this.destPulse);
     this.dest.visible = false;
-    this.world.add(this.dest);
+    this.world.add(this.dest, this.signMarkers.group);
 
     // Hazard markers: a traffic cone with a white band, a pulsing ring and a label.
     const red = lit(HAZARD, 0.35);
@@ -444,6 +457,8 @@ export class ArScene {
 
   update(f: FrameInput) {
     const { calib } = f;
+    this.elevAlong = f.poly ? (f.elevAlong ?? null) : null;
+    this.elevBase = this.elevAlong ? this.elevAlong(f.along) : 0;
     if (f.display === 'hud' && f.optics) this.placeHudCamera(f, f.optics);
     else {
       if (this.optics) this.leaveHudOptics();
@@ -453,7 +468,9 @@ export class ArScene {
       }
       this.camera.position.set(0, calib.height, 0);
       this.camera.rotation.y = -toRad(f.yaw + calib.yawOffset);
-      this.camera.rotation.x = -toRad(f.pose ? f.pose.pitch : calib.pitch);
+      // A calibrated mount tilts with the car: on a slope, add the road's grade under it.
+      // Sensor pitch is already absolute.
+      this.camera.rotation.x = -toRad(f.pose ? f.pose.pitch : calib.pitch - this.gradeDeg(f.along));
       this.camera.rotation.z = -toRad(f.pose ? f.pose.roll : (f.mountRoll ?? 0));
     }
     // Hazard labels are sprites, which don't mirror with the reflected world; the HUD banner says it instead.
@@ -463,6 +480,7 @@ export class ArScene {
     this.updateRibbon(f, now);
     this.updateTurn(f, now);
     this.updateHazards(f, now);
+    this.signMarkers.update(f.poly ? (f.signs ?? []) : [], f.origin, f.along, this.heightAt);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -501,6 +519,12 @@ export class ArScene {
     this.world.matrixAutoUpdate = true;
   }
 
+  /** Slope of the road under the car, degrees (positive uphill), from the maqueta profile. */
+  private gradeDeg(along: number): number {
+    if (!this.elevAlong) return 0;
+    return toDeg(Math.atan((this.elevAlong(along + 8) - this.elevAlong(along - 8)) / 16));
+  }
+
   /** Scale at which something `height` metres tall, `dist` away, fills at least MIN_SCREEN of the screen. */
   private readableScale(dist: number, height: number, max: number): number {
     const vfov = this.optics ? this.hudVfov : this.camera.fov;
@@ -527,7 +551,8 @@ export class ArScene {
         const nx = tz; // left-hand normal
         const nz = -tx;
         const o = count * 6;
-        this.ribbonPos.set([c.x + nx * half, 0.02, c.z + nz * half, c.x - nx * half, 0.02, c.z - nz * half], o);
+        const y = this.heightAt(d) + 0.02;
+        this.ribbonPos.set([c.x + nx * half, y, c.z + nz * half, c.x - nx * half, y, c.z - nz * half], o);
         const ahead = d - f.along;
         // In HUD mode, higher opacity and saturated green for windshield reflection
         const alpha = isHud
@@ -545,7 +570,7 @@ export class ArScene {
         if (Math.floor(d / CHEVRON_EVERY) !== Math.floor((d - RIBBON_STEP) / CHEVRON_EVERY) && chevI < MAX_CHEVRONS && ahead > 6) {
           const ch = this.chevrons[chevI++];
           ch.group.visible = true;
-          ch.group.position.set(c.x, 0, c.z);
+          ch.group.position.set(c.x, y - 0.02, c.z);
           ch.group.rotation.y = -b;
           const tilt = THREE.MathUtils.lerp(CHEVRON_TILT_NEAR, CHEVRON_TILT_FAR, clamp01((ahead - 10) / 50));
           ch.body.rotation.x = tilt;
@@ -578,6 +603,7 @@ export class ArScene {
       this.corner = null;
       if (step && f.poly) {
         this.corner = pointAt(f.poly, step.along).p;
+        this.cornerAlong = step.along;
         this.bearingIn = bearingAt(f.poly, Math.max(0, step.along - 14), 12);
       }
     }
@@ -597,10 +623,11 @@ export class ArScene {
     // Pops in when it first appears, shrinks away in the last few metres past the turn.
     const pop = easeOutBack(clamp01(since / 0.5)) * clamp01((d + 5) / 5);
     const c = toLocal(f.origin, this.corner!);
+    const y = this.heightAt(this.cornerAlong);
     const s = this.readableScale(d, ARROW_H, 5);
 
     if (arrive) {
-      this.dest.position.set(c.x, 0, c.z);
+      this.dest.position.set(c.x, y, c.z);
       const ps = Math.max(1.5, s);
       this.pin.position.y = 1.3 * ps + 1.0 + 0.25 * ps * Math.sin(now * 2.2);
       this.pin.rotation.y = now * 1.2;
@@ -617,7 +644,7 @@ export class ArScene {
     const kind = step!.kind;
     const turnSide = sideOf(kind);
     for (const [k, obj] of this.turnArrows) obj.visible = k === kind;
-    this.turn.position.set(c.x, 0, c.z);
+    this.turn.position.set(c.x, y, c.z);
     this.turn.rotation.y = -toRad(f.yaw); // always face the driver
     const gateScale = this.readableScale(d, 2.8, 2.5);
     const lift = (ARROW_H / 2) * s + ARROW_CLEAR * gateScale;
@@ -635,14 +662,14 @@ export class ArScene {
 
     if (this.gate.visible) {
       this.gateSince ??= now;
-      this.updateGate(c, gateScale, turnSide, d, now - this.gateSince, now);
+      this.updateGate(c, y, gateScale, turnSide, d, now - this.gateSince, now);
     }
   }
 
   /** The signs stand across the road past the turn point, facing the driver's approach, chevrons toward the turn. */
-  private updateGate(c: { x: number; z: number }, scale: number, turnSide: number, d: number, since: number, now: number) {
+  private updateGate(c: { x: number; z: number }, y: number, scale: number, turnSide: number, d: number, since: number, now: number) {
     const b = toRad(this.bearingIn);
-    this.gate.position.set(c.x + Math.sin(b) * GATE_PAST, 0, c.z - Math.cos(b) * GATE_PAST);
+    this.gate.position.set(c.x + Math.sin(b) * GATE_PAST, y, c.z - Math.cos(b) * GATE_PAST);
     this.gate.rotation.y = -b;
     this.gate.scale.setScalar(scale);
     this.gateSigns.forEach((sign, i) => {
@@ -663,7 +690,7 @@ export class ArScene {
       if (i >= this.hazardPool.length) break;
       const slot = this.hazardPool[i++];
       const c = toLocal(f.origin, h.p);
-      slot.group.position.set(c.x, 0, c.z);
+      slot.group.position.set(c.x, this.heightAt(h.along), c.z);
       slot.group.visible = true;
       animatePulse(slot.pulse, now + i * 0.3);
       if (slot.type !== h.type) {

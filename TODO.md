@@ -41,7 +41,7 @@
 - [ ] Merge reports within ~15 m and the same travel direction into one hazard, and use `confirmations` and `last_seen` (the app doesn't read or write them yet). The anon key can't update rows, so this needs a serverless function or an RPC
 - [ ] Expire hazards that haven't been seen for a while
 - [ ] Load only hazards near the route instead of the latest 5000 rows
-- [ ] Import speed bumps from OpenStreetMap (`traffic_calming=bump|hump|table`; about 670 nodes around Caracas) along the route at start
+- [x] Import speed bumps from OpenStreetMap (`traffic_calming=bump|hump|table`) through the maqueta tiles, where there are tiles
 
 ## Remote camera (`remote/`)
 
@@ -59,6 +59,8 @@
 - [x] Addresses and coordinates as destinations
 - [x] OSRM driving routes with Spanish instructions
 - [x] Installable PWA
+- [x] Maqueta phase 1 (MAQUETA.md): tiles for Av. San Juan Bosco with elevation, OSM signs and ways; ribbon and markers follow the slope, signs in 3D, speed limit in the HUD
+- [ ] Maqueta phase 2: Altamira and Los Palos Grandes, plus a recorded drive replayed as a regression fixture
 
 ## Project structure
 

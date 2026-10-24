@@ -1,18 +1,20 @@
 // Composition root: wires the modules together and runs the per-frame loop.
-//   core/     shared types, geometry, routing, link parsing, DOM helpers
+//   core/     shared types, geometry, routing, link parsing, DOM helpers, maqueta tiles
 //   drive/    position sources (GPS / sim / replay) and route following; no phone sensors
 //   walk/     phone orientation sensors that steer the camera view
 //   render/   Three.js overlay, HUD and calibration dock
 //   hazards/  hazard store, cloud sync, bump detection and reporting UI
+//   signs/    road signs from the maqueta along the route
 //   remote/   a phone paired by QR code streams its camera, GPS and tilt to this screen
 import './style.css';
 import { app } from './core/state.ts';
 import { $, setupMsg, toast } from './core/ui.ts';
+import { limitAt, loadRouteMaqueta, type RouteMaqueta } from './core/maqueta.ts';
 import type { Route } from './core/route.ts';
 import { initDriveControls } from './drive/controls.ts';
 import { advance, resetProgress } from './drive/navigation.ts';
 import { startSource, stopDrive, stopSource } from './drive/start.ts';
-import { aheadOf, initHazardUi, loadHazards, reindexHazards, startBumpWatcher, startCloudSync, stopBumpWatcher, stopHazards, trackPosition } from './hazards/ui.ts';
+import { aheadOf, initHazardUi, loadHazards, setOsmHazards, startBumpWatcher, startCloudSync, stopBumpWatcher, stopHazards, trackPosition } from './hazards/ui.ts';
 import { autoTiltTick, getCalib, getMountRoll, initCalibDock, startAutoTilt, stopAutoTilt } from './render/calibDock.ts';
 import { hideHud, initHudControls, renderHud, showHud } from './render/hud.ts';
 import { currentOptics, initHudSetup } from './render/hudSetup.ts';
@@ -20,11 +22,13 @@ import { ar } from './render/scene.ts';
 import { initRemoteDisplay, remoteTilt } from './remote/display.ts';
 import { initPhoneCam, isPhoneCamPage } from './remote/phone.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
+import { clearSigns, setSigns, signsAheadOf } from './signs/store.ts';
 import { align, sensorsActive, startSensors, stopSensors, updateView } from './walk/view.ts';
 
 let lastFrame = performance.now();
 let wakeLock: { release(): Promise<void> } | null = null;
 let attitude = { pitch: 0, roll: 0 }; // car body pitch/roll for the windshield HUD, smoothed
+let maqueta: RouteMaqueta | null = null; // the active route's map data, once loaded
 
 /**
  * Windshield HUD: the car's pitch and roll relative to the road, from the paired phone. The phone is
@@ -52,7 +56,16 @@ else initRemoteDisplay();
 function setRoute(r: Route) {
   app.route = r;
   resetProgress();
-  reindexHazards();
+  // The maqueta loads in the background; until then, and where it has no tiles, the road is flat.
+  maqueta = null;
+  clearSigns();
+  setOsmHazards([]); // also reindexes the hazards on the new route
+  void loadRouteMaqueta(r.poly).then((m) => {
+    if (app.route !== r || !m) return; // rerouted meanwhile, or no tiles here
+    maqueta = m;
+    setSigns(m.signs, r.poly);
+    setOsmHazards(m.signs);
+  });
 }
 
 /** Fullscreen and wake lock are best-effort: some browsers never settle these promises, so nothing waits on them. */
@@ -145,6 +158,8 @@ $('stop').onclick = async () => {
   stopHazards();
   $('align').hidden = true;
   app.route = null;
+  maqueta = null;
+  clearSigns();
   await wakeLock?.release().catch(() => {});
   wakeLock = null;
   if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
@@ -196,8 +211,19 @@ function frame(now: number) {
     mountRoll: getMountRoll(),
     optics: currentOptics(),
     attitude: app.display === 'hud' ? carAttitude(now, dt, calib.pitch, getMountRoll()) : undefined,
+    elevAlong: maqueta?.profile?.at ?? null,
+    signs: signsAheadOf(nav.along),
   });
-  renderHud({ route, speed: nav.speed, remaining: nav.remaining, next: nav.next, distToNext: nav.distToNext, nearestHazard: nearest, offRoute: !nav.onRoute && app.mode === 'gps' });
+  renderHud({
+    route,
+    speed: nav.speed,
+    remaining: nav.remaining,
+    next: nav.next,
+    distToNext: nav.distToNext,
+    nearestHazard: nearest,
+    offRoute: !nav.onRoute && app.mode === 'gps',
+    speedLimit: maqueta ? limitAt(maqueta.limits, nav.along) : null,
+  });
 }
 
 // Service worker: makes the app installable on Android, which is what puts it in the

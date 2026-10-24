@@ -38,6 +38,7 @@ export interface HudInput {
   distToNext: number;
   nearestHazard: { type: HazardType; dist: number } | null;
   offRoute: boolean; // show "Fuera de ruta…" in place of the instruction
+  speedLimit?: number | null; // km/h, from the maqueta; hidden when unknown
 }
 
 let flipState: FlipState = loadFlip();
@@ -89,6 +90,8 @@ export function renderHud(h: HudInput) {
   const { route } = h;
   const isHud = app.display === 'hud';
   setText('speed', String(Math.round(h.speed * 3.6)));
+  $('limit').hidden = !h.speedLimit;
+  if (h.speedLimit) setText('limit', String(h.speedLimit));
 
   const remainingEl = $('remaining');
   if (isHud) {

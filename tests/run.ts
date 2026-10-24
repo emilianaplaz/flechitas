@@ -18,6 +18,8 @@ import { PEER_PREFIX, newPeerId, phoneUrl, reachableOrigin } from '../src/remote
 import { interfaceAngle, physicalAngle, uprightPlan } from '../src/remote/orient.ts';
 import { Vector3, Vector4 } from 'three';
 import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransform, placementAdvice, reflectMatrix, virtualImage, worldToCss } from '../src/render/optics.ts';
+import { RouteProfile, gridPoint, limitAt, speedLimits, tileElevation, tileOf, tileToLatLon, tileXY, type Tile, type TileSign, type TileWay } from '../src/core/maqueta.ts';
+import { indexSigns, signsAhead } from '../src/signs/ahead.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -320,6 +322,88 @@ check('incidence at the glass is past Brewster (more reflection)', fi.incidenceD
   check('placement: centres the picture at the target angle', near(p.centreDeg, -4, 0.3), String(p.centreDeg));
   const steep = placementAdvice({ ...FORTUNER_2015, rake: 40 }, IW, IH, -4);
   check('placement: steeper glass, iPad a little closer to it', steep.fromGlassBase < p.fromGlassBase, `${steep.fromGlassBase} ${p.fromGlassBase}`);
+}
+
+// ---- maqueta: tiles, elevation, route profile, speed limits ----
+{
+  // The San Juan Bosco zone covers x 20597–20598, y 30843–30844 at z16 (MAQUETA.md).
+  const nw = tileOf({ lat: 10.5128, lon: -66.854 });
+  const se = tileOf({ lat: 10.509, lon: -66.8498 });
+  check('maqueta: zone NW corner tile', nw.x === 20597 && nw.y === 30843, JSON.stringify(nw));
+  check('maqueta: zone SE corner tile', se.x === 20598 && se.y === 30844, JSON.stringify(se));
+  const p = { lat: 10.51031, lon: -66.85181 };
+  const f = tileXY(p);
+  const back = tileToLatLon(f.x, f.y);
+  check('maqueta: tile coordinates round trip', near(back.lat, p.lat, 1e-9) && near(back.lon, p.lon, 1e-9), JSON.stringify(back));
+  const c0 = gridPoint(20597, 30843, 13, 13, 0, 0);
+  const c1 = gridPoint(20597, 30843, 13, 13, 12, 12);
+  const t1 = tileToLatLon(20598, 30844);
+  check('maqueta: grid starts at the NW corner, ends at the SE corner', near(c0.lat, tileToLatLon(20597, 30843).lat, 1e-12) && near(c1.lat, t1.lat, 1e-12) && near(c1.lon, t1.lon, 1e-12));
+}
+{
+  // Heights that are linear in grid space come back exactly from bilinear interpolation.
+  const rows = 13;
+  const cols = 13;
+  const z: number[] = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) z.push(100 + 3 * c + 5 * r);
+  const tile: Tile = { v: 1, tile: [16, 20597, 30843], built: '', sources: [], elev: { rows, cols, z }, signs: [], ways: [] };
+  const inside = tileToLatLon(20597 + 2.5 / 12, 30843 + 7.25 / 12);
+  check('maqueta: bilinear elevation inside a tile', near(tileElevation(tile, inside)!, 100 + 3 * 2.5 + 5 * 7.25, 1e-6), String(tileElevation(tile, inside)));
+  check('maqueta: corner of the tile', near(tileElevation(tile, tileToLatLon(20598, 30844))!, 100 + 36 + 60, 1e-6));
+  check('maqueta: no elevation outside the tile', tileElevation(tile, tileToLatLon(20599, 30843.5)) === null);
+}
+{
+  // 300 m due north climbing 13 %: like San Juan Bosco, 6.5 m up at 50 m.
+  const start = { lat: 10.51031, lon: -66.85181 };
+  const north = buildPolyline([start, offset(start, 0, 300)]);
+  const rise = (p: { lat: number }) => 900 + 0.13 * (p.lat - start.lat) * 110540;
+  const prof = RouteProfile.build(north, rise)!;
+  check('maqueta: profile 13 % slope, 6.5 m up at 50 m', near(prof.at(50) - prof.at(0), 6.5, 0.1), String(prof.at(50) - prof.at(0)));
+  check('maqueta: profile between samples', near(prof.at(52.5) - prof.at(0), 0.13 * 52.5, 0.1), String(prof.at(52.5)));
+  check('maqueta: profile clamps past the end', prof.at(1000) === prof.at(north.length));
+  // No tile for the first 100 m: that stretch holds the first known height, so it reads as flat.
+  const gap = RouteProfile.build(north, (p) => ((p.lat - start.lat) * 110540 < 100 ? null : rise(p)))!;
+  check('maqueta: gap before the tiles is flat', gap.at(0) === gap.at(95) && gap.at(200) > gap.at(100));
+  check('maqueta: no tiles at all, no profile', RouteProfile.build(north, () => null) === null);
+
+  // Speed limit: a northbound one-way 5 m east matches; a closer southbound one-way doesn't.
+  const way = (id: string, from: { lat: number; lon: number }, to: { lat: number; lon: number }, oneway: boolean, maxspeed: number): TileWay => ({
+    id,
+    name: null,
+    oneway,
+    lanes: 2,
+    maxspeed,
+    turnLanes: null,
+    pts: [[from.lat, from.lon], [to.lat, to.lon]],
+  });
+  const east = (m: number) => offset(start, 90, m);
+  const up = way('up', east(5), offset(east(5), 0, 300), true, 30);
+  const down = way('down', offset(east(-3), 0, 300), east(-3), true, 60);
+  const lim = speedLimits(north, [down, up]);
+  check('maqueta: speed limit from the one-way going our way', limitAt(lim, 150) === 30, String(limitAt(lim, 150)));
+  check('maqueta: no limit without a matching way', limitAt(speedLimits(north, [down]), 150) === null);
+  const twoWay = way('two', offset(east(2), 0, 300), east(2), false, 50);
+  check('maqueta: a two-way road matches either direction', limitAt(speedLimits(north, [twoWay]), 150) === 50);
+
+  // Signs: our direction or both ways, on this street, not bumps.
+  const sign = (id: string, type: TileSign['type'], m: number, side: number, dir: number | null): TileSign => {
+    const p = offset(offset(start, 0, m), 90, side);
+    return { id, type, lat: p.lat, lon: p.lon, dir, verified: false };
+  };
+  const list = indexSigns(
+    [
+      sign('ours', 'stop', 50, 4, 0),
+      sign('theirs', 'stop', 60, -4, 180),
+      sign('both', 'traffic_signals', 120, 0, null),
+      sign('far', 'stop', 80, 30, 0),
+      sign('bump', 'bump', 90, 0, null),
+    ],
+    north,
+  );
+  check('signs: keeps ours and both-ways, drops the other direction, other streets and bumps', list.map((r) => r.s.id).join() === 'ours,both', list.map((r) => r.s.id).join());
+  check('signs: along the route', near(list[0].along, 50, 1) && near(list[0].bearing, 0, 1));
+  const ahead = signsAhead(list, 100);
+  check('signs: window ahead skips the ones well behind', ahead.length === 1 && ahead[0].type === 'traffic_signals');
 }
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');

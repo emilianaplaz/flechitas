@@ -7,7 +7,8 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "test": "node --experimental-strip-types tests/run.ts"
+    "test": "node --experimental-strip-types tests/run.ts",
+    "maqueta": "node --experimental-strip-types scripts/maqueta/build.ts"
   },
   "dependencies": {
     "peerjs": "^1.5.5",

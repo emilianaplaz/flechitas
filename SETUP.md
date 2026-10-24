@@ -93,13 +93,31 @@ Source is split by module so teammates can work in parallel. Each folder has one
 
 - `src/main.ts`: composition root: wires the modules, start/stop, per-frame loop
 - `src/setup.ts`: setup screen (mode, destination, share target)
-- `src/core/`: shared. `geo.ts` geometry, `route.ts` OSRM routing + Spanish instructions, `links.ts` Maps/Waze links + geocoding, `types.ts` (`Fix`, `Source`), `state.ts` (`app`), `ui.ts` DOM helpers
+- `src/core/`: shared. `geo.ts` geometry, `route.ts` OSRM routing + Spanish instructions, `links.ts` Maps/Waze links + geocoding, `maqueta.ts` map tiles (elevation profile, speed limits, signs), `types.ts` (`Fix`, `Source`), `state.ts` (`app`), `ui.ts` DOM helpers
 - `src/drive/`: navigation without orientation sensors. `sources.ts` GPS/sim/replay, `navigation.ts` route following + rerouting, `start.ts` per-mode startup, `controls.ts` record/sim buttons, `recorder.ts`
 - `src/walk/`: navigation with sensors. `orientation.ts` compass/tilt/roll to camera pose, `view.ts` smoothing + "Alinear"
-- `src/render/`: 3D and HUD. `ar.ts` Three.js overlay, `scene.ts`, `hud.ts`, `calib.ts` + `calibDock.ts`
+- `src/render/`: 3D and HUD. `ar.ts` Three.js overlay, `signMarkers.ts` road signs in 3D, `scene.ts`, `hud.ts`, `calib.ts` + `calibDock.ts`
 - `src/remote/`: phone as remote camera. `protocol.ts` shared messages and URLs, `display.ts` QR + receiving side, `phone.ts` the phone's camera page (`/?cam=<id>`), `orient.ts` keeping its picture upright
+- `src/signs/`: road signs from the maqueta. `store.ts` signs of the current route, `ahead.ts` which ones apply to our street and direction. Navigation only calls `setSigns`, `signsAheadOf`, `clearSigns`
 - `src/hazards/`: hazard mapping. `store.ts`, `cloud.ts` sync, `bump.ts` accelerometer detection, `ahead.ts` hazards along a route, `ui.ts` reporting UI. Navigation only calls `reindexHazards`, `aheadOf`, `trackPosition`
 - `api/expand.ts`: serverless function that expands `maps.app.goo.gl` links
+- `scripts/maqueta/`: builds the map tiles in `public/maqueta/` (see below and [MAQUETA.md](MAQUETA.md))
 - `pipeline3d/`: phone video → textured 3D street model (COLMAP + OpenMVS), step by step in [pipeline3d/README.md](pipeline3d/README.md)
 
 The public OSRM and Nominatim servers are fine for a demo but rate-limited.
+
+## Maqueta (map tiles)
+
+The overlay follows the road's slope and shows OSM road signs and the speed limit where there are tiles in `public/maqueta/`. Elsewhere the road is drawn flat, as before. To build or refresh a zone listed in `scripts/maqueta/zones.json`:
+
+```bash
+npm run maqueta -- san-juan-bosco
+```
+
+It queries Overpass and Open-Meteo (a dozen requests for four tiles, with pauses), so run it by hand, not in CI, and commit the result. Hand corrections go in `scripts/maqueta/overrides/{x}_{y}.json` and win over OSM on the next build:
+
+```json
+{ "signs": [{ "id": "manual:1", "type": "stop", "lat": 10.5105, "lon": -66.8519, "dir": 350 }], "removeSigns": ["osm:n123"], "elev": [{ "r": 4, "c": 7, "z": 968.5 }] }
+```
+
+`dir` is the compass bearing of the traffic the sign is for; leave it `null` for both directions.

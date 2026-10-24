@@ -10,7 +10,7 @@ export interface Hazard extends LatLon {
   type: HazardType;
   createdAt: string;
   heading?: number; // travel direction when reported; hazards in the other direction are ignored
-  source?: 'tap' | 'detected';
+  source?: 'tap' | 'detected' | 'osm'; // osm: speed bumps from the maqueta tiles, never uploaded
 }
 
 export const HAZARD_LABEL: Record<HazardType, string> = {
@@ -41,6 +41,7 @@ export class HazardStore {
   seeds: Hazard[] = [];
   shared: Hazard[] = [];
   local: Hazard[] = loadLocal();
+  osm: Hazard[] = []; // speed bumps from the maqueta tiles of the current route
 
   async loadSeeds() {
     try {
@@ -58,7 +59,7 @@ export class HazardStore {
   /** Seeds, everyone's reports and this phone's own, one entry per id (a report we uploaded comes back from the database). */
   all(): Hazard[] {
     const byId = new Map<string, Hazard>();
-    for (const h of [...this.seeds, ...this.shared, ...this.local]) byId.set(h.id, h);
+    for (const h of [...this.osm, ...this.seeds, ...this.shared, ...this.local]) byId.set(h.id, h);
     return [...byId.values()];
   }
 
@@ -89,8 +90,8 @@ export class HazardStore {
     saveLocal(this.local);
   }
 
-  /** Everything, ready to paste into public/hazards.json. */
+  /** Everything people reported, ready to paste into public/hazards.json (OSM bumps come back from the maqueta). */
   exportJson(): string {
-    return JSON.stringify(this.all(), null, 2);
+    return JSON.stringify(this.all().filter((h) => h.source !== 'osm'), null, 2);
   }
 }
