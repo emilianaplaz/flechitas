@@ -4,6 +4,7 @@
 //   walk/     phone orientation sensors that steer the camera view
 //   render/   Three.js overlay, HUD and calibration dock
 //   hazards/  hazard store, cloud sync, bump detection and reporting UI
+//   remote/   a phone paired by QR code streams its camera, GPS and tilt to this screen
 import './style.css';
 import { app } from './core/state.ts';
 import { $, setupMsg, toast } from './core/ui.ts';
@@ -15,6 +16,8 @@ import { aheadOf, initHazardUi, loadHazards, reindexHazards, startBumpWatcher, s
 import { autoTiltTick, getCalib, getMountRoll, initCalibDock, startAutoTilt, stopAutoTilt } from './render/calibDock.ts';
 import { hideHud, renderHud } from './render/hud.ts';
 import { ar } from './render/scene.ts';
+import { initRemoteDisplay } from './remote/display.ts';
+import { initPhoneCam, isPhoneCamPage } from './remote/phone.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
 import { align, sensorsActive, startSensors, stopSensors, updateView } from './walk/view.ts';
 
@@ -25,6 +28,9 @@ initCalibDock();
 initHazardUi();
 initDriveControls();
 initSetupScreen();
+// Opened from a pairing QR: this phone is only a camera for another screen.
+if (isPhoneCamPage()) initPhoneCam();
+else initRemoteDisplay();
 
 function setRoute(r: Route) {
   app.route = r;

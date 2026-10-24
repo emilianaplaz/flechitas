@@ -22,6 +22,15 @@ Mirror the repo to a personal one (see the hackathon README), import it in Verce
 - **Simulación**: drives along the route at the speed on the slider. Use it indoors and on stage. "Desde" sets the start point.
 - **Repetición**: load a recorded video + its `.json` track and the overlay runs on top of the real drive. Use ⚙ → "Sincronía" if the video and GPS drift apart.
 
+## Phone as the camera, laptop or iPad as the screen
+
+On the laptop/iPad, tap **📱 Usar la cámara de un teléfono** and scan the QR with the iPhone camera. The phone opens a camera page; tap **Conectar**. From then on the app on the big screen uses the phone's **camera, GPS and tilt** (for auto calibration), so it works on an iPad or laptop with no GPS. Then pick Manejar or Simulación and **Iniciar** as usual; the ● recorder records the phone's video.
+
+- The phone needs **https** for its camera: use `npm run dev` (the QR uses the laptop's network IP, accept the certificate warning on the phone too) or the deployed site.
+- Both devices need internet: [PeerJS](https://peerjs.com)'s free public server introduces them, then video goes directly between them over WebRTC. Same Wi-Fi (or the iPhone's hotspot) works best; on two different mobile networks it can fail, since there is no relay (TURN) server.
+- Keep the phone screen on: if it locks or the page closes, the big screen says so within a few seconds; scan again to reconnect.
+- Not relayed yet: bump detection and "Usar sensores" still use the screen device's own sensors.
+
 ## Phone sensors (walking, phone in hand)
 
 Tick **Usar sensores del teléfono** before **Iniciar**. The camera then looks wherever the phone points (compass, tilt and roll) instead of assuming it faces along the route. On iPhone, accept the motion permission prompt. If the ribbon is turned off the street, tap ⌖ while pointing the phone along the street to align it. Leave it off for a fixed car mount, where the compass is unreliable. In Simulación it also works, which lets you test it indoors.
@@ -87,6 +96,7 @@ Source is split by module so teammates can work in parallel. Each folder has one
 - `src/drive/`: navigation without orientation sensors. `sources.ts` GPS/sim/replay, `navigation.ts` route following + rerouting, `start.ts` per-mode startup, `controls.ts` record/sim buttons, `recorder.ts`
 - `src/walk/`: navigation with sensors. `orientation.ts` compass/tilt/roll to camera pose, `view.ts` smoothing + "Alinear"
 - `src/render/`: 3D and HUD. `ar.ts` Three.js overlay, `scene.ts`, `hud.ts`, `calib.ts` + `calibDock.ts`
+- `src/remote/`: phone as remote camera. `protocol.ts` shared messages and URLs, `display.ts` QR + receiving side, `phone.ts` the phone's camera page (`/?cam=<id>`)
 - `src/hazards/`: hazard mapping. `store.ts`, `cloud.ts` sync, `bump.ts` accelerometer detection, `ahead.ts` hazards along a route, `ui.ts` reporting UI. Navigation only calls `reindexHazards`, `aheadOf`, `trackPosition`
 - `api/expand.ts`: serverless function that expands `maps.app.goo.gl` links
 

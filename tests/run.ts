@@ -13,6 +13,7 @@ import { BumpDetector } from '../src/hazards/bump.ts';
 import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
 import { DEFAULT_LENS_HFOV, TiltWindow, steadyMean, visibleVfov } from '../src/render/autocalib.ts';
+import { PEER_PREFIX, newPeerId, phoneUrl, reachableOrigin } from '../src/remote/protocol.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -199,6 +200,20 @@ feed(tw2, 0, 3000, (t) => t > 2000);
 check('tilt window: ignored while the car moves (braking tilts gravity)', tw2.steady() === null);
 feed(tw2, 3016, 2600, () => false);
 check('tilt window: trusted again once stopped for the whole window', tw2.steady() !== null);
+
+// ---- remote camera pairing ----
+const pid = newPeerId();
+check('peer id has prefix and 8 safe chars', pid.startsWith(PEER_PREFIX) && /^[a-z2-9]{8}$/.test(pid.slice(PEER_PREFIX.length)), pid);
+check('peer ids differ', newPeerId() !== newPeerId());
+check('phone url carries the id', phoneUrl('https://via.app', 'viaar-abc') === 'https://via.app/?cam=viaar-abc');
+const at = (url: string) => {
+  const u = new URL(url);
+  return { protocol: u.protocol, hostname: u.hostname, port: u.port, origin: u.origin };
+};
+check('localhost is swapped for the LAN address', reachableOrigin(at('https://localhost:5173/x'), '192.168.1.20') === 'https://192.168.1.20:5173');
+check('127.0.0.1 is swapped too', reachableOrigin(at('http://127.0.0.1:5175/'), '10.0.0.5') === 'http://10.0.0.5:5175');
+check('a published site keeps its own origin', reachableOrigin(at('https://flechitas.vercel.app/'), '192.168.1.20') === 'https://flechitas.vercel.app');
+check('no LAN address known: keep localhost', reachableOrigin(at('https://localhost:5173/'), '') === 'https://localhost:5173');
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');
 process.exit(failed ? 1 : 0);

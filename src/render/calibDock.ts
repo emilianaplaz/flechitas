@@ -3,6 +3,7 @@
 import { app } from '../core/state.ts';
 import { $, toast } from '../core/ui.ts';
 import { TrackReplay } from '../drive/sources.ts';
+import { remoteActive, remoteTilt } from '../remote/display.ts';
 import { OrientationSensor } from '../walk/orientation.ts';
 import { sensorsActive } from '../walk/view.ts';
 import { TiltWindow, loadLensHfov, loadManual, loadMountRoll, saveManual, saveMountRoll, visibleVfov } from './autocalib.ts';
@@ -113,6 +114,7 @@ function applyAutoFov() {
 }
 
 let tiltSensor: OrientationSensor | null = null;
+let tiltFromPhone = false; // a phone paired by QR is the camera: its tilt counts, not this device's
 const tiltWindow = new TiltWindow();
 let lastTiltCheck = 0;
 let tiltMeasured = false;
@@ -124,6 +126,13 @@ let tiltMeasured = false;
  */
 export async function startAutoTilt() {
   if (app.mode === 'replay' || sensorsActive()) return;
+  tiltWindow.clear();
+  lastTiltCheck = 0;
+  tiltMeasured = false;
+  if (remoteActive()) {
+    tiltFromPhone = true;
+    return;
+  }
   const sensor = new OrientationSensor();
   try {
     await sensor.start();
@@ -131,20 +140,18 @@ export async function startAutoTilt() {
     return;
   }
   tiltSensor = sensor;
-  tiltWindow.clear();
-  lastTiltCheck = 0;
-  tiltMeasured = false;
 }
 
 export function stopAutoTilt() {
   tiltSensor?.stop();
   tiltSensor = null;
+  tiltFromPhone = false;
 }
 
 /** Per frame. Updates tilt and roll whenever the phone has been still for a moment with the car stopped. */
 export function autoTiltTick(now: number, carMoving: boolean) {
-  if (!tiltSensor) return;
-  const p = tiltSensor.current(now);
+  if (!tiltSensor && !tiltFromPhone) return;
+  const p = tiltFromPhone ? remoteTilt(now) : tiltSensor!.current(now);
   if (p) tiltWindow.push(now, { pitch: p.pitch, roll: p.roll }, carMoving);
   if (now - lastTiltCheck < 1000) return;
   lastTiltCheck = now;
