@@ -1,5 +1,5 @@
 // Shared hazard database (Supabase) with an offline queue. With no keys configured the app works as before.
-import type { Hazard } from './hazards.ts';
+import type { Hazard } from './store.ts';
 
 const URL_BASE = (import.meta.env?.VITE_SUPABASE_URL as string | undefined)?.replace(/\/$/, '');
 const KEY = import.meta.env?.VITE_SUPABASE_ANON_KEY as string | undefined;

@@ -1,6 +1,6 @@
 // Where the phone camera is pointing, from the device's orientation sensors.
 // World frame: x = east, y = north, z = up (the W3C DeviceOrientation frame).
-import { toDeg, toRad } from './geo.ts';
+import { toDeg, toRad } from '../core/geo.ts';
 
 export interface Pose {
   yaw: number; // compass heading of the camera, degrees clockwise from north

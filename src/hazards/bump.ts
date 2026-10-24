@@ -1,6 +1,6 @@
 // Detects potholes and speed bumps from the phone's accelerometer.
 // Heuristic, tuned by reasoning rather than field data: the app asks the driver to confirm each hit.
-import type { HazardType } from './hazards.ts';
+import type { HazardType } from './store.ts';
 
 export interface BumpEvent {
   type: Extract<HazardType, 'hueco' | 'policia'>;

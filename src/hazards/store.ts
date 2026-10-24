@@ -1,6 +1,6 @@
 // Road hazards (huecos, policías acostados…). Each one is just a GPS point.
 // Seeds come from /hazards.json; reports made on this phone are kept in localStorage.
-import type { LatLon } from './geo.ts';
+import type { LatLon } from '../core/geo.ts';
 import { cancel, enqueue, fetchShared } from './cloud.ts';
 
 export type HazardType = 'hueco' | 'policia' | 'alcabala';
