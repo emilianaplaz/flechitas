@@ -695,3 +695,78 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
 .hgReadout p { margin: 0 0 6px; }
 .hgReadout b { color: var(--text); }
 .hgFine { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+
+/* ---------- Encontrar: markers over the camera, saved places, a person sharing ---------- */
+#find { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+#find button, #find input { pointer-events: auto; }
+#find.shareOnly { background: var(--bg); }
+.fMarks { position: absolute; inset: 0; overflow: hidden; }
+.fMark { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+.fTag {
+  position: absolute;
+  bottom: 30px;
+  left: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 800;
+  background: rgba(3, 16, 23, 0.82);
+  color: #fff;
+  border: 2px solid var(--glass);
+}
+.fMark.person .fTag { border-color: var(--amber); }
+.fPole { position: absolute; left: -1.5px; bottom: 0; width: 3px; height: 30px; background: var(--glass); border-radius: 2px; box-shadow: 0 0 10px var(--glass); }
+.fMark.person .fPole { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+.fMark.off .fPole { display: none; }
+.fMark.off .fTag { bottom: 0; transform: translate(-50%, 50%); }
+.fMark.stale { opacity: 0.55; }
+.fTop {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.chip.warn { border-color: var(--amber); color: var(--amber); }
+.fBottom {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  max-height: 60dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 24px;
+}
+.fList { display: flex; flex-direction: column; gap: 4px; }
+.fRow { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.fName { flex: 1; font-weight: 800; }
+.fDist { font-weight: 700; }
+.fX { padding: 8px 12px; color: var(--muted); }
+.fBox { display: flex; flex-direction: column; gap: 6px; }
+.fWatch {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 58px);
+  left: 12px;
+  right: 12px;
+  padding: 12px 14px;
+  border-radius: 20px;
+}
+.fWatchHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fWatchHead .muted { font-size: 13px; }
+.fWatchHead button { flex: none; min-height: 44px; padding: 8px 14px; }
+.fCode { display: block; font-size: 30px; font-weight: 800; letter-spacing: 0.08em; }
+.fState { margin: 0; font-size: 14px; color: var(--muted); min-height: 1.2em; }
+#fShareCode { padding: 12px 14px; font-size: 22px; font-weight: 800; letter-spacing: 0.08em; border-radius: 14px; border: 2px solid var(--line); background: transparent; }
+.fActions { display: flex; gap: 8px; }
+.fActions button { flex: 1; min-height: 48px; padding: 8px; font-size: 14px; }
+.fActions button.primary { flex: 1.3; font-size: 14px; }
+#find.shareOnly .fActions, #find.shareOnly .fList, #find.shareOnly .fMarks { display: none; }
+body:has(#find:not([hidden])) #toast { bottom: auto; top: 40%; }

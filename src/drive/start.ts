@@ -10,7 +10,7 @@ import { GpsSource, RouteSim, TrackReplay, parseTrack, type Track } from './sour
 
 const video = () => $<HTMLVideoElement>('video');
 
-async function startCamera(required: boolean) {
+export async function startCamera(required: boolean) {
   try {
     app.stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },

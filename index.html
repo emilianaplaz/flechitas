@@ -195,11 +195,47 @@
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="12" height="14" rx="2.5" fill="none" stroke-width="2" /><rect x="15" y="8" width="6" height="11" rx="1.5" fill="none" stroke-width="2" /></svg>
           Dispositivos
         </button>
-        <button type="button" class="fab" disabled aria-label="Registrar un lugar (pronto)">
+        <button id="findOpen" type="button" class="fab" aria-label="Encontrar: guardar un lugar o ver a alguien">
           <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 4 V22 M4 13 H22" stroke-width="3.2" stroke-linecap="round" /></svg>
         </button>
-        <span class="fabLabel" aria-hidden="true">Registrar</span>
+        <span class="fabLabel" aria-hidden="true">Encontrar</span>
       </nav>
+    </section>
+
+    <!-- Encontrar: camera with a marker on saved places and on one person sharing their location -->
+    <section id="find" hidden>
+      <div id="fMarks" class="fMarks" aria-hidden="true"></div>
+      <div class="fTop">
+        <button id="fClose" class="roundBtn dark" type="button" aria-label="Cerrar">
+          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
+        <span id="fGps" class="chip">Buscando GPS…</span>
+        <span id="fCompass" class="chip warn" hidden>Sin brújula</span>
+      </div>
+      <div id="fWatchBox" class="fWatch surface" hidden>
+        <div class="fWatchHead">
+          <div>
+            <span class="muted">Código para compartir</span>
+            <output id="fCode" class="fCode">··· ···</output>
+          </div>
+          <button id="fInvite" class="ghost" type="button">Enviar enlace</button>
+        </div>
+        <p id="fWatchState" class="fState"></p>
+      </div>
+      <div id="fBottom" class="fBottom surface">
+        <div id="fList" class="fList" hidden></div>
+        <div id="fShareBox" class="fBox" hidden>
+          <label for="fShareCode" class="muted">Código de quien te busca</label>
+          <input id="fShareCode" type="text" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="000 000" />
+          <p id="fShareState" class="fState"></p>
+          <button id="fShareBtn" class="primary" type="button">Compartir mi ubicación</button>
+        </div>
+        <div class="fActions">
+          <button id="fDrop" class="primary" type="button">Guardar este lugar</button>
+          <button id="fSee" class="ghost" type="button">Ver a alguien</button>
+          <button id="fShareOpen" class="ghost" type="button">Compartir la mía</button>
+        </div>
+      </div>
     </section>
 
     <!-- iPad as the windshield HUD: shows a code, the phone does the rest -->
