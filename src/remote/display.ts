@@ -13,6 +13,10 @@ let peer: Peer | null = null;
 let stream: MediaStream | null = null;
 let tilt: { pitch: number; roll: number; t: number } | null = null;
 let lastHeard = 0; // last message from the phone; silence means it's gone
+let camHfov: number | null = null;
+
+/** Field of view of the phone's picture as it sends it, or null if not known (yet). */
+export const remoteHfov = (): number | null => (stream ? camHfov : null);
 
 /** GPS from the remote phone; used instead of this device's GPS while a phone is connected. */
 export const remoteGps = new RemoteGpsSource();
@@ -67,6 +71,7 @@ function dropStream(s: MediaStream) {
   if (stream !== s) return;
   stream = null;
   tilt = null;
+  camHfov = null;
   setStatus('Se desconectó el teléfono. Vuelve a escanear el código.');
   toast('Se perdió la cámara del teléfono');
 }
@@ -92,6 +97,9 @@ function onData(conn: DataConnection) {
       remoteGps.push({ p: { lat: m.lat, lon: m.lon }, speed: m.speed, heading: m.heading, accuracy: m.acc, t: performance.now() });
     } else if (m?.t === 'tilt') {
       tilt = { pitch: m.pitch, roll: m.roll, t: performance.now() };
+    } else if (m?.t === 'cam' && Math.abs(m.hfov - (camHfov ?? 0)) > 0.3) {
+      camHfov = m.hfov;
+      window.dispatchEvent(new Event('remotecam')); // calibration recomputes the field of view
     }
   });
 }

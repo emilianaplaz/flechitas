@@ -15,7 +15,8 @@ export function newPeerId(): string {
 /** Messages the phone sends over the data channel. */
 export type RemoteMsg =
   | { t: 'fix'; lat: number; lon: number; speed: number | null; heading: number | null; acc: number | null }
-  | { t: 'tilt'; pitch: number; roll: number }
+  | { t: 'tilt'; pitch: number; roll: number } // relative to the sent picture's "up"
+  | { t: 'cam'; hfov: number } // horizontal field of view of the sent picture, degrees
   | { t: 'ping' };
 
 /** The phone pings this often; the display gives up after LOST_MS of silence (a closed tab or a locked phone says nothing). */

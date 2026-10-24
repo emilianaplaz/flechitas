@@ -294,3 +294,5 @@ body.phonecam #ar, body.phonecam #hud { display: none; }
 .phonecam p.ok { color: var(--ok); font-weight: 700; }
 .phonecam p.error { color: var(--amber); }
 .phonecam small { color: var(--muted); font-size: 12px; }
+.phonecam .row button.primary { flex: 1; }
+.phonecam .row button.primary[hidden] + .ghost { flex: 1; }

@@ -3,7 +3,7 @@
 import { app } from '../core/state.ts';
 import { $, toast } from '../core/ui.ts';
 import { TrackReplay } from '../drive/sources.ts';
-import { remoteActive, remoteTilt } from '../remote/display.ts';
+import { remoteActive, remoteHfov, remoteTilt } from '../remote/display.ts';
 import { OrientationSensor } from '../walk/orientation.ts';
 import { sensorsActive } from '../walk/view.ts';
 import { TiltWindow, loadLensHfov, loadManual, loadMountRoll, saveManual, saveMountRoll, visibleVfov } from './autocalib.ts';
@@ -106,7 +106,9 @@ const fit = (v: number, r: Range) => +(Math.round(Math.min(r.max, Math.max(r.min
 function applyAutoFov() {
   const video = $<HTMLVideoElement>('video');
   if (manual.fov || !video.videoWidth || !video.videoHeight) return;
-  const fov = fit(visibleVfov(loadLensHfov(), video.videoWidth, video.videoHeight, window.innerWidth, window.innerHeight), CALIB_RANGES.fov);
+  // A paired phone says how wide its (upright, landscape) picture is; otherwise assume our own lens.
+  const lens = remoteHfov() ?? loadLensHfov();
+  const fov = fit(visibleVfov(lens, video.videoWidth, video.videoHeight, window.innerWidth, window.innerHeight), CALIB_RANGES.fov);
   if (fov === calib.fov) return;
   calib = { ...calib, fov };
   saveCalib(calib, layout);
@@ -200,6 +202,7 @@ export function initCalibDock() {
   const video = $<HTMLVideoElement>('video');
   video.addEventListener('loadedmetadata', applyAutoFov);
   video.addEventListener('resize', applyAutoFov);
+  window.addEventListener('remotecam', applyAutoFov);
   window.addEventListener('resize', resize);
   resize();
 }

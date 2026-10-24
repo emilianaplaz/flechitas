@@ -29,6 +29,7 @@ On the laptop/iPad, tap **📱 Usar la cámara de un teléfono** and scan the QR
 - The phone needs **https** for its camera: use `npm run dev` (the QR uses the laptop's network IP, accept the certificate warning on the phone too) or the deployed site.
 - Both devices need internet: [PeerJS](https://peerjs.com)'s free public server introduces them, then video goes directly between them over WebRTC. Same Wi-Fi (or the iPhone's hotspot) works best; on two different mobile networks it can fail, since there is no relay (TURN) server.
 - Keep the phone screen on: if it locks or the page closes, the big screen says so within a few seconds; scan again to reconnect.
+- Hold or mount the phone **horizontally**. It works with rotation lock on: the phone redraws every frame upright from gravity and always sends a landscape 1280×720 picture, so the big screen never gets it sideways or flipping when the phone turns. Its tilt and field of view are sent relative to that picture (held upright, the picture is a narrower crop and the field of view is adjusted). If a phone still sends it sideways, tap **⟳ Girar** on the phone (remembered on that phone).
 - Not relayed yet: bump detection and "Usar sensores" still use the screen device's own sensors.
 
 ## Phone sensors (walking, phone in hand)
@@ -96,7 +97,7 @@ Source is split by module so teammates can work in parallel. Each folder has one
 - `src/drive/`: navigation without orientation sensors. `sources.ts` GPS/sim/replay, `navigation.ts` route following + rerouting, `start.ts` per-mode startup, `controls.ts` record/sim buttons, `recorder.ts`
 - `src/walk/`: navigation with sensors. `orientation.ts` compass/tilt/roll to camera pose, `view.ts` smoothing + "Alinear"
 - `src/render/`: 3D and HUD. `ar.ts` Three.js overlay, `scene.ts`, `hud.ts`, `calib.ts` + `calibDock.ts`
-- `src/remote/`: phone as remote camera. `protocol.ts` shared messages and URLs, `display.ts` QR + receiving side, `phone.ts` the phone's camera page (`/?cam=<id>`)
+- `src/remote/`: phone as remote camera. `protocol.ts` shared messages and URLs, `display.ts` QR + receiving side, `phone.ts` the phone's camera page (`/?cam=<id>`), `orient.ts` keeping its picture upright
 - `src/hazards/`: hazard mapping. `store.ts`, `cloud.ts` sync, `bump.ts` accelerometer detection, `ahead.ts` hazards along a route, `ui.ts` reporting UI. Navigation only calls `reindexHazards`, `aheadOf`, `trackPosition`
 - `api/expand.ts`: serverless function that expands `maps.app.goo.gl` links
 

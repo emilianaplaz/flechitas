@@ -14,6 +14,7 @@ import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
 import { DEFAULT_LENS_HFOV, TiltWindow, steadyMean, visibleVfov } from '../src/render/autocalib.ts';
 import { PEER_PREFIX, newPeerId, phoneUrl, reachableOrigin } from '../src/remote/protocol.ts';
+import { interfaceAngle, physicalAngle, uprightPlan } from '../src/remote/orient.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -216,6 +217,25 @@ check('a published site keeps its own origin', reachableOrigin(at('https://flech
 // Opened at the VPN or WSL address the dev server also lists: the phone can only reach the Wi-Fi one.
 check('VPN address is swapped for the Wi-Fi one', reachableOrigin(at('https://10.80.0.14:5173/'), '192.168.21.47') === 'https://192.168.21.47:5173');
 check('WSL address is swapped too', reachableOrigin(at('https://172.19.192.1:5173/'), '192.168.21.47') === 'https://192.168.21.47:5173');
+
+// ---- remote camera: keep the picture upright ----
+check('phone upright portrait = 0', physicalAngle(85, 0, 0) === 0);
+check('phone turned left (top to the left) = 90', physicalAngle(5, -85, 0) === 90);
+check('phone turned right = 270', physicalAngle(5, 85, 0) === 270);
+check('phone in a mount tilted back 30°, sideways = 90', physicalAngle(3, -60, 0) === 90);
+check('lying flat keeps the last position', physicalAngle(2, 3, 90) === 90);
+// beta 30°, gamma −35.26°: "up" points exactly 45° between portrait and landscape.
+check('halfway between positions keeps the last one', physicalAngle(30, -35.26, 0) === 0 && physicalAngle(30, -35.26, 90) === 90);
+check('22° off upright still counts as upright', physicalAngle(60, -45, 90) === 0);
+check('window.orientation -90 is 270', interfaceAngle(undefined, -90) === 270 && interfaceAngle(90, undefined) === 90);
+// Rotation lock on, phone horizontal: frames arrive portrait (720×1280) and must turn 90°.
+const locked = uprightPlan(720, 1280, 90, 63, 1280, 720);
+check('locked portrait frames: turned and filling 1280×720', locked.rot === 90 && near(locked.scale, 1, 1e-9));
+check('locked portrait frames keep the full lens width', near(locked.hfov, 63, 0.01), String(locked.hfov));
+// Phone held upright: the upright picture is portrait, so the landscape output is a narrow crop.
+const upright = uprightPlan(720, 1280, 0, 63, 1280, 720);
+check('upright phone: narrower field of view (crop)', upright.hfov < 40 && upright.hfov > 30, String(upright.hfov));
+check('rotation is normalised', uprightPlan(1280, 720, -90, 63, 1280, 720).rot === 270);
 check('no LAN address known: keep localhost', reachableOrigin(at('https://localhost:5173/'), '') === 'https://localhost:5173');
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');
