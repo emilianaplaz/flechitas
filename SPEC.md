@@ -142,6 +142,18 @@ The camera-mode sliders map to a phone camera. In HUD mode the "camera" is the d
 
 Store as two profiles in localStorage (`ar-nav.calib.camera`, `ar-nav.calib.hud`), migrating the existing `ar-nav.calib` key to the camera profile. Add a **calibration pattern**: a static straight ribbon + horizon line shown in calibration so the driver can align it without a route.
 
+### 5.4 Exact windshield optics — built (iPad on the dash, iPhone as sensor)
+
+Replaces the slider guesses of §5.3 and the fixed CSS mirror with the geometry of the reflection. Code: [src/render/optics.ts](src/render/optics.ts) (pure, unit-tested), [src/render/hudSetup.ts](src/render/hudSetup.ts) (measurements sheet, text warp), `ArScene` (`optics` in `FrameInput`).
+
+- **Model.** Car frame with the origin on the road under the driver's eye. Inputs: eye height, dashboard height, eye → windshield base distance, windshield rake (measurable by laying the device on the glass, *Medir*), iPad centre position, which edge of the iPad faces the driver, CSS px per inch (132 for iPads). Glass = plane through the windshield base with that rake; reflection `Refl(p) = p − 2((p − G)·n) n`.
+- **Projection.** The driver at `E` sees the reflected screen; equivalently a camera at `E' = Refl(E)` looking at the real iPad rectangle sees the reflected world. The scene root gets `Refl · worldToCar` (heading + body pitch/roll) and the camera Kooima's off-axis frustum on the iPad's corners. **Mirror, perspective and keystone all come from this**; the result: iPad top edge toward the driver ⇒ a horizontal mirror (what ⇄ approximated), toward the glass ⇒ a vertical flip (⇅), plus the keystone a CSS flip can't give.
+- **Text** (speed, distance, next turn) keeps its CSS layout and gets a `matrix3d` homography so it reads upright and undistorted in the glass, fitted inside the reflected picture.
+- **Setup sheet** (📐): Toyota Fortuner 2015 preset (estimates: eye 1.50 m, dash 1.12 m, windshield base 1.05 m ahead, rake 33°, hood line 9.9° below the horizon), live readout (picture distance, width, road covered), **placement advice** (where to put the iPad so the picture centres ~4° below the horizon, above the hood: 34 cm back from the windshield base for the preset), warnings (behind the hood, short of the horizon, weak in daylight), two fine sliders (eye up/down, left/right), and *Óptica calculada* on/off (off = the simple ⇄ ⇅ mirror).
+- **iPhone as sensor** (`?cam=<id>&role=sensor`, QR shown in HUD display): no camera, no video; GPS fixes, tilt at 20 Hz, ping. The car's body pitch/roll = phone tilt − its tilt at rest (auto calibration while stopped), low-passed ~3 Hz. In HUD mode the iPad's own tilt is never used for calibration (it lies flat on the dash).
+- **Numbers for the Fortuner preset** (tests): picture 0.91 m from the eye, ~14° wide, −8.4° … +0.6° from the horizon = road from ~10 m to the horizon, tilted 2 × rake, incidence ~70° at the glass (past Brewster's 56°). Daylight contrast remains the limiting factor (§8): first drives at dusk or night.
+- **Not done:** hazard text labels are hidden in this mode (sprites don't mirror; the HUD banner shows the hazard), no alignment pattern yet, ribbon width is still the HUD profile's 3.2 m (a lane-wide band fills most of a 14° picture at 10–20 m; narrower edges are `PLAN-HUD-AR.md` Hito 1 work).
+
 ## 6. Camera AR mode — gaps to close (carried over from the baseline)
 
 The camera mode works for a demo. To be dependable on the road:

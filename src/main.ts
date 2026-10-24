@@ -15,17 +15,33 @@ import { startSource, stopDrive, stopSource } from './drive/start.ts';
 import { aheadOf, initHazardUi, loadHazards, reindexHazards, startBumpWatcher, startCloudSync, stopBumpWatcher, stopHazards, trackPosition } from './hazards/ui.ts';
 import { autoTiltTick, getCalib, getMountRoll, initCalibDock, startAutoTilt, stopAutoTilt } from './render/calibDock.ts';
 import { hideHud, initHudControls, renderHud, showHud } from './render/hud.ts';
+import { currentOptics, initHudSetup } from './render/hudSetup.ts';
 import { ar } from './render/scene.ts';
-import { initRemoteDisplay } from './remote/display.ts';
+import { initRemoteDisplay, remoteTilt } from './remote/display.ts';
 import { initPhoneCam, isPhoneCamPage } from './remote/phone.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
 import { align, sensorsActive, startSensors, stopSensors, updateView } from './walk/view.ts';
 
 let lastFrame = performance.now();
 let wakeLock: { release(): Promise<void> } | null = null;
+let attitude = { pitch: 0, roll: 0 }; // car body pitch/roll for the windshield HUD, smoothed
+
+/**
+ * Windshield HUD: the car's pitch and roll relative to the road, from the paired phone. The phone is
+ * rigid in its mount, so its tilt minus its tilt at rest (the auto-calibrated pitch and roll) is the
+ * body's motion: braking dive, slopes. Low-passed (~3 Hz) so engine vibration doesn't shake the guide.
+ */
+function carAttitude(now: number, dt: number, restPitch: number, restRoll: number) {
+  const t = remoteTilt(now);
+  const target = t ? { pitch: t.pitch - restPitch, roll: t.roll - restRoll } : { pitch: 0, roll: 0 };
+  const k = Math.min(1, dt * 2 * Math.PI * 3);
+  attitude = { pitch: attitude.pitch + (target.pitch - attitude.pitch) * k, roll: attitude.roll + (target.roll - attitude.roll) * k };
+  return attitude;
+}
 
 initCalibDock();
 initHudControls();
+initHudSetup();
 initHazardUi();
 initDriveControls();
 initSetupScreen();
@@ -67,6 +83,7 @@ function clearScene(yaw: number) {
     hazards: [],
     calib: getCalib(),
     display: app.display,
+    optics: currentOptics(),
   });
 }
 
@@ -177,6 +194,8 @@ function frame(now: number) {
     display: app.display,
     degraded,
     mountRoll: getMountRoll(),
+    optics: currentOptics(),
+    attitude: app.display === 'hud' ? carAttitude(now, dt, calib.pitch, getMountRoll()) : undefined,
   });
   renderHud({ route, speed: nav.speed, remaining: nav.remaining, next: nav.next, distToNext: nav.distToNext, nearestHazard: nearest, offRoute: !nav.onRoute && app.mode === 'gps' });
 }

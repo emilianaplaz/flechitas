@@ -3,7 +3,7 @@
 import { app } from '../core/state.ts';
 import { $, toast } from '../core/ui.ts';
 import { TrackReplay } from '../drive/sources.ts';
-import { remoteActive, remoteHfov, remoteTilt } from '../remote/display.ts';
+import { remoteHfov, remotePhone, remoteTilt } from '../remote/display.ts';
 import { OrientationSensor } from '../walk/orientation.ts';
 import { sensorsActive } from '../walk/view.ts';
 import { TiltWindow, loadLensHfov, loadManual, loadMountRoll, saveManual, saveMountRoll, visibleVfov } from './autocalib.ts';
@@ -137,10 +137,12 @@ export async function startAutoTilt() {
   tiltWindow.clear();
   lastTiltCheck = 0;
   tiltMeasured = false;
-  if (remoteActive()) {
+  if (remotePhone()) {
     tiltFromPhone = true;
     return;
   }
+  // Windshield HUD: this device lies flat on the dash; its tilt says nothing about the road.
+  if (app.display === 'hud') return;
   const sensor = new OrientationSensor();
   try {
     await sensor.start();

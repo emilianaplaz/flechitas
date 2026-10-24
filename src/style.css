@@ -372,3 +372,17 @@ body.phonecam #ar, body.phonecam #hud { display: none; }
 .phonecam small { color: var(--muted); font-size: 12px; }
 .phonecam .row button.primary { flex: 1; }
 .phonecam .row button.primary[hidden] + .ghost { flex: 1; }
+
+/* ---------- windshield HUD measurements ---------- */
+.hudGeomOpen { width: 100%; margin-top: 8px; }
+.hudGeom { z-index: 30; }
+.hudGeom h2 { margin: 0 0 6px; font-size: 20px; }
+.hudGeom select { width: 100%; padding: 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); color: var(--text); }
+.hgField { display: grid; grid-template-columns: 1fr 96px auto; gap: 8px; align-items: center; margin-bottom: 10px; }
+.hgField > span { grid-column: 1 / -1; margin-bottom: 0; }
+.hgField input { padding: 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.hgReadout { font-size: 14px; line-height: 1.45; color: var(--muted); margin: 6px 0 14px; }
+.hgReadout p { margin: 0 0 6px; }
+.hgReadout b { color: var(--text); }
+.hgFine { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.hgFine input { width: 100%; accent-color: var(--guide); }

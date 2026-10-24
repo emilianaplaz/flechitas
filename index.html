@@ -39,6 +39,7 @@
           <label><input type="radio" name="display" value="camera" checked /> <b>Cámara AR</b><small>Video + 3D sobre la vía</small></label>
           <label><input type="radio" name="display" value="hud" /> <b>HUD Parabrisas</b><small>Reflejo en parabrisas (fondo negro)</small></label>
         </div>
+        <button id="hudGeomOpen" class="ghost hudGeomOpen" type="button" hidden>📐 Medidas del carro y del iPad</button>
       </div>
 
       <label class="check">
@@ -125,6 +126,7 @@
       <div id="rightBtns">
         <button id="mirrorX" class="round hudOnly" title="Reflejo horizontal (espejo)" hidden>⇄</button>
         <button id="flipY" class="round hudOnly" title="Volteo vertical" hidden>⇅</button>
+        <button id="hudGeomBtn" class="round hudOnly" title="Medidas del HUD" hidden>📐</button>
         <button id="align" class="round" title="Alinear con la calle" hidden>⌖</button>
         <button id="rec" class="round" title="Grabar recorrido">●</button>
         <button id="calibBtn" class="round" title="Calibrar">⚙</button>
@@ -135,6 +137,36 @@
         <input id="simSpeed" type="range" min="5" max="90" value="35" />
         <span id="simSpeedVal">35 km/h</span>
       </div>
+    </section>
+
+    <!-- Windshield HUD: measurements of the car and where the iPad sits (exact optics, src/render/optics.ts) -->
+    <section id="hudGeom" class="sheet hudGeom" hidden>
+      <h2>HUD en el parabrisas</h2>
+      <p class="sub">Mide con una cinta, sentado en tu puesto. Con estas medidas la guía cae sobre la calle real vista en el reflejo.</p>
+      <label class="field"><span>Carro</span>
+        <select id="hgPreset">
+          <option value="fortuner">Toyota Fortuner 2015 (medidas estimadas)</option>
+          <option value="custom">Personalizado</option>
+        </select>
+      </label>
+      <div id="hgFields"></div>
+      <label class="field"><span>El borde de arriba del iPad apunta hacia</span>
+        <select id="hgTop">
+          <option value="driver">Mí (el conductor)</option>
+          <option value="glass">El parabrisas</option>
+        </select>
+      </label>
+      <div id="hgReadout" class="hgReadout"></div>
+      <div class="field">
+        <span>Ajuste fino, mirando el reflejo en una calle recta</span>
+        <label class="hgFine">Más arriba / abajo <input id="hgEyeDy" type="range" min="-15" max="15" step="0.5" /></label>
+        <label class="hgFine">Izquierda / derecha <input id="hgEyeDx" type="range" min="-40" max="40" step="1" /></label>
+      </div>
+      <label class="check">
+        <input id="hgOptics" type="checkbox" />
+        <span><b>Óptica calculada</b><small>Recomendado. Apagado usa el espejo simple ⇄ ⇅.</small></span>
+      </label>
+      <button id="hgClose" class="primary" type="button">Listo</button>
     </section>
 
     <!-- Calibration: a slim dock so the road stays visible -->

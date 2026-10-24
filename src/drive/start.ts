@@ -5,7 +5,7 @@ import type { LatLon } from '../core/geo.ts';
 import { app } from '../core/state.ts';
 import { $, setupMsg, toast } from '../core/ui.ts';
 import type { Fix, Source } from '../core/types.ts';
-import { remoteActive, remoteGps, remoteStream } from '../remote/display.ts';
+import { remoteGps, remotePhone, remoteStream } from '../remote/display.ts';
 import { recorder } from './controls.ts';
 import { GpsSource, RouteSim, TrackReplay, parseTrack, type Track } from './sources.ts';
 
@@ -33,7 +33,7 @@ async function startCamera(required: boolean) {
 }
 
 function currentPosition(): Promise<LatLon> {
-  const remote = remoteActive() ? remoteGps.current() : null;
+  const remote = remotePhone() ? remoteGps.current() : null;
   if (remote) return Promise.resolve(remote.p);
   return new Promise((resolve, reject) =>
     navigator.geolocation.getCurrentPosition(
@@ -51,7 +51,7 @@ function waitForFix(src: Source, timeoutMs = 30000): Promise<Fix> {
       const f = src.current(performance.now());
       if (f) resolve(f);
       else if (performance.now() - t0 > timeoutMs) {
-        reject(new Error(remoteActive() ? 'El GPS del teléfono no responde. Revisa que tenga permiso de ubicación.' : 'El GPS no responde. Sal a cielo abierto e intenta otra vez.'));
+        reject(new Error(remotePhone() ? 'El GPS del teléfono no responde. Revisa que tenga permiso de ubicación.' : 'El GPS no responde. Sal a cielo abierto e intenta otra vez.'));
       }
       else setTimeout(tick, 250);
     };
@@ -71,7 +71,7 @@ export async function startSource(setRoute: (r: Route) => void) {
     if (display !== 'hud') await startCamera(true);
     // With a paired phone, its GPS is where the car is; this laptop/iPad may have none.
     let gps: Source;
-    if (remoteActive()) {
+    if (remotePhone()) {
       remoteGps.onFix = (f) => recorder.addFix(f);
       gps = remoteGps;
     } else {

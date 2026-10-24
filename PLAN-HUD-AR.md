@@ -1,5 +1,7 @@
 # Plan Maestro de Implementación: HUD Parabrisas y Señalización Diegética 3D (Setup iPad + iPhone)
 
+> **Estado (24 oct):** la óptica del Hito 2 ya está hecha con cálculo exacto en vez del espejo CSS fijo: reflexión en el parabrisas, perspectiva desde el ojo y corrección del texto (ver `SPEC.md` §5.4, `src/render/optics.ts`). El espejo ⇄ ⇅ sigue como modo simple. El enlace del Hito 3 ya funciona con el iPhone como sensor (GPS + inclinación, sin video) sobre WebRTC/PeerJS; está pendiente decidir si se pasa a Supabase Realtime (pasa por la nube, más latencia) o se queda en WebRTC (directo por el hotspot).
+
 ## 1. Goal Description
 
 Implementar en **Vía AR (`flechitas`)** un sistema de navegación por proyección en parabrisas (**Windshield HUD**) con señalización diegética 3D inspirada en videojuegos (*Forza*, *Cyberpunk 2077*, *GTA V*), operando sobre una **arquitectura distribuida de dos dispositivos en el vehículo**:

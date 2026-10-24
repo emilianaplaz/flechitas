@@ -1,5 +1,6 @@
 // Camera calibration. Tune these once with the phone mounted (sliders in the ⚙ panel).
 import type { Display } from '../core/state.ts';
+import { FORTUNER_2015, type HudGeometry } from './optics.ts';
 
 export interface Calib {
   pitch: number; // degrees the camera looks down
@@ -79,6 +80,42 @@ export function loadFlip(): FlipState {
     };
   } catch {
     return { mirrorX: true, flipY: false };
+  }
+}
+
+// ---- windshield HUD geometry (exact optics, see optics.ts) ----
+
+/** Measurements of the car and where the iPad sits; defaults are the Toyota Fortuner 2015 preset. */
+export function loadHudGeometry(): HudGeometry {
+  try {
+    return { ...FORTUNER_2015, ...(JSON.parse(localStorage.getItem('ar-nav.hud.geometry') ?? '{}') as Partial<HudGeometry>) };
+  } catch {
+    return { ...FORTUNER_2015 };
+  }
+}
+
+export function saveHudGeometry(g: HudGeometry) {
+  try {
+    localStorage.setItem('ar-nav.hud.geometry', JSON.stringify(g));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** "Óptica calculada": on by default; off falls back to the simple CSS mirror (⇄ ⇅). */
+export function loadOpticsOn(): boolean {
+  try {
+    return localStorage.getItem('ar-nav.hud.optics') !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+export function saveOpticsOn(on: boolean) {
+  try {
+    localStorage.setItem('ar-nav.hud.optics', String(on));
+  } catch {
+    /* ignore */
   }
 }
 

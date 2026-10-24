@@ -4,6 +4,7 @@ import { formatDistance, type Route, type Step, type TurnKind } from '../core/ro
 import { app, type Display } from '../core/state.ts';
 import { $, setText } from '../core/ui.ts';
 import { loadFlip, saveFlip, type FlipState } from './calib.ts';
+import { applyHudView } from './hudSetup.ts';
 
 const GLYPH_ROT: Record<TurnKind, number> = {
   'straight': 0,
@@ -80,6 +81,8 @@ export function showHud(display: Display) {
     document.documentElement.style.setProperty('--mirror-x', '1');
     document.documentElement.style.setProperty('--flip-y', '1');
   }
+  // Exact optics replace the CSS mirror and warp the text so it reads right in the glass.
+  applyHudView();
 }
 
 export function renderHud(h: HudInput) {
@@ -120,4 +123,6 @@ export function hideHud() {
   document.body.classList.remove('hud-mode');
   document.documentElement.style.setProperty('--mirror-x', '1');
   document.documentElement.style.setProperty('--flip-y', '1');
+  $('hudProjection').style.transform = '';
+  $('hudProjection').style.transformOrigin = '';
 }

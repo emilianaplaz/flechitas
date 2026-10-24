@@ -12,7 +12,10 @@ import { poseFromEuler } from '../walk/orientation.ts';
 import { interfaceAngle, physicalAngle, uprightPlan } from './orient.ts';
 import { PING_MS, type RemoteMsg } from './protocol.ts';
 
-const target = new URLSearchParams(location.search).get('cam');
+const params = new URLSearchParams(location.search);
+const target = params.get('cam');
+/** Windshield HUD: the phone is only a sensor (GPS + tilt); no camera, no video sent. */
+const sensorOnly = params.get('role') === 'sensor';
 const OUT_W = 1280;
 const OUT_H = 720;
 const ROTATE_KEY = 'ar-nav.camRotate'; // manual correction, for a phone whose frames come in unexpectedly
@@ -117,7 +120,7 @@ async function connect() {
   try {
     // First await of the tap: iOS only shows the motion permission prompt here. Optional.
     if (!euler) await requestMotion();
-    if (!camStream || !camStream.active) {
+    if (!sensorOnly && (!camStream || !camStream.active)) {
       status('Abriendo la cámara…');
       camStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -128,7 +131,7 @@ async function connect() {
       // Not awaited: play() can stay pending until the first frame, and nothing here needs to wait for it.
       void raw.play().catch(() => {});
     }
-    if (!outStream) {
+    if (!sensorOnly && !outStream) {
       outStream = canvas.captureStream(30);
       const v = $<HTMLVideoElement>('video');
       v.srcObject = outStream;
@@ -145,27 +148,32 @@ async function connect() {
       p.on('error', (e) => reject(e));
     });
 
-    const call = p.call(target!, outStream);
     const conn = p.connect(target!, { serialization: 'json' });
     const lost = () => {
       if (peer !== p) return;
       status('Se perdió la conexión. Toca Reconectar.', 'error');
       btn.textContent = 'Reconectar';
     };
-    call.on('close', lost);
-    call.on('error', lost);
     p.on('error', lost);
-    const pc = call.peerConnection;
-    pc?.addEventListener('iceconnectionstatechange', () => {
-      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') status('Conectado. La pantalla ya ve esta cámara.', 'ok');
-      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') lost();
-    });
+    conn.on('close', lost);
+    conn.on('error', lost);
+    if (!sensorOnly) {
+      const call = p.call(target!, outStream!);
+      call.on('close', lost);
+      call.on('error', lost);
+      const pc = call.peerConnection;
+      pc?.addEventListener('iceconnectionstatechange', () => {
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') status('Conectado. La pantalla ya ve esta cámara.', 'ok');
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') lost();
+      });
+    }
 
     conn.on('open', () => {
+      if (sensorOnly) status('Conectado. El iPad recibe tu GPS y el movimiento del carro.', 'ok');
       // Heartbeat, plus the field of view of the picture being sent (it narrows if the phone is upright).
       pingTimer = window.setInterval(() => {
         send(conn, { t: 'ping' });
-        send(conn, { t: 'cam', hfov: +hfov.toFixed(1) });
+        if (!sensorOnly) send(conn, { t: 'cam', hfov: +hfov.toFixed(1) });
       }, PING_MS);
       gpsWatch = navigator.geolocation.watchPosition(
         (pos) => {
@@ -175,12 +183,13 @@ async function connect() {
         () => {},
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
       );
-      // Tilt relative to the picture being sent: its "up" is the phone's physical up.
+      // Tilt relative to the picture being sent: its "up" is the phone's physical up. As a HUD sensor
+      // it's the car's body motion (braking dive, slopes), so it goes out faster.
       tiltTimer = window.setInterval(() => {
         if (!euler || performance.now() - euler.t > 1500) return;
         const pose = poseFromEuler(euler.alpha, euler.beta, euler.gamma, upAngle);
         send(conn, { t: 'tilt', pitch: +pose.pitch.toFixed(2), roll: +pose.roll.toFixed(2) });
-      }, 100);
+      }, sensorOnly ? 50 : 100);
     });
 
     try {
@@ -207,7 +216,13 @@ export function initPhoneCam() {
   document.body.classList.add('phonecam');
   $('setup').hidden = true;
   $('phonecam').hidden = false;
-  status('Pon el teléfono horizontal, toca Conectar y apunta la cámara a la calle.');
+  if (sensorOnly) {
+    $('phonecam').querySelector('b')!.textContent = 'Sensor para el HUD';
+    $('pcRotate').hidden = true;
+    status('Fija el teléfono en el soporte, horizontal, y toca Conectar. Solo envía GPS y movimiento, sin video.');
+  } else {
+    status('Pon el teléfono horizontal, toca Conectar y apunta la cámara a la calle.');
+  }
   $('pcConnect').onclick = () => void connect();
   // Backup if a phone delivers its frames another way round: turn the sent picture 90° per tap.
   $('pcRotate').onclick = () => {

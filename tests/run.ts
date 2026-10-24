@@ -16,6 +16,8 @@ import { defaultsFor, loadCalib, loadFlip, saveCalib, saveFlip } from '../src/re
 import { DEFAULT_LENS_HFOV, TiltWindow, steadyMean, visibleVfov } from '../src/render/autocalib.ts';
 import { PEER_PREFIX, newPeerId, phoneUrl, reachableOrigin } from '../src/remote/protocol.ts';
 import { interfaceAngle, physicalAngle, uprightPlan } from '../src/remote/orient.ts';
+import { Vector3, Vector4 } from 'three';
+import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransform, placementAdvice, reflectMatrix, virtualImage, worldToCss } from '../src/render/optics.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -252,6 +254,73 @@ const upright = uprightPlan(720, 1280, 0, 63, 1280, 720);
 check('upright phone: narrower field of view (crop)', upright.hfov < 40 && upright.hfov > 30, String(upright.hfov));
 check('rotation is normalised', uprightPlan(1280, 720, -90, 63, 1280, 720).rot === 270);
 check('no LAN address known: keep localhost', reachableOrigin(at('https://localhost:5173/'), '') === 'https://localhost:5173');
+
+// ---- windshield HUD optics ----
+// iPad 11" in landscape: 1194 × 834 CSS px at 132 CSS px/inch = 0.230 × 0.161 m.
+const IW = 1194;
+const IH = 834;
+{
+  const R = reflectMatrix(new Vector3(0, 1.12, -1.05), new Vector3(0, -Math.cos(0.6), Math.sin(0.6)));
+  const p = new Vector3(0.3, 1.4, -0.2);
+  check('reflection is its own inverse', p.clone().applyMatrix4(R).applyMatrix4(R).distanceTo(p) < 1e-9);
+  check('reflection has determinant -1', Math.abs(R.determinant() + 1) < 1e-9);
+}
+const fo = buildOptics(FORTUNER_2015, IW, IH);
+const fi = virtualImage(fo);
+check('Fortuner: picture ~0.91 m from the eye', near(fi.distance, 0.91, 0.03), String(fi.distance));
+check('Fortuner: picture ~14° wide', near(fi.widthDeg, 14.4, 0.6), String(fi.widthDeg));
+check('Fortuner: picture spans ~-8.4°…+0.6°', near(fi.lowDeg, -8.4, 0.5) && near(fi.highDeg, 0.6, 0.5), `${fi.lowDeg} ${fi.highDeg}`);
+check('Fortuner: road from ~10 m, clear of the hood', near(fi.roadFrom, 10, 1) && fi.hoodClear, String(fi.roadFrom));
+check('flat screen: reflected picture tilted at 2× the rake', near(fi.tiltDeg, 2 * FORTUNER_2015.rake, 0.5), String(fi.tiltDeg));
+check('incidence at the glass is past Brewster (more reflection)', fi.incidenceDeg > 56, String(fi.incidenceDeg));
+{
+  // The matrices used for rendering agree with plain ray tracing for points on and above the road.
+  const cam = mirrorCamera(fo);
+  const view = cam.matrixWorld.clone().invert();
+  const toCss = (p: Vector3) => {
+    const c = new Vector4(p.x, p.y, p.z, 1).applyMatrix4(fo.refl).applyMatrix4(view).applyMatrix4(cam.projection);
+    return { x: ((c.x / c.w + 1) / 2) * IW, y: ((1 - c.y / c.w) / 2) * IH };
+  };
+  let worst = 0;
+  for (let i = 0; i < 200; i++) {
+    const p = new Vector3(Math.sin(i) * 6, (i % 7) * 0.4, -10 - (i * 7.3) % 90);
+    const a = toCss(p);
+    const b = worldToCss(fo, p)!;
+    worst = Math.max(worst, Math.hypot(a.x - b.x, a.y - b.y));
+  }
+  check('render matrices match ray tracing (< 0.01 px)', worst < 0.01, String(worst));
+}
+{
+  // Mirror axis follows from the geometry: top edge to the driver = horizontal mirror; to the glass = vertical flip.
+  const far = (x: number, z: number) => new Vector3(x, 0, z);
+  const d = buildOptics({ ...FORTUNER_2015, topEdge: 'driver' }, IW, IH);
+  const g = buildOptics({ ...FORTUNER_2015, topEdge: 'glass' }, IW, IH);
+  const [dl, dr, dn, df] = [far(-1, -20), far(1, -20), far(0, -12), far(0, -40)].map((p) => worldToCss(d, p)!);
+  const [gl, gr, gn, gf] = [far(-1, -20), far(1, -20), far(0, -12), far(0, -40)].map((p) => worldToCss(g, p)!);
+  check('top edge to driver: right of the road drawn on the left (mirror X), farther road higher', dr.x < dl.x && df.y < dn.y, JSON.stringify({ dl, dr, dn, df }));
+  check('top edge to glass: left/right kept, farther road lower on the canvas (flip Y)', gr.x > gl.x && gf.y > gn.y, JSON.stringify({ gl, gr, gn, gf }));
+}
+{
+  // Text panel: the CSS box corners land where the homography says, and read upright in the glass.
+  const { h } = panelTransform(fo);
+  const corners = [{ x: 0, y: 0 }, { x: IW, y: 0 }, { x: IW, y: IH }, { x: 0, y: IH }].map((p) => applyHomography(h, p));
+  const inScreen = corners.every((c) => c.x >= -0.5 && c.x <= IW + 0.5 && c.y >= -0.5 && c.y <= IH + 0.5);
+  // Back from canvas to where the driver sees it: elevation and azimuth of each corner.
+  const seen = corners.map((c) => {
+    const q = fo.pa.clone().addScaledVector(fo.u, c.x * fo.mpp).addScaledVector(fo.v, (IH - c.y) * fo.mpp).applyMatrix4(fo.refl).sub(fo.eye);
+    return { az: Math.atan2(q.x, -q.z), el: Math.atan2(q.y, Math.hypot(q.x, q.z)) };
+  });
+  const upright = seen[0].el > seen[3].el && seen[1].el > seen[2].el && seen[1].az > seen[0].az && seen[2].az > seen[3].az;
+  check('text panel fits on the screen', inScreen, JSON.stringify(corners));
+  check('text panel reads upright and unmirrored in the glass', upright, JSON.stringify(seen));
+}
+{
+  const p = placementAdvice(FORTUNER_2015, IW, IH, -4);
+  check('placement: Fortuner iPad ~34 cm back from the windshield base', near(p.fromGlassBase, 0.34, 0.03), String(p.fromGlassBase));
+  check('placement: centres the picture at the target angle', near(p.centreDeg, -4, 0.3), String(p.centreDeg));
+  const steep = placementAdvice({ ...FORTUNER_2015, rake: 40 }, IW, IH, -4);
+  check('placement: steeper glass, iPad a little closer to it', steep.fromGlassBase < p.fromGlassBase, `${steep.fromGlassBase} ${p.fromGlassBase}`);
+}
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');
 process.exit(failed ? 1 : 0);

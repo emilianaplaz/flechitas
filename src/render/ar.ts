@@ -8,6 +8,7 @@ import type { Display } from '../core/state.ts';
 import type { Step, TurnKind } from '../core/route.ts';
 import { HAZARD_LABEL, type HazardType } from '../hazards/store.ts';
 import type { HazardView } from '../hazards/ahead.ts';
+import { mirrorCamera, virtualImage, type Optics } from './optics.ts';
 
 const GUIDE = 0x00e676;
 const GUIDE_SIDE = 0x00753c; // sides and bevels of guide objects, so their volume reads
@@ -44,6 +45,10 @@ export interface FrameInput {
   display?: Display;
   degraded?: boolean; // Safe fallback: GPS signal poor/stale -> hide ribbon, keep turn glyph
   mountRoll?: number; // fixed mount tilted sideways, degrees (measured by Auto); unused when `pose` is set
+  /** Windshield HUD with exact optics: draw from the driver's eye through the glass (see optics.ts). */
+  optics?: Optics | null;
+  /** Car body pitch/roll relative to the road, degrees (braking dive, slopes); HUD optics only. */
+  attitude?: { pitch: number; roll: number };
 }
 
 function arrowShape(): THREE.Shape {
@@ -235,6 +240,11 @@ export class ArScene {
   readonly renderer: THREE.WebGLRenderer;
   readonly camera = new THREE.PerspectiveCamera(40, 1, 0.3, 3000);
   private scene = new THREE.Scene();
+  // Everything on the road. Identity for the camera overlay; for the windshield HUD with exact optics
+  // it carries `reflection · worldToCar`, so the scene is drawn as the driver sees it in the glass.
+  private world = new THREE.Group();
+  private optics: Optics | null = null; // the optics the HUD camera was last built from
+  private hudVfov = 0; // vertical angle the reflected picture covers, for readableScale
 
   private ribbonGeo = new THREE.BufferGeometry();
   private ribbonPos = new Float32Array(MAX_SAMPLES * 2 * 3);
@@ -273,12 +283,13 @@ export class ArScene {
 
     // Soft sky light, plus a key light that rides with the camera from above-left,
     // so fronts are always lit and sides fall into shade.
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
+    this.world.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
     const key = new THREE.DirectionalLight(0xffffff, 1.6);
     key.position.set(-2, 3, 2);
     key.target.position.set(0, 0, -4);
     this.camera.add(key, key.target);
-    this.scene.add(this.camera);
+    // The camera stays outside `world`: in the windshield HUD the world is reflected, the camera isn't.
+    this.scene.add(this.camera, this.world);
 
     // Guide ribbon (vertex alpha fades it in and out).
     const idx: number[] = [];
@@ -294,7 +305,7 @@ export class ArScene {
       new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
     );
     this.ribbon.frustumCulled = false;
-    this.scene.add(this.ribbon);
+    this.world.add(this.ribbon);
 
     // Chevrons floating just above the road, tip toward -z (forward), each with a shadow.
     // Both pivot on the chevron's tail so tilting raises the tip.
@@ -312,7 +323,7 @@ export class ArScene {
       const group = new THREE.Group();
       group.add(shadow, body);
       group.visible = false;
-      this.scene.add(group);
+      this.world.add(group);
       this.chevrons.push({ group, body, shadow, mat, sideMat, shadowMat });
     }
 
@@ -338,7 +349,7 @@ export class ArScene {
     this.turnPulse = pulseRings(GUIDE, 2.2);
     this.turn.add(this.turnHead, this.turnPulse);
     this.turn.visible = false;
-    this.scene.add(this.turn);
+    this.world.add(this.turn);
 
     // Roadside chevron signs floating at eye level: see-through dark panel, bright chevron that lights up in sequence.
     // Translucent so the driver still sees the junction behind them.
@@ -360,7 +371,7 @@ export class ArScene {
       this.gateSigns.push({ group, chevron, mat });
     }
     this.gate.visible = false;
-    this.scene.add(this.gate);
+    this.world.add(this.gate);
 
     // Destination: a spinning pin with a white dot, a light beam you can spot from far away, rings on the road.
     const pinMat = lit(DEST, 0.4);
@@ -388,7 +399,7 @@ export class ArScene {
     this.destPulse = pulseRings(DEST, 2);
     this.dest.add(this.pin, this.beam, this.destPulse);
     this.dest.visible = false;
-    this.scene.add(this.dest);
+    this.world.add(this.dest);
 
     // Hazard markers: a traffic cone with a white band, a pulsing ring and a label.
     const red = lit(HAZARD, 0.35);
@@ -411,7 +422,7 @@ export class ArScene {
       label.scale.set(3.2, 0.8, 1);
       group.add(c, band, base, pulse, label);
       group.visible = false;
-      this.scene.add(group);
+      this.world.add(group);
       this.hazardPool.push({ group, label, pulse, type: null });
     }
   }
@@ -433,14 +444,20 @@ export class ArScene {
 
   update(f: FrameInput) {
     const { calib } = f;
-    if (this.camera.fov !== calib.fov) {
-      this.camera.fov = calib.fov;
-      this.camera.updateProjectionMatrix();
+    if (f.display === 'hud' && f.optics) this.placeHudCamera(f, f.optics);
+    else {
+      if (this.optics) this.leaveHudOptics();
+      if (this.camera.fov !== calib.fov) {
+        this.camera.fov = calib.fov;
+        this.camera.updateProjectionMatrix();
+      }
+      this.camera.position.set(0, calib.height, 0);
+      this.camera.rotation.y = -toRad(f.yaw + calib.yawOffset);
+      this.camera.rotation.x = -toRad(f.pose ? f.pose.pitch : calib.pitch);
+      this.camera.rotation.z = -toRad(f.pose ? f.pose.roll : (f.mountRoll ?? 0));
     }
-    this.camera.position.set(0, calib.height, 0);
-    this.camera.rotation.y = -toRad(f.yaw + calib.yawOffset);
-    this.camera.rotation.x = -toRad(f.pose ? f.pose.pitch : calib.pitch);
-    this.camera.rotation.z = -toRad(f.pose ? f.pose.roll : (f.mountRoll ?? 0));
+    // Hazard labels are sprites, which don't mirror with the reflected world; the HUD banner says it instead.
+    for (const slot of this.hazardPool) slot.label.visible = !this.optics;
 
     const now = performance.now() / 1000;
     this.updateRibbon(f, now);
@@ -449,9 +466,45 @@ export class ArScene {
     this.renderer.render(this.scene, this.camera);
   }
 
+  /**
+   * Windshield HUD, exact optics: the camera is the driver's eye mirrored in the glass, looking at the
+   * iPad's real rectangle (off-axis), and the world is reflected; mirror, perspective and keystone
+   * come out of the projection. The world is turned to the car's heading and attitude around the eye.
+   */
+  private placeHudCamera(f: FrameInput, o: Optics) {
+    if (o !== this.optics) {
+      this.optics = o;
+      const cam = mirrorCamera(o, 0.3, 3000);
+      this.camera.matrixAutoUpdate = false;
+      this.camera.matrix.copy(cam.matrixWorld);
+      this.camera.projectionMatrix.copy(cam.projection);
+      this.camera.projectionMatrixInverse.copy(cam.projection).invert();
+      const img = virtualImage(o);
+      this.hudVfov = img.highDeg - img.lowDeg;
+      this.world.matrixAutoUpdate = false;
+    }
+    // World (local ENU around the car) -> car frame: heading, then the body's pitch and roll.
+    const att = f.attitude ?? { pitch: 0, roll: 0 };
+    const worldToCar = new THREE.Matrix4()
+      .makeRotationZ(toRad(att.roll))
+      .multiply(new THREE.Matrix4().makeRotationX(toRad(att.pitch)))
+      .multiply(new THREE.Matrix4().makeRotationY(toRad(f.yaw)));
+    this.world.matrix.multiplyMatrices(o.refl, worldToCar);
+    this.world.matrixWorldNeedsUpdate = true;
+  }
+
+  private leaveHudOptics() {
+    this.optics = null;
+    this.camera.matrixAutoUpdate = true;
+    this.camera.updateProjectionMatrix();
+    this.world.matrix.identity();
+    this.world.matrixAutoUpdate = true;
+  }
+
   /** Scale at which something `height` metres tall, `dist` away, fills at least MIN_SCREEN of the screen. */
   private readableScale(dist: number, height: number, max: number): number {
-    const screen = 2 * Math.tan(toRad(this.camera.fov) / 2) * Math.max(0, dist);
+    const vfov = this.optics ? this.hudVfov : this.camera.fov;
+    const screen = 2 * Math.tan(toRad(vfov) / 2) * Math.max(0, dist);
     return THREE.MathUtils.clamp((MIN_SCREEN * screen) / height, 1, max);
   }
 

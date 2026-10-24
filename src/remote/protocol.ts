@@ -23,9 +23,12 @@ export type RemoteMsg =
 export const PING_MS = 1000;
 export const LOST_MS = 5000;
 
-/** The page the phone opens: same app, `?cam=<display peer id>`. */
-export function phoneUrl(origin: string, peerId: string): string {
-  return `${origin}/?cam=${encodeURIComponent(peerId)}`;
+/**
+ * The page the phone opens: same app, `?cam=<display peer id>`. `role=sensor` (windshield HUD): the
+ * phone sends GPS and tilt only, no video.
+ */
+export function phoneUrl(origin: string, peerId: string, role?: 'sensor'): string {
+  return `${origin}/?cam=${encodeURIComponent(peerId)}${role ? `&role=${role}` : ''}`;
 }
 
 /**
