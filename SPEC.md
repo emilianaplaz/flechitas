@@ -29,13 +29,13 @@ Primary user: a driver in a city with poor road data and poor road surface (the 
 
 | Module | Role | Reuse in HUD mode |
 |---|---|---|
-| [src/ar.ts](src/ar.ts) | Three.js scene: ribbon, chevrons, turn arrow/ring, destination pin, hazard markers. Transparent canvas (`alpha: true`) | Same scene; add a HUD render style (§5.2) |
-| [src/main.ts](src/main.ts) | Setup flow, per-frame navigation loop, HUD DOM, calibration UI | Add mode switch + HUD layout |
-| [src/geo.ts](src/geo.ts) | Local ENU projection, bearings, polyline projection | Unchanged |
-| [src/route.ts](src/route.ts) | OSRM routing, Spanish instructions | Unchanged (see §8) |
-| [src/sources.ts](src/sources.ts) | `GpsSource`, `RouteSim`, `TrackReplay` | Unchanged |
-| [src/calib.ts](src/calib.ts) | `pitch, fov, height, yawOffset, lateral, ribbonWidth` in localStorage | One calibration profile per display mode (§5.3) |
-| [src/hazards.ts](src/hazards.ts), [src/links.ts](src/links.ts), [api/expand.ts](api/expand.ts) | Hazards, destination parsing, short-link expansion | Unchanged |
+| [src/render/ar.ts](src/render/ar.ts) | Three.js scene: ribbon, chevrons, turn arrow/ring, destination pin, hazard markers. Transparent canvas (`alpha: true`) | Same scene; add a HUD render style (§5.2) |
+| [src/main.ts](src/main.ts) | Wiring + per-frame loop (split into drive/, walk/, render/, hazards/ — see SETUP.md) | Add mode switch + HUD layout |
+| [src/core/geo.ts](src/core/geo.ts) | Local ENU projection, bearings, polyline projection | Unchanged |
+| [src/core/route.ts](src/core/route.ts) | OSRM routing, Spanish instructions | Unchanged (see §8) |
+| [src/drive/sources.ts](src/drive/sources.ts) | `GpsSource`, `RouteSim`, `TrackReplay` | Unchanged |
+| [src/render/calib.ts](src/render/calib.ts) | `pitch, fov, height, yawOffset, lateral, ribbonWidth` in localStorage | One calibration profile per display mode (§5.3) |
+| [src/hazards/store.ts](src/hazards/store.ts), [src/core/links.ts](src/core/links.ts), [api/expand.ts](api/expand.ts) | Hazards, destination parsing, short-link expansion | Unchanged |
 
 ### How the current rendering works (the part that matters for HUD)
 
@@ -123,7 +123,7 @@ The camera mode works for a demo. To be dependable on the road:
 
 | ID | Gap | Proposed fix |
 |---|---|---|
-| C1 | **Built for gps and sim modes (opt-in checkbox + ⌖ align button):** pitch, roll and compass yaw drive the camera; see `src/orientation.ts`. Not yet: automatic yaw correction toward the route, tuning on real phones. Original gap: yaw comes from the route, so the overlay can't react to the car's actual heading change during a turn or lane change | Fuse `DeviceOrientationEvent` (gyro/compass) for short-term yaw/pitch/roll; keep route bearing as the long-term reference when driving |
+| C1 | **Built for gps and sim modes (opt-in checkbox + ⌖ align button):** pitch, roll and compass yaw drive the camera; see `src/walk/orientation.ts`. Not yet: automatic yaw correction toward the route, tuning on real phones. Original gap: yaw comes from the route, so the overlay can't react to the car's actual heading change during a turn or lane change | Fuse `DeviceOrientationEvent` (gyro/compass) for short-term yaw/pitch/roll; keep route bearing as the long-term reference when driving |
 | C2 | No pitch/roll compensation: bumps and slopes shift the ribbon off the road | Same fusion for pitch and roll (high-pass the gyro, low-pass toward the calibrated value) |
 | C6 | **Walking** (phone in hand): route-derived yaw and fixed pitch are wrong because the phone points wherever the hand does | New `walk` profile: yaw, pitch and roll come from device orientation (iOS needs `DeviceOrientationEvent.requestPermission()` from a tap); camera height ~1.5 m; ribbon narrower (~1.2 m); route requested with a foot profile; no speed-based dead-reckoning assumptions above ~2 m/s; re-route threshold smaller (~20 m). C1/C2 are a prerequisite |
 | C7 | Public OSRM demo server only serves the `driving` profile | Walking needs a foot profile: self-host OSRM with `foot.lua` or use a router that supports pedestrian routing. Until then, walking mode snaps to driving routes and is demo-only |

@@ -73,14 +73,15 @@ Install the deployed site to the home screen (Chrome menu → Install app). It t
 
 ## Files
 
-- `src/main.ts`: app flow, per-frame navigation logic, HUD
-- `src/ar.ts`: Three.js overlay (ribbon, chevrons, turn arrow, hazard markers)
-- `src/orientation.ts`: phone compass/tilt/roll to camera pose
-- `src/bump.ts`: accelerometer detection of huecos and policías acostados
-- `src/geo.ts`: geometry (projection onto the route, bearings, geohash)
-- `src/links.ts`: Google Maps / Waze link parsing and geocoding (Nominatim)
-- `src/route.ts`: OSRM routing and Spanish instructions
-- `src/sources.ts`: GPS, simulation and replay position sources
+Source is split by module so teammates can work in parallel. Each folder has one owner area; `core/` is shared, so tell the team before changing it.
+
+- `src/main.ts`: composition root: wires the modules, start/stop, per-frame loop
+- `src/setup.ts`: setup screen (mode, destination, share target)
+- `src/core/`: shared. `geo.ts` geometry, `route.ts` OSRM routing + Spanish instructions, `links.ts` Maps/Waze links + geocoding, `types.ts` (`Fix`, `Source`), `state.ts` (`app`), `ui.ts` DOM helpers
+- `src/drive/`: navigation without orientation sensors. `sources.ts` GPS/sim/replay, `navigation.ts` route following + rerouting, `start.ts` per-mode startup, `controls.ts` record/sim buttons, `recorder.ts`
+- `src/walk/`: navigation with sensors. `orientation.ts` compass/tilt/roll to camera pose, `view.ts` smoothing + "Alinear"
+- `src/render/`: 3D and HUD. `ar.ts` Three.js overlay, `scene.ts`, `hud.ts`, `calib.ts` + `calibDock.ts`
+- `src/hazards/`: hazard mapping. `store.ts`, `cloud.ts` sync, `bump.ts` accelerometer detection, `ahead.ts` hazards along a route, `ui.ts` reporting UI. Navigation only calls `reindexHazards`, `aheadOf`, `trackPosition`
 - `api/expand.ts`: serverless function that expands `maps.app.goo.gl` links
 
 The public OSRM and Nominatim servers are fine for a demo but rate-limited.
