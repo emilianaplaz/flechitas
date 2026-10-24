@@ -1,10 +1,11 @@
 // The 3D overlay drawn on top of the camera feed: a guide ribbon on the road,
 // chevrons, a big arrow at the next turn and markers on reported hazards.
 import * as THREE from 'three';
-import { bearingAt, pointAt, toLocal, toRad, type LatLon, type Polyline } from './geo.ts';
+import { bearingAt, pointAt, toLocal, toRad, type LatLon, type Polyline } from '../core/geo.ts';
 import type { Calib } from './calib.ts';
-import type { Step, TurnKind } from './route.ts';
-import { HAZARD_LABEL, type HazardType } from './hazards.ts';
+import type { Step, TurnKind } from '../core/route.ts';
+import { HAZARD_LABEL, type HazardType } from '../hazards/store.ts';
+import type { HazardView } from '../hazards/ahead.ts';
 
 const GUIDE = 0x00e676;
 const RIBBON_STEP = 2; // m between ribbon samples
@@ -12,11 +13,6 @@ const RIBBON_LEN = 160; // m of road ahead to draw
 const MAX_SAMPLES = Math.ceil(RIBBON_LEN / RIBBON_STEP) + 2;
 const CHEVRON_EVERY = 8;
 const MAX_CHEVRONS = Math.ceil(RIBBON_LEN / CHEVRON_EVERY);
-
-export interface HazardView {
-  p: LatLon;
-  type: HazardType;
-}
 
 export interface FrameInput {
   origin: LatLon; // point on the ground directly under the camera

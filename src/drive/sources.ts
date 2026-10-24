@@ -1,21 +1,7 @@
 // Where the car's position comes from: real GPS, a simulated drive along the route,
 // or a recorded track replayed in sync with a recorded dashcam video.
-import { bearing, bearingAt, haversine, pointAt, type LatLon, type Polyline } from './geo.ts';
-
-export interface Fix {
-  p: LatLon;
-  speed: number | null; // m/s
-  heading: number | null; // degrees from north
-  accuracy: number | null; // metres
-  t: number; // performance.now() ms when this fix was valid
-}
-
-export interface Source {
-  readonly name: 'gps' | 'sim' | 'replay';
-  start(): void;
-  stop(): void;
-  current(now: number): Fix | null;
-}
+import { bearing, bearingAt, haversine, pointAt, type Polyline } from '../core/geo.ts';
+import type { Fix, Source } from '../core/types.ts';
 
 export class GpsSource implements Source {
   readonly name = 'gps' as const;

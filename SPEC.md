@@ -29,13 +29,31 @@ Primary user: a driver in a city with poor road data and poor road surface (the 
 
 | Module | Role | Reuse in HUD mode |
 |---|---|---|
-| [src/ar.ts](src/ar.ts) | Three.js scene: ribbon, chevrons, turn arrow/ring, destination pin, hazard markers. Transparent canvas (`alpha: true`) | Same scene; add a HUD render style (§5.2) |
-| [src/main.ts](src/main.ts) | Setup flow, per-frame navigation loop, HUD DOM, calibration UI | Add mode switch + HUD layout |
-| [src/geo.ts](src/geo.ts) | Local ENU projection, bearings, polyline projection | Unchanged |
-| [src/route.ts](src/route.ts) | OSRM routing, Spanish instructions | Unchanged (see §8) |
-| [src/sources.ts](src/sources.ts) | `GpsSource`, `RouteSim`, `TrackReplay` | Unchanged |
-| [src/calib.ts](src/calib.ts) | `pitch, fov, height, yawOffset, lateral, ribbonWidth` in localStorage | One calibration profile per display mode (§5.3) |
-| [src/hazards.ts](src/hazards.ts), [src/links.ts](src/links.ts), [api/expand.ts](api/expand.ts) | Hazards, destination parsing, short-link expansion | Unchanged |
+| [src/render/ar.ts](src/render/ar.ts) | Three.js scene: ribbon, chevrons, turn arrow/ring, destination pin, hazard markers. Transparent canvas (`alpha: true`) | Same scene; add a HUD render style (§5.2) |
+| [src/main.ts](src/main.ts), [src/setup.ts](src/setup.ts) | Composition root: wires modules, start/stop, per-frame loop; setup screen | Add mode switch + HUD layout |
+| [src/drive/navigation.ts](src/drive/navigation.ts), [src/drive/start.ts](src/drive/start.ts) | Route following (progress along route, yaw, next maneuver, rerouting); per-mode source startup | Unchanged |
+| [src/walk/view.ts](src/walk/view.ts), [src/walk/orientation.ts](src/walk/orientation.ts) | Sensor-driven camera view (compass/tilt/roll, smoothing, "Alinear") | Not used in HUD mode |
+| [src/render/hud.ts](src/render/hud.ts), [src/render/calibDock.ts](src/render/calibDock.ts) | Flat HUD text/glyph; calibration dock | HUD layout and per-display profiles live here (§5.2, §5.3) |
+| [src/hazards/ahead.ts](src/hazards/ahead.ts), [src/hazards/ui.ts](src/hazards/ui.ts), [src/hazards/bump.ts](src/hazards/bump.ts), [src/hazards/cloud.ts](src/hazards/cloud.ts) | Hazards along the route, reporting UI, bump detection, upload queue | Unchanged |
+| [src/core/geo.ts](src/core/geo.ts) | Local ENU projection, bearings, polyline projection | Unchanged |
+| [src/core/route.ts](src/core/route.ts) | OSRM routing, Spanish instructions | Unchanged (see §8) |
+| [src/drive/sources.ts](src/drive/sources.ts) | `GpsSource`, `RouteSim`, `TrackReplay` | Unchanged |
+| [src/render/calib.ts](src/render/calib.ts) | `pitch, fov, height, yawOffset, lateral, ribbonWidth` in localStorage | One calibration profile per display mode (§5.3) |
+| [src/hazards/store.ts](src/hazards/store.ts), [src/core/links.ts](src/core/links.ts), [api/expand.ts](api/expand.ts) | Hazards, destination parsing, short-link expansion | Unchanged |
+
+### Module ownership
+
+The source is split so teammates can work in parallel with few merge conflicts (full file list in [SETUP.md](SETUP.md)).
+
+| Folder | Scope | Talks to the rest through |
+|---|---|---|
+| `core/` | Shared: geometry, routing, link parsing, types, DOM helpers | Everyone imports it. Changes need a heads-up to the team |
+| `drive/` | Navigation for driving, no orientation sensors: GPS/sim/replay sources, route following, rerouting | `advance(fix, route, …)` returns a `NavFrame` |
+| `walk/` | Navigation for walking, with sensors: compass/tilt/roll steer the camera | `updateView(now, dt)` returns a `View` or `null` (fall back to route bearing) |
+| `render/` | 3D overlay (Three.js), HUD, calibration | `ArScene.update(FrameInput)` and `renderHud(HudInput)`; knows nothing about sensors |
+| `hazards/` | Hazard store, cloud sync, bump detection, reporting UI | `reindexHazards()`, `aheadOf(along)`, `trackPosition(now, p)` |
+
+Driving and walking differ only in where the camera pose comes from. Both feed the same renderer. `bump.ts` uses the accelerometer but belongs to hazards, so "no sensors" for driving means no orientation sensors.
 
 ### How the current rendering works (the part that matters for HUD)
 
@@ -78,18 +96,19 @@ This is a cheap, robust trick for a rigidly mounted phone. It is also why the HU
 ### 5.1 Architecture changes
 
 ```
-                  ┌──────────────┐
- Source (gps/sim/replay) ─▶ frame() in main.ts ─▶ ArScene.update(FrameInput)
-                  └──────────────┘                 │
-                                                   ├─ render style: 'camera' | 'hud'
-                                                   └─ view transform: mirrorX, flipY (CSS on canvas)
+ Source (gps/sim/replay) ─▶ drive/navigation advance() ─▶ NavFrame ─┐
+ walk/view updateView() ───────────────────────────────▶ View|null ─┼─▶ main.ts frame() ─▶ ArScene.update(FrameInput)
+ hazards/ui aheadOf() ─────────────────────────────────▶ ahead[] ───┘                    └▶ renderHud(HudInput)
+                                                                              │
+                                                                              ├─ render style: 'camera' | 'hud'
+                                                                              └─ view transform: mirrorX, flipY (CSS on canvas)
 ```
 
 - Introduce a `Display = 'camera' | 'hud'` value, orthogonal to `Mode`. `Mode` still decides where position comes from.
-- `main.ts`: when `display === 'hud'`, skip `startCamera`, hide `<video>`, set body class `hud` (black background, HUD layout, no cards).
+- `main.ts` and `drive/start.ts`: when `display === 'hud'`, skip `startCamera`, hide `<video>`, set body class `hud` (black background, HUD layout, no cards).
 - `ArScene` takes a `style` option: materials (opacity/colors), ribbon rendering (edge lines instead of a translucent fill), arrow scale. The scene graph, pooling and update logic stay as they are.
 - Mirror/flip implemented as a CSS transform on `#ar` and the HUD text container (`transform: scale(-1, 1)`), not in Three.js, so text and 3D flip together.
-- Extract the HUD text block (glyph, distance, street, speed) into one container so the same flip applies to it.
+- Extract the HUD text block (glyph, distance, street, speed; see `render/hud.ts`) into one container so the same flip applies to it.
 
 ### 5.2 HUD render style (differences from camera style)
 
@@ -123,7 +142,7 @@ The camera mode works for a demo. To be dependable on the road:
 
 | ID | Gap | Proposed fix |
 |---|---|---|
-| C1 | **Built for gps and sim modes (opt-in checkbox + ⌖ align button):** pitch, roll and compass yaw drive the camera; see `src/orientation.ts`. Not yet: automatic yaw correction toward the route, tuning on real phones. Original gap: yaw comes from the route, so the overlay can't react to the car's actual heading change during a turn or lane change | Fuse `DeviceOrientationEvent` (gyro/compass) for short-term yaw/pitch/roll; keep route bearing as the long-term reference when driving |
+| C1 | **Built for gps and sim modes (opt-in checkbox + ⌖ align button):** pitch, roll and compass yaw drive the camera; see `src/walk/orientation.ts`. Not yet: automatic yaw correction toward the route, tuning on real phones. Original gap: yaw comes from the route, so the overlay can't react to the car's actual heading change during a turn or lane change | Fuse `DeviceOrientationEvent` (gyro/compass) for short-term yaw/pitch/roll; keep route bearing as the long-term reference when driving |
 | C2 | No pitch/roll compensation: bumps and slopes shift the ribbon off the road | Same fusion for pitch and roll (high-pass the gyro, low-pass toward the calibrated value) |
 | C6 | **Walking** (phone in hand): route-derived yaw and fixed pitch are wrong because the phone points wherever the hand does | New `walk` profile: yaw, pitch and roll come from device orientation (iOS needs `DeviceOrientationEvent.requestPermission()` from a tap); camera height ~1.5 m; ribbon narrower (~1.2 m); route requested with a foot profile; no speed-based dead-reckoning assumptions above ~2 m/s; re-route threshold smaller (~20 m). C1/C2 are a prerequisite |
 | C7 | Public OSRM demo server only serves the `driving` profile | Walking needs a foot profile: self-host OSRM with `foot.lua` or use a router that supports pedestrian routing. Until then, walking mode snaps to driving routes and is demo-only |
@@ -198,7 +217,7 @@ Decided:
 |---|---|
 | Hardware | Phone on the bare windshield (no combiner). Must also work as a handheld camera pointed at a street for walking |
 | Market | Venezuela-first: Spanish, current hazard set |
-| Hazard sharing | Deferred until after the M3 drive tests; keep file export meanwhile |
+| Hazard sharing | Built on Supabase (uploads, offline queue with undo window, shared loading); file export kept. Merging duplicates and expiry are still open (see TODO.md) |
 | Routing | Public OSRM for now; walking requires a foot profile (C7), so a router change is likely at M5 |
 | Platforms | Android + iOS PWA |
 | Two-phone setup | Not needed. iOS supports geolocation; its gaps are UI/OS features, handled in §7.3 |
@@ -212,5 +231,5 @@ Still open:
 
 - The HUD is a phone screen reflected on the bare windshield, not custom optics.
 - Android Chrome and iOS Safari are both supported; iOS has a reduced setup flow (§7.3).
-- Spanish UI, Venezuelan hazard set, no accounts, no backend.
+- Spanish UI, Venezuelan hazard set, no accounts. The only backend is the Supabase hazard database.
 - The existing virtual-camera approach (route-derived yaw, calibrated pitch/FOV) is kept and extended, not replaced by a computer-vision pipeline.
