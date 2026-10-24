@@ -4,7 +4,7 @@
   --line: rgba(255, 255, 255, 0.14);
   --text: #f4f7fa;
   --muted: #9aa7b4;
-  --guide: #00e5ff;
+  --guide: #00e676;
   --warn: #ff3b30;
   --amber: #ffb020;
   --ok: #22e07a;
@@ -82,13 +82,13 @@ input[type='file'] { width: 100%; font-size: 13px; color: var(--muted); }
 }
 .modes input { position: absolute; opacity: 0; }
 .modes small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
-.modes label:has(input:checked) { border-color: var(--guide); background: rgba(0, 229, 255, 0.08); }
+.modes label:has(input:checked) { border-color: var(--guide); background: rgba(0, 230, 118, 0.08); }
 
 button { cursor: pointer; border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 600; }
 .check { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 14px; cursor: pointer; }
 .check input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--guide); flex: none; }
 .check small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
-button.primary { width: 100%; background: var(--guide); color: #00262d; font-size: 16px; }
+button.primary { width: 100%; background: var(--guide); color: #042b16; font-size: 16px; }
 .row.wrap button.primary { width: auto; flex: 1; }
 button.ghost { background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line); }
 button:disabled { opacity: 0.5; }
@@ -225,7 +225,7 @@ body.calibrating #simBar { bottom: calc(max(10px, env(safe-area-inset-bottom)) +
 .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
 .chip { flex: none; padding: 7px 12px; font-size: 13px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line); }
-.chip.on { background: var(--guide); border-color: var(--guide); color: #00262d; }
+.chip.on { background: var(--guide); border-color: var(--guide); color: #042b16; }
 .oneHead { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 2px; }
 .oneHead output { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
 .oneCtl { display: flex; align-items: center; gap: 10px; }

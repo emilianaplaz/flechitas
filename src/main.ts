@@ -90,8 +90,8 @@ function renderGlyph(kind: TurnKind) {
     kind === 'arrive'
       ? `<svg viewBox="0 0 64 64"><path d="M32 6c-10 0-18 8-18 18 0 13 18 34 18 34s18-21 18-34C50 14 42 6 32 6zm0 25a7 7 0 1 1 0-14 7 7 0 0 1 0 14z" fill="#22e07a"/></svg>`
       : kind === 'uturn'
-        ? `<svg viewBox="0 0 64 64"><path d="M42 56V26a10 10 0 0 0-20 0v14h8L18 54 6 40h8V26a18 18 0 0 1 36 0v30z" fill="#00e5ff"/></svg>`
-        : `<svg viewBox="0 0 64 64"><g transform="rotate(${GLYPH_ROT[kind]} 32 32)"><path d="M32 4 52 28H39v32H25V28H12z" fill="#00e5ff"/></g></svg>`;
+        ? `<svg viewBox="0 0 64 64"><path d="M42 56V26a10 10 0 0 0-20 0v14h8L18 54 6 40h8V26a18 18 0 0 1 36 0v30z" fill="#00e676"/></svg>`
+        : `<svg viewBox="0 0 64 64"><g transform="rotate(${GLYPH_ROT[kind]} 32 32)"><path d="M32 4 52 28H39v32H25V28H12z" fill="#00e676"/></g></svg>`;
   $('glyph').innerHTML = svg;
 }
 
@@ -273,14 +273,18 @@ function readJsonFile(file: File): Promise<unknown> {
   return file.text().then((t) => JSON.parse(t));
 }
 
-async function enterImmersive() {
+/** Fullscreen and wake lock are best-effort: some browsers never settle these promises, so nothing waits on them. */
+function enterImmersive() {
   try {
-    await document.documentElement.requestFullscreen?.();
+    document.documentElement.requestFullscreen?.().catch(() => {});
   } catch {
     /* not supported (e.g. iOS) */
   }
   try {
-    wakeLock = await (navigator as unknown as { wakeLock?: { request(t: string): Promise<{ release(): Promise<void> }> } }).wakeLock?.request('screen') ?? null;
+    (navigator as unknown as { wakeLock?: { request(t: string): Promise<{ release(): Promise<void> }> } }).wakeLock
+      ?.request('screen')
+      .then((lock) => (wakeLock = lock))
+      .catch(() => {});
   } catch {
     /* ignore */
   }
@@ -313,9 +317,16 @@ $('start').onclick = async () => {
   setupMsg('');
   try {
     // First await in the handler: iOS only shows the sensor permission prompt inside the tap.
+    // Bump detection is optional: without motion permission the drive still starts, just without it.
+    let bumpWarning = '';
     if ($<HTMLInputElement>('detectBumps').checked && mode !== 'replay') {
       watcher = new BumpWatcher(() => source?.current(performance.now())?.speed ?? 0, onBump);
-      await watcher.start();
+      try {
+        await watcher.start();
+      } catch (e) {
+        watcher = null;
+        bumpWarning = `Sin detección de huecos: ${(e as Error).message}`;
+      }
     }
     if ($<HTMLInputElement>('useSensors').checked && mode !== 'replay') {
       sensor = new OrientationSensor();
@@ -381,7 +392,8 @@ $('start').onclick = async () => {
     $('setup').hidden = true;
     $('hud').hidden = false;
     $<HTMLButtonElement>('align').hidden = !sensor;
-    await enterImmersive();
+    enterImmersive();
+    if (bumpWarning) toast(bumpWarning, 5000);
     running = true;
     lastFrame = performance.now();
     requestAnimationFrame(frame);
@@ -515,6 +527,7 @@ $('stop').onclick = async () => {
   video.srcObject = null;
   route = null;
   await wakeLock?.release().catch(() => {});
+  wakeLock = null;
   if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
   $('hud').hidden = true;
   $('simBar').hidden = true;
@@ -530,7 +543,7 @@ $('stop').onclick = async () => {
 window.addEventListener('online', () => void flush());
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible') void flush();
-  if (document.visibilityState === 'visible' && running && !wakeLock) await enterImmersive();
+  if (document.visibilityState === 'visible' && running && !wakeLock) enterImmersive();
 });
 
 // ---------- per-frame ----------
