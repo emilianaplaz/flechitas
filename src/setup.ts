@@ -3,7 +3,6 @@ import { extractUrl, resolveDestination } from './core/links.ts';
 import { app, type Display, type Mode } from './core/state.ts';
 import { $, setText, setupMsg } from './core/ui.ts';
 import { syncCalibProfile } from './render/calibDock.ts';
-import { refreshPairQr } from './remote/display.ts';
 
 function syncMode() {
   app.mode = (document.querySelector<HTMLInputElement>('input[name=mode]:checked')?.value ?? 'gps') as Mode;
@@ -21,7 +20,6 @@ function syncDisplay() {
   }
   syncCalibProfile();
   $('hudGeomOpen').hidden = chosen !== 'hud';
-  refreshPairQr(); // the phone pairs as a camera, or as a sensor only for the HUD
 }
 
 export async function resolveDestInput(): Promise<void> {

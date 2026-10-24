@@ -193,6 +193,12 @@ function measureButton(): HTMLButtonElement {
   return b;
 }
 
+/** Opens the measurements sheet (also from the iPad's HUD screen). */
+export function openHudGeom() {
+  renderForm();
+  $('hudGeom').hidden = false;
+}
+
 export function initHudSetup() {
   $('hgPreset').onchange = () => {
     if ($<HTMLSelectElement>('hgPreset').value === 'fortuner') setGeom({ ...FORTUNER_2015, eyeDx: geom.eyeDx, eyeDy: geom.eyeDy });
@@ -214,10 +220,7 @@ export function initHudSetup() {
   };
   fine('hgEyeDy', 'eyeDy');
   fine('hgEyeDx', 'eyeDx');
-  const open = () => {
-    renderForm();
-    $('hudGeom').hidden = false;
-  };
+  const open = openHudGeom;
   $('hudGeomBtn').onclick = open;
   $('hudGeomOpen').onclick = open;
   $('hgClose').onclick = () => ($('hudGeom').hidden = true);

@@ -62,33 +62,30 @@
         <label class="field"><span>Recorrido GPS (.json)</span><input id="replayTrack" type="file" accept="application/json,.json" /></label>
       </div>
 
-      <button id="pairBtn" class="ghost pairBtn" type="button">📱 Usar la cámara de un teléfono</button>
-      <small id="pairState" class="pairState"></small>
+      <div class="field linkField">
+        <span>iPad del HUD (opcional)</span>
+        <div class="row">
+          <input id="linkCode" type="text" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="Código de 6 dígitos" />
+          <button id="linkBtn" class="ghost" type="button">Conectar</button>
+        </div>
+        <small id="linkState"></small>
+      </div>
+      <button id="beHud" class="ghost beHud" type="button">Usar esta pantalla como HUD del parabrisas</button>
 
       <button id="start" class="primary" type="button">Iniciar</button>
       <p id="setupMsg" class="msg"></p>
     </section>
 
-    <!-- Pairing: QR the phone scans to become this screen's camera -->
-    <section id="pair" class="sheet pair" hidden>
-      <h2>Cámara de un teléfono</h2>
-      <p class="sub">Escanea este código con la cámara del iPhone. Su cámara y su GPS se usarán aquí; esta pantalla solo muestra.</p>
-      <div id="pairQr" class="pairQr" aria-label="Código QR para conectar el teléfono"></div>
-      <p id="pairUrl" class="pairUrl"></p>
-      <p id="pairWarn" class="msg"></p>
-      <p id="pairStatus" class="pairStatus"></p>
-      <button id="pairClose" class="primary" type="button">Listo</button>
-    </section>
-
-    <!-- Phone camera mode: this page was opened from the QR code -->
-    <section id="phonecam" class="card phonecam" hidden>
-      <b>Cámara para Vía AR</b>
-      <p id="pcStatus"></p>
-      <div class="row">
-        <button id="pcConnect" class="primary" type="button">Conectar</button>
-        <button id="pcRotate" class="ghost" type="button" title="Si la imagen sale de lado, gírala 90°">⟳ Girar</button>
+    <!-- iPad as the windshield HUD: shows a code, the phone does the rest -->
+    <section id="hudRole" class="hudRole" hidden>
+      <h1>Pantalla HUD</h1>
+      <p class="sub">Pon este iPad sobre el tablero, debajo del parabrisas.</p>
+      <div class="hrCodeBox"><span class="hrLabel">Código de vinculación</span><output id="hrCode">··· ···</output></div>
+      <p id="hrStatus" class="hrStatus"></p>
+      <div class="row wrap">
+        <button id="hrGeom" class="ghost" type="button">📐 Medidas del carro y del iPad</button>
+        <button id="hrLeave" class="ghost" type="button">Usar como teléfono</button>
       </div>
-      <small>Deja esta pantalla abierta. Si la cierras o bloqueas el teléfono, la imagen se corta.</small>
     </section>
 
     <!-- Driving HUD -->

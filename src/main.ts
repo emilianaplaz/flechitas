@@ -5,7 +5,7 @@
 //   render/   Three.js overlay, HUD and calibration dock
 //   hazards/  hazard store, cloud sync, bump detection and reporting UI
 //   signs/    road signs from the maqueta along the route
-//   remote/   a phone paired by QR code streams its camera, GPS and tilt to this screen
+//   remote/   phone <-> iPad link: the phone runs the app, the iPad shows the windshield HUD
 import './style.css';
 import { app } from './core/state.ts';
 import { $, setupMsg, toast } from './core/ui.ts';
@@ -15,12 +15,13 @@ import { initDriveControls } from './drive/controls.ts';
 import { advance, resetProgress } from './drive/navigation.ts';
 import { startSource, stopDrive, stopSource } from './drive/start.ts';
 import { aheadOf, initHazardUi, loadHazards, setOsmHazards, startBumpWatcher, startCloudSync, stopBumpWatcher, stopHazards, trackPosition } from './hazards/ui.ts';
-import { autoTiltTick, getCalib, getMountRoll, initCalibDock, startAutoTilt, stopAutoTilt } from './render/calibDock.ts';
+import { autoTiltTick, getCalib, getMountRoll, initCalibDock, startAutoTilt, stopAutoTilt, syncCalibProfile } from './render/calibDock.ts';
 import { hideHud, initHudControls, renderHud, showHud } from './render/hud.ts';
-import { currentOptics, initHudSetup } from './render/hudSetup.ts';
+import { currentOptics, initHudSetup, openHudGeom } from './render/hudSetup.ts';
 import { ar } from './render/scene.ts';
-import { initRemoteDisplay, remoteTilt } from './remote/display.ts';
-import { initPhoneCam, isPhoneCamPage } from './remote/phone.ts';
+import { remoteGps, remotePhone, remoteTilt, startHudLink } from './remote/hudLink.ts';
+import { connectHud, disconnectHud, hudLinked, onHudState, sendFix, sendRoute, sendStop, setDriveProvider, type LinkState } from './remote/phoneLink.ts';
+import { normalizeCode } from './remote/protocol.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
 import { clearSigns, setSigns, signsAheadOf } from './signs/store.ts';
 import { align, sensorsActive, startSensors, stopSensors, updateView } from './walk/view.ts';
@@ -49,13 +50,104 @@ initHudSetup();
 initHazardUi();
 initDriveControls();
 initSetupScreen();
-// Opened from a pairing QR: this phone is only a camera for another screen.
-if (isPhoneCamPage()) initPhoneCam();
-else initRemoteDisplay();
+
+// ---------- roles: the phone runs the app; an iPad can be the windshield HUD ----------
+const ROLE_KEY = 'ar-nav.role';
+const isHudRole = () => {
+  try {
+    return new URLSearchParams(location.search).get('role') === 'hud' || localStorage.getItem(ROLE_KEY) === 'hud';
+  } catch {
+    return false;
+  }
+};
+const hudRole = isHudRole(); // decided once per page load
+const setRole = (role: 'hud' | 'phone') => {
+  try {
+    localStorage.setItem(ROLE_KEY, role);
+  } catch {
+    /* ignore */
+  }
+  location.replace(location.pathname);
+};
+$('beHud').onclick = () => setRole('hud');
+$('hrLeave').onclick = () => setRole('phone');
+$('hrGeom').onclick = () => openHudGeom();
+
+let lostTimer = 0;
+if (hudRole) {
+  // iPad: a code screen until the phone starts a drive, then the HUD; back to the code when it ends.
+  $('setup').hidden = true;
+  $('hudRole').hidden = false;
+  app.display = 'hud';
+  syncCalibProfile();
+  startHudLink({
+    onRoute: (route) => {
+      clearTimeout(lostTimer);
+      if (app.running) setRoute(route); // the phone rerouted
+      else void startRemoteDrive(route);
+    },
+    onStop: () => stopRemoteDrive(),
+    // A locked phone or a dropped link: keep drawing on the last data for a moment, then give up.
+    onLost: () => {
+      clearTimeout(lostTimer);
+      lostTimer = window.setTimeout(() => !remotePhone() && stopRemoteDrive(), 15000);
+    },
+  });
+} else {
+  // Phone: link to the iPad by the code it shows; the HUD then follows every drive.
+  const show = (s: LinkState) => {
+    const el = $('linkState');
+    el.textContent = { off: '', connecting: 'Conectando…', on: 'iPad conectado ✓', lost: 'Se perdió el iPad, reintentando…' }[s];
+    el.classList.toggle('ok', s === 'on');
+    $('linkBtn').textContent = s === 'off' ? 'Conectar' : 'Desconectar';
+  };
+  onHudState(show);
+  $('linkBtn').onclick = () => {
+    if ($('linkBtn').textContent === 'Desconectar') return disconnectHud();
+    const code = normalizeCode($<HTMLInputElement>('linkCode').value);
+    if (!code) return toast('Escribe los 6 dígitos que muestra el iPad');
+    void connectHud(code);
+  };
+  setDriveProvider(() => (app.running && app.route ? { route: app.route, arrival: null } : null));
+}
+
+/** iPad: the phone started a drive. Position comes from the phone's GPS; this device only draws. */
+async function startRemoteDrive(route: Route) {
+  app.mode = 'gps';
+  app.display = 'hud';
+  syncCalibProfile();
+  await loadHazards();
+  app.source = remoteGps;
+  setRoute(route);
+  await startAutoTilt(); // the phone's tilt: its resting value is the baseline for body motion
+  $('hudRole').hidden = true;
+  showHud('hud');
+  enterImmersive();
+  app.running = true;
+  lastFrame = performance.now();
+  requestAnimationFrame(frame);
+}
+
+function stopRemoteDrive() {
+  if (!app.running) return;
+  app.running = false;
+  app.source = null;
+  stopAutoTilt();
+  stopHazards();
+  app.route = null;
+  maqueta = null;
+  clearSigns();
+  void wakeLock?.release().catch(() => {});
+  wakeLock = null;
+  hideHud();
+  $('hudRole').hidden = false;
+  clearScene(0);
+}
 
 function setRoute(r: Route) {
   app.route = r;
   resetProgress();
+  if (hudLinked()) sendRoute(r, null); // the iPad follows every new route, reroutes included
   // The maqueta loads in the background; until then, and where it has no tiles, the road is flat.
   maqueta = null;
   clearSigns();
@@ -151,7 +243,9 @@ $('align').onclick = () => {
 };
 
 $('stop').onclick = async () => {
+  if (hudRole) return stopRemoteDrive();
   app.running = false;
+  sendStop();
   await stopDrive();
   stopSensors();
   stopAutoTilt();
@@ -184,6 +278,7 @@ function frame(now: number) {
   if (!fix || !route) return clearScene(app.yaw);
 
   const calib = getCalib();
+  if (!hudRole) sendFix(now, fix);
   trackPosition(now, fix.p);
   const nav = advance(fix, route, now, dt, calib.lateral, setRoute);
   const { ahead, nearest } = aheadOf(nav.along);

@@ -14,7 +14,7 @@ import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
 import { defaultsFor, loadCalib, loadFlip, saveCalib, saveFlip } from '../src/render/calib.ts';
 import { DEFAULT_LENS_HFOV, TiltWindow, steadyMean, visibleVfov } from '../src/render/autocalib.ts';
-import { PEER_PREFIX, newPeerId, phoneUrl, reachableOrigin } from '../src/remote/protocol.ts';
+import { decodeRoute, encodeRoute, formatCode, hudPeerId, newHudCode, normalizeCode } from '../src/remote/protocol.ts';
 import { interfaceAngle, physicalAngle, uprightPlan } from '../src/remote/orient.ts';
 import { Vector3, Vector4 } from 'three';
 import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransform, placementAdvice, reflectMatrix, virtualImage, worldToCss } from '../src/render/optics.ts';
@@ -221,21 +221,21 @@ check('tilt window: ignored while the car moves (braking tilts gravity)', tw2.st
 feed(tw2, 3016, 2600, () => false);
 check('tilt window: trusted again once stopped for the whole window', tw2.steady() !== null);
 
-// ---- remote camera pairing ----
-const pid = newPeerId();
-check('peer id has prefix and 8 safe chars', pid.startsWith(PEER_PREFIX) && /^[a-z2-9]{8}$/.test(pid.slice(PEER_PREFIX.length)), pid);
-check('peer ids differ', newPeerId() !== newPeerId());
-check('phone url carries the id', phoneUrl('https://via.app', 'viaar-abc') === 'https://via.app/?cam=viaar-abc');
-const at = (url: string) => {
-  const u = new URL(url);
-  return { protocol: u.protocol, hostname: u.hostname, port: u.port, origin: u.origin };
-};
-check('localhost is swapped for the LAN address', reachableOrigin(at('https://localhost:5173/x'), '192.168.1.20') === 'https://192.168.1.20:5173');
-check('127.0.0.1 is swapped too', reachableOrigin(at('http://127.0.0.1:5175/'), '10.0.0.5') === 'http://10.0.0.5:5175');
-check('a published site keeps its own origin', reachableOrigin(at('https://flechitas.vercel.app/'), '192.168.1.20') === 'https://flechitas.vercel.app');
-// Opened at the VPN or WSL address the dev server also lists: the phone can only reach the Wi-Fi one.
-check('VPN address is swapped for the Wi-Fi one', reachableOrigin(at('https://10.80.0.14:5173/'), '192.168.21.47') === 'https://192.168.21.47:5173');
-check('WSL address is swapped too', reachableOrigin(at('https://172.19.192.1:5173/'), '192.168.21.47') === 'https://192.168.21.47:5173');
+// ---- phone <-> iPad link ----
+const hc = newHudCode();
+check('iPad code is 6 digits', /^\d{6}$/.test(hc), hc);
+check('iPad peer id comes from the code', hudPeerId('012345') === 'viaar-hud-012345');
+check('typed code: spaces and dashes ignored', normalizeCode(' 012 345 ') === '012345' && normalizeCode('012-345') === '012345');
+check('typed code: not 6 digits is rejected', normalizeCode('12345') === null && normalizeCode('12345a') === null);
+check('code shown in two groups', formatCode('012345') === '012 345');
+{
+  // A route survives the trip to the iPad: same geometry, steps and arrival point.
+  const r = { poly: buildPolyline([caracas, corner, end]), steps: [{ kind: 'left' as const, text: 'Gira a la izquierda', street: 'Av. X', location: corner, along: 200 }], duration: 95 };
+  const arrival = { lat: end.lat, lon: end.lon, label: 'Edif. B · Entrada 2' };
+  const back = decodeRoute(JSON.parse(JSON.stringify(encodeRoute(r, arrival))));
+  check('route round-trip: same length', near(back.route.poly.length, r.poly.length, 0.5), `${back.route.poly.length} vs ${r.poly.length}`);
+  check('route round-trip: steps and arrival kept', back.route.steps[0].kind === 'left' && back.route.steps[0].along === 200 && back.arrival?.label === arrival.label && back.route.duration === 95);
+}
 
 // ---- remote camera: keep the picture upright ----
 check('phone upright portrait = 0', physicalAngle(85, 0, 0) === 0);
@@ -255,7 +255,6 @@ check('locked portrait frames keep the full lens width', near(locked.hfov, 63, 0
 const upright = uprightPlan(720, 1280, 0, 63, 1280, 720);
 check('upright phone: narrower field of view (crop)', upright.hfov < 40 && upright.hfov > 30, String(upright.hfov));
 check('rotation is normalised', uprightPlan(1280, 720, -90, 63, 1280, 720).rot === 270);
-check('no LAN address known: keep localhost', reachableOrigin(at('https://localhost:5173/'), '') === 'https://localhost:5173');
 
 // ---- windshield HUD optics ----
 // iPad 11" in landscape: 1194 × 834 CSS px at 132 CSS px/inch = 0.230 × 0.161 m.
