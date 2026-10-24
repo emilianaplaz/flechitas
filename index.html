@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#0b0f14" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <title>Vía AR</title>
+  </head>
+  <body>
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="ar"></canvas>
+
+    <!-- Setup -->
+    <section id="setup" class="sheet">
+      <h1>Vía <span>AR</span></h1>
+      <p class="sub">Flechas sobre la calle y aviso de huecos, desde la cámara de tu teléfono.</p>
+
+      <label class="field">
+        <span>¿A dónde vas?</span>
+        <div class="row">
+          <input id="dest" type="text" autocomplete="off" placeholder="Pega un enlace de Google Maps o Waze, o escribe una dirección" />
+          <button id="paste" class="ghost" type="button">Pegar</button>
+        </div>
+        <small id="destLabel"></small>
+      </label>
+
+      <div class="modes" role="radiogroup">
+        <label><input type="radio" name="mode" value="gps" checked /> <b>Manejar</b><small>Cámara y GPS reales</small></label>
+        <label><input type="radio" name="mode" value="sim" /> <b>Simulación</b><small>Recorre la ruta sin moverte</small></label>
+        <label><input type="radio" name="mode" value="replay" /> <b>Repetición</b><small>Video y recorrido grabados</small></label>
+      </div>
+
+      <label class="check">
+        <input id="useSensors" type="checkbox" />
+        <span><b>Usar sensores del teléfono</b><small>Para caminar o llevar el teléfono en la mano. En el carro con soporte fijo, déjalo apagado.</small></span>
+      </label>
+
+      <label class="check">
+        <input id="detectBumps" type="checkbox" checked />
+        <span><b>Detectar huecos y policías acostados</b><small>Con el acelerómetro. Te pregunta qué fue para confirmar.</small></span>
+      </label>
+
+      <label class="field" id="fromField" hidden>
+        <span>Desde (opcional)</span>
+        <input id="from" type="text" autocomplete="off" placeholder="Vacío = tu ubicación actual" />
+      </label>
+
+      <div id="replayFields" hidden>
+        <label class="field"><span>Video del recorrido</span><input id="replayVideo" type="file" accept="video/*" /></label>
+        <label class="field"><span>Recorrido GPS (.json)</span><input id="replayTrack" type="file" accept="application/json,.json" /></label>
+      </div>
+
+      <button id="start" class="primary" type="button">Iniciar</button>
+      <p id="setupMsg" class="msg"></p>
+    </section>
+
+    <!-- Driving HUD -->
+    <section id="hud" hidden>
+      <div id="maneuver" class="card">
+        <div id="glyph"></div>
+        <div>
+          <div id="mDist">—</div>
+          <div id="mText">Calculando ruta…</div>
+          <div id="mStreet"></div>
+        </div>
+      </div>
+      <div id="stats" class="card small">
+        <div><b id="speed">0</b> km/h</div>
+        <div id="remaining"></div>
+      </div>
+      <div id="hazardBanner" hidden></div>
+      <div id="detect" class="card" hidden>
+        <div id="detectTitle">¿Qué fue eso?</div>
+        <div class="row">
+          <button data-detect="hueco">Hueco</button>
+          <button data-detect="policia">Policía acostado</button>
+          <button data-detect="none" class="ghost">Nada</button>
+        </div>
+      </div>
+      <div id="arrived" hidden>Llegaste 🎉</div>
+
+      <div id="leftBtns">
+        <button data-report="hueco" class="report">⚠ Hueco</button>
+        <button data-report="policia" class="report alt">▬ Policía acostado</button>
+      </div>
+      <div id="rightBtns">
+        <button id="align" class="round" title="Alinear con la calle" hidden>⌖</button>
+        <button id="rec" class="round" title="Grabar recorrido">●</button>
+        <button id="calibBtn" class="round" title="Calibrar">⚙</button>
+        <button id="stop" class="round" title="Terminar">✕</button>
+      </div>
+      <div id="simBar" class="card small" hidden>
+        <button id="simPause" class="ghost">⏸</button>
+        <input id="simSpeed" type="range" min="5" max="90" value="35" />
+        <span id="simSpeedVal">35 km/h</span>
+      </div>
+    </section>
+
+    <!-- Calibration: a slim dock so the road stays visible -->
+    <section id="calib" class="dock" hidden>
+      <div id="chips" class="chips" role="tablist"></div>
+      <div class="one">
+        <div class="oneHead"><span id="oneLabel"></span><output id="oneVal"></output></div>
+        <div class="oneCtl">
+          <button id="oneMinus" class="step" aria-label="Menos">−</button>
+          <input id="oneRange" type="range" />
+          <button id="onePlus" class="step" aria-label="Más">+</button>
+        </div>
+      </div>
+      <div class="dockBtns">
+        <button id="calibReset" class="ghost">Restablecer</button>
+        <details id="calibMore">
+          <summary>Más</summary>
+          <div class="moreBtns">
+            <button id="undoReport" class="ghost">Deshacer reporte</button>
+            <button id="exportHazards" class="ghost">Exportar reportes</button>
+          </div>
+        </details>
+        <button id="calibClose" class="primary">Listo</button>
+      </div>
+    </section>
+
+    <div id="toast" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
