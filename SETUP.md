@@ -88,6 +88,15 @@ How it behaves: a reported hazard waits 60 s (so **Deshacer reporte** still work
 
 The app can add hazards but not edit or delete them. Fix or remove one in the Supabase table editor. The key is public, so anyone with the link can add reports.
 
+## Encontrar: find a place or a person (GPS only)
+
+The **+** button in the bottom bar opens the camera with a marker over each place you want to find, drawn from GPS and the phone's compass. Hold the phone upright; it needs the motion permission on iPhone.
+
+- **Guardar este lugar** drops a pin where you stand ("Lugar 1", …, kept on this phone, up to 8). Walk back toward it by following the marker; ✕ in the list deletes it.
+- **Ver a alguien** shows a 6-digit code and **Enviar enlace**. The other person opens the link (or types the code under **Compartir la mía**) and taps **Compartir mi ubicación**; you then see them as "Persona" on the camera, with their distance. They must keep that screen open: a sleeping screen stops their GPS.
+
+Accuracy is that of GPS, about 3–10 m in the open and worse between tall buildings or indoors; the marker says "±N m" when a fix is poor. Indoors and in garages it won't work. The link uses PeerJS's public broker like the iPad HUD, with no TURN server, so two phones on some mobile networks may not connect.
+
 ## Share from Google Maps / Waze (Android)
 
 Install the deployed site to the home screen (Chrome menu → Install app). It then appears in the Share menu of Google Maps and Waze; sharing a place opens Vía AR with the destination filled in. On iPhone, copy the link and use **Pegar**.
@@ -106,6 +115,7 @@ Source is split by module so teammates can work in parallel. Each folder has one
 - `src/remote/`: phone ↔ iPad link. `protocol.ts` code and messages, `phoneLink.ts` the phone side (route, fixes, tilt), `hudLink.ts` the iPad side, `orient.ts` tilt relative to the mounted phone
 - `src/signs/`: road signs from the maqueta. `store.ts` signs of the current route, `ahead.ts` which ones apply to our street and direction. Navigation only calls `setSigns`, `signsAheadOf`, `clearSigns`
 - `src/hazards/`: hazard mapping. `store.ts`, `cloud.ts` sync, `bump.ts` accelerometer detection, `ahead.ts` hazards along a route, `ui.ts` reporting UI. Navigation only calls `reindexHazards`, `aheadOf`, `trackPosition`
+- `src/find/`: Encontrar (the + button). `aim.ts` where a place lands on the camera from GPS + compass + tilt, `pins.ts` saved places, `protocol.ts` + `link.ts` sharing a live location by 6-digit code over PeerJS, `ui.ts` the screen
 - `api/expand.ts`: serverless function that expands `maps.app.goo.gl` links
 - `scripts/maqueta/`: builds the map tiles in `public/maqueta/` (see below and [MAQUETA.md](MAQUETA.md))
 - `pipeline3d/`: phone video → textured 3D street model (COLMAP + OpenMVS), step by step in [pipeline3d/README.md](pipeline3d/README.md)
