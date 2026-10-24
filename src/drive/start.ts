@@ -72,6 +72,7 @@ export async function startSource(setRoute: (r: Route) => void) {
     if (display !== 'hud') await startCamera(false);
     app.source = new RouteSim(app.route!.poly);
     $('simBar').hidden = false;
+    $('simPause').hidden = false;
   } else {
     const vf = $<HTMLInputElement>('replayVideo').files?.[0];
     const tf = $<HTMLInputElement>('replayTrack').files?.[0];
@@ -92,9 +93,7 @@ export async function startSource(setRoute: (r: Route) => void) {
     v.loop = false;
     await v.play();
     app.source = new TrackReplay(track, v);
-    $('simBar').hidden = false;
-    $('simSpeed').hidden = true;
-    $('simSpeedVal').hidden = true;
+    $('simPause').hidden = false;
   }
   app.source.start();
   if (mode !== 'gps') $('rec').hidden = true;
@@ -117,7 +116,7 @@ export async function stopDrive() {
   v.removeAttribute('src');
   v.srcObject = null;
   $('simBar').hidden = true;
-  $('simSpeed').hidden = false;
-  $('simSpeedVal').hidden = false;
+  $('simPause').hidden = true;
+  $('simPause').textContent = 'Pausar';
   $('rec').hidden = false;
 }

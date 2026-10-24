@@ -1,12 +1,18 @@
-// The setup screen: pick a mode, resolve the destination (typed, pasted or shared from Maps/Waze).
+// Destination and drive options on the phone: mode, origin, destination (typed, pasted or shared from Maps/Waze).
 import { extractUrl, resolveDestination } from './core/links.ts';
 import { app, type Display, type Mode } from './core/state.ts';
 import { $, setText, setupMsg } from './core/ui.ts';
 import { syncCalibProfile } from './render/calibDock.ts';
 
+const DEST_HINT = 'Escribe una dirección, pega un enlace o toca el mapa';
+
 function syncMode() {
   app.mode = (document.querySelector<HTMLInputElement>('input[name=mode]:checked')?.value ?? 'gps') as Mode;
-  $('fromField').hidden = app.mode !== 'sim';
+  // Real drives start from the GPS; a simulation can start anywhere.
+  const from = $<HTMLInputElement>('from');
+  from.disabled = app.mode !== 'sim';
+  from.placeholder = app.mode === 'sim' ? 'Desde (vacío = mi ubicación)' : 'Mi ubicación actual';
+  if (app.mode !== 'sim') from.value = '';
   $('replayFields').hidden = app.mode !== 'replay';
 }
 
@@ -22,28 +28,46 @@ function syncDisplay() {
   $('hudGeomOpen').hidden = chosen !== 'hud';
 }
 
+function showDest(title: string, sub: string) {
+  setText('dcTitle', title);
+  setText('destLabel', sub);
+}
+
 export async function resolveDestInput(): Promise<void> {
   const raw = $<HTMLInputElement>('dest').value.trim();
   if (!raw) {
     app.dest = null;
-    setText('destLabel', '');
+    showDest('¿A dónde vas?', DEST_HINT);
     return;
   }
-  setText('destLabel', 'Buscando…');
+  showDest('Buscando…', raw);
   try {
     app.dest = await resolveDestination(raw);
-    setText('destLabel', `✓ ${app.dest.label}`);
+    showDest(app.dest.label, 'Destino listo');
   } catch (e) {
     app.dest = null;
-    setText('destLabel', '');
+    showDest('¿A dónde vas?', DEST_HINT);
     throw e;
+  }
+}
+
+/** Caminar = the phone in the hand steers the view with its sensors; Manejar = fixed on the dash. */
+function setGo(walk: boolean) {
+  $<HTMLInputElement>('useSensors').checked = walk;
+  $('goWalk').setAttribute('aria-pressed', String(walk));
+  $('goDrive').setAttribute('aria-pressed', String(!walk));
+  setText('chipCam', walk ? 'En la mano' : 'Cámara fija');
+  try {
+    localStorage.setItem('ar-nav.walk', walk ? '1' : '0');
+  } catch {
+    /* ignore */
   }
 }
 
 export function initSetupScreen() {
   document.querySelectorAll<HTMLInputElement>('input[name=mode]').forEach((r) => r.addEventListener('change', syncMode));
   document.querySelectorAll<HTMLInputElement>('input[name=display]').forEach((r) => r.addEventListener('change', syncDisplay));
-  
+
   try {
     const savedDisplay = localStorage.getItem('ar-nav.display') as Display | null;
     if (savedDisplay === 'camera' || savedDisplay === 'hud') {
@@ -53,6 +77,15 @@ export function initSetupScreen() {
   } catch {
     /* ignore */
   }
+  let walk = false;
+  try {
+    walk = localStorage.getItem('ar-nav.walk') === '1';
+  } catch {
+    /* ignore */
+  }
+  setGo(walk);
+  $('goWalk').onclick = () => setGo(true);
+  $('goDrive').onclick = () => setGo(false);
 
   // Browsers restore the checked radio after a reload without firing `change`.
   syncMode();

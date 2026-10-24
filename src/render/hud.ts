@@ -101,6 +101,12 @@ export function renderHud(h: HudInput) {
     remainingEl.hidden = false;
     const mins = route.duration ? Math.max(1, Math.round((route.duration * h.remaining) / route.poly.length / 60)) : null;
     setText('remaining', `${formatDistance(h.remaining)}${mins ? ` · ${mins} min` : ''}`);
+    // ETA card: minutes, arrival time and place, distance left.
+    setText('etaMin', mins ? `${mins} min` : '—');
+    const at = mins ? new Date(Date.now() + mins * 60000).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : '';
+    const place = app.dest?.label.split(',')[0] ?? '';
+    setText('etaDest', [at && `Llegada: ${at}`, place].filter(Boolean).join(' · '));
+    setText('etaKm', formatDistance(h.remaining));
   }
 
   if (h.next) {

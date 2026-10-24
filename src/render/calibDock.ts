@@ -18,6 +18,7 @@ let calib: Calib = loadCalib(layout, app.display);
 
 let mountRoll = loadMountRoll(layout);
 let manual = loadManual(layout); // values moved by hand: automatic calibration leaves them alone
+const calibListeners: ((c: Calib) => void)[] = [];
 
 export const getCalib = (): Calib => calib;
 /** Measured roll of a fixed mount (no slider for it). Ignored while the phone sensors drive the view. */
@@ -53,7 +54,17 @@ function setDockValue(key: DockKey, raw: number) {
   }
   renderDockValue();
 }
+/** Sets one calibration value from outside the dock (Dispositivos sliders). Hand-set pitch then wins over the automatic one. */
+export function setCalibValue(key: keyof Calib, v: number) {
+  setDockValue(key, v);
+}
+/** Called whenever the calibration changes (by hand or by the automatic calibration). */
+export function onCalibChange(fn: (c: Calib) => void) {
+  calibListeners.push(fn);
+}
+
 function renderDockValue() {
+  calibListeners.forEach((fn) => fn(calib));
   const r = dockRange(dockKey);
   const v = dockValue(dockKey);
   $('oneLabel').textContent = r.label;

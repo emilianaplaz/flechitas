@@ -26,10 +26,11 @@ export function initDriveControls() {
     const source = app.source;
     if (source instanceof RouteSim) {
       source.paused = !source.paused;
-      $('simPause').textContent = source.paused ? '▶' : '⏸';
+      $('simPause').textContent = source.paused ? 'Seguir' : 'Pausar';
     } else if (source instanceof TrackReplay) {
       if (video.paused) void video.play();
       else video.pause();
+      $('simPause').textContent = video.paused ? 'Seguir' : 'Pausar';
     }
   };
   $('simSpeed').addEventListener('input', () => {

@@ -23,6 +23,7 @@ import { remoteGps, remotePhone, remoteTilt, startHudLink } from './remote/hudLi
 import { connectHud, disconnectHud, hudLinked, onHudState, sendFix, sendRoute, sendStop, setDriveProvider, type LinkState } from './remote/phoneLink.ts';
 import { normalizeCode } from './remote/protocol.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
+import { initShell } from './ui/shell.ts';
 import { clearSigns, setSigns, signsAheadOf } from './signs/store.ts';
 import { align, sensorsActive, startSensors, stopSensors, updateView } from './walk/view.ts';
 
@@ -50,6 +51,7 @@ initHudSetup();
 initHazardUi();
 initDriveControls();
 initSetupScreen();
+initShell();
 
 // ---------- roles: the phone runs the app; an iPad can be the windshield HUD ----------
 const ROLE_KEY = 'ar-nav.role';
@@ -97,9 +99,15 @@ if (hudRole) {
   // Phone: link to the iPad by the code it shows; the HUD then follows every drive.
   const show = (s: LinkState) => {
     const el = $('linkState');
-    el.textContent = { off: '', connecting: 'Conectando…', on: 'iPad conectado ✓', lost: 'Se perdió el iPad, reintentando…' }[s];
-    el.classList.toggle('ok', s === 'on');
+    el.hidden = s === 'off';
+    el.textContent = { off: '', connecting: 'Conectando…', on: 'Conectado', lost: 'Reintentando…' }[s];
+    el.classList.toggle('on', s === 'on');
+    el.classList.toggle('warn', s === 'connecting' || s === 'lost');
     $('linkBtn').textContent = s === 'off' ? 'Conectar' : 'Desconectar';
+    $('linkCode').hidden = s !== 'off';
+    $('chipHud').hidden = s !== 'on';
+    if (s === 'on') toast('iPad conectado: seguirá cada viaje que empieces');
+    if (s === 'lost') toast('Se perdió el iPad, reintentando…');
   };
   onHudState(show);
   $('linkBtn').onclick = () => {
