@@ -11,6 +11,7 @@
     "maqueta": "node --experimental-strip-types scripts/maqueta/build.ts"
   },
   "dependencies": {
+    "maplibre-gl": "^4.7.1",
     "peerjs": "^1.5.5",
     "three": "^0.170.0"
   },

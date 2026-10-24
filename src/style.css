@@ -168,7 +168,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 /* ---------- phone app shell ---------- */
 .app { position: fixed; inset: 0; z-index: 4; background: var(--bg); }
 .screen { position: absolute; inset: 0; }
-.map { position: absolute; inset: 0; background: var(--mbg); }
+.screen > .map { position: absolute; inset: 0; background: var(--mbg); }
 
 .searchCard {
   position: absolute;
@@ -240,6 +240,13 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .dcText { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
 .dcTitle { font-size: 20px; font-weight: 800; }
 .dcSub { font-size: 14px; color: var(--muted); line-height: 1.35; }
+
+/* map markers and attribution */
+.mapHere { width: 20px; height: 20px; border-radius: 50%; background: var(--route); border: 4px solid #fff; box-shadow: 0 0 0 6px rgba(75, 134, 245, 0.25); }
+.mapDest { width: 30px; height: 40px; background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 40'%3E%3Cpath d='M15 1C7.3 1 1 7.2 1 14.9 1 25.4 15 39 15 39s14-13.6 14-24.1C29 7.2 22.7 1 15 1z' fill='%232563EB' stroke='%23fff' stroke-width='2'/%3E%3Ccircle cx='15' cy='15' r='5' fill='%23fff'/%3E%3C/svg%3E"); }
+.map .maplibregl-ctrl-top-right { top: calc(max(16px, env(safe-area-inset-top)) + 248px); }
+.map .maplibregl-ctrl-attrib { background: var(--surf); color: var(--muted); }
+.map .maplibregl-ctrl-attrib a { color: var(--muted); }
 
 /* Phone on its side (it usually rides horizontal on the dash): search on the left, destination card on the right. */
 @media (orientation: landscape) and (max-height: 540px) {

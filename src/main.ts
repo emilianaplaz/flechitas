@@ -24,6 +24,7 @@ import { connectHud, disconnectHud, hudLinked, onHudState, sendFix, sendRoute, s
 import { normalizeCode } from './remote/protocol.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
 import { initShell } from './ui/shell.ts';
+import { initDestino } from './ui/destino.ts';
 import { clearSigns, setSigns, signsAheadOf } from './signs/store.ts';
 import { align, sensorsActive, startSensors, stopSensors, updateView } from './walk/view.ts';
 
@@ -51,7 +52,6 @@ initHudSetup();
 initHazardUi();
 initDriveControls();
 initSetupScreen();
-initShell();
 
 // ---------- roles: the phone runs the app; an iPad can be the windshield HUD ----------
 const ROLE_KEY = 'ar-nav.role';
@@ -97,6 +97,8 @@ if (hudRole) {
   });
 } else {
   // Phone: link to the iPad by the code it shows; the HUD then follows every drive.
+  initShell();
+  initDestino();
   const show = (s: LinkState) => {
     const el = $('linkState');
     el.hidden = s === 'off';

@@ -3,6 +3,7 @@
 import { $ } from '../core/ui.ts';
 import { getCalib, onCalibChange, setCalibValue } from '../render/calibDock.ts';
 import type { Calib } from '../render/calib.ts';
+import { showDestinoMap } from './destino.ts';
 
 export type Screen = 'destino' | 'dispositivos';
 const SCREENS: Record<Screen, string> = { destino: 'scrDestino', dispositivos: 'scrDispositivos' };
@@ -14,6 +15,7 @@ export function go(screen: Screen) {
     else b.removeAttribute('aria-current');
   });
   if (screen === 'dispositivos') renderCalib(getCalib());
+  if (screen === 'destino') void showDestinoMap();
 }
 
 /** Horizon line of the preview: tilting the camera down (more pitch) moves the horizon up in the picture. */

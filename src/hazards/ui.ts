@@ -33,6 +33,9 @@ export function setOsmHazards(signs: TileSign[]) {
   reindexHazards();
 }
 
+/** Every known hazard (seeds, shared, this phone's), for the map. */
+export const allHazards = () => hazards.all();
+
 export async function loadHazards() {
   await hazards.loadSeeds();
   await hazards.loadShared();

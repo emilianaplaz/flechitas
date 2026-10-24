@@ -1,5 +1,6 @@
 // Destination and drive options on the phone: mode, origin, destination (typed, pasted or shared from Maps/Waze).
 import { extractUrl, resolveDestination } from './core/links.ts';
+import type { LatLon } from './core/geo.ts';
 import { app, type Display, type Mode } from './core/state.ts';
 import { $, setText, setupMsg } from './core/ui.ts';
 import { syncCalibProfile } from './render/calibDock.ts';
@@ -33,20 +34,39 @@ function showDest(title: string, sub: string) {
   setText('destLabel', sub);
 }
 
+const destListeners: (() => void)[] = [];
+/** Called whenever the destination changes (typed, pasted, shared or tapped on the map). */
+export function onDest(fn: () => void) {
+  destListeners.push(fn);
+}
+
+/** Destination picked on the map. `labelOnly`: same point, only its name arrived. */
+export function setDestination(d: { point: LatLon; label: string }, labelOnly = false) {
+  if (labelOnly && (app.dest?.point.lat !== d.point.lat || app.dest?.point.lon !== d.point.lon)) return; // another tap since
+  app.dest = d;
+  $<HTMLInputElement>('dest').value = d.label;
+  setupMsg('');
+  setText('dcTitle', d.label);
+  if (!labelOnly) destListeners.forEach((fn) => fn());
+}
+
 export async function resolveDestInput(): Promise<void> {
   const raw = $<HTMLInputElement>('dest').value.trim();
   if (!raw) {
     app.dest = null;
     showDest('¿A dónde vas?', DEST_HINT);
+    destListeners.forEach((fn) => fn());
     return;
   }
   showDest('Buscando…', raw);
   try {
     app.dest = await resolveDestination(raw);
     showDest(app.dest.label, 'Destino listo');
+    destListeners.forEach((fn) => fn());
   } catch (e) {
     app.dest = null;
     showDest('¿A dónde vas?', DEST_HINT);
+    destListeners.forEach((fn) => fn());
     throw e;
   }
 }
