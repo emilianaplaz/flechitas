@@ -1,7 +1,9 @@
 // The flat HUD drawn over the 3D scene: speed, remaining distance, next maneuver, hazard banner.
 import { HAZARD_LABEL, type HazardType } from '../hazards/store.ts';
 import { formatDistance, type Route, type Step, type TurnKind } from '../core/route.ts';
+import { app, type Display } from '../core/state.ts';
 import { $, setText } from '../core/ui.ts';
+import { loadFlip, saveFlip, type FlipState } from './calib.ts';
 
 const GLYPH_ROT: Record<TurnKind, number> = {
   'straight': 0,
@@ -37,11 +39,64 @@ export interface HudInput {
   offRoute: boolean; // show "Fuera de ruta…" in place of the instruction
 }
 
+let flipState: FlipState = loadFlip();
+
+export function applyFlip(flip: FlipState) {
+  flipState = flip;
+  document.documentElement.style.setProperty('--mirror-x', flip.mirrorX ? '-1' : '1');
+  document.documentElement.style.setProperty('--flip-y', flip.flipY ? '-1' : '1');
+  $('mirrorX')?.classList.toggle('active', flip.mirrorX);
+  $('flipY')?.classList.toggle('active', flip.flipY);
+}
+
+export function initHudControls() {
+  const mx = $<HTMLButtonElement>('mirrorX');
+  const fy = $<HTMLButtonElement>('flipY');
+  if (mx) {
+    mx.onclick = () => {
+      flipState = { ...flipState, mirrorX: !flipState.mirrorX };
+      saveFlip(flipState);
+      applyFlip(flipState);
+    };
+  }
+  if (fy) {
+    fy.onclick = () => {
+      flipState = { ...flipState, flipY: !flipState.flipY };
+      saveFlip(flipState);
+      applyFlip(flipState);
+    };
+  }
+}
+
+export function showHud(display: Display) {
+  $('hud').hidden = false;
+  const isHud = display === 'hud';
+  document.body.classList.toggle('hud-mode', isHud);
+  document.querySelectorAll<HTMLElement>('.hudOnly').forEach((el) => {
+    el.hidden = !isHud;
+  });
+  if (isHud) applyFlip(flipState);
+  else {
+    document.documentElement.style.setProperty('--mirror-x', '1');
+    document.documentElement.style.setProperty('--flip-y', '1');
+  }
+}
+
 export function renderHud(h: HudInput) {
   const { route } = h;
+  const isHud = app.display === 'hud';
   setText('speed', String(Math.round(h.speed * 3.6)));
-  const mins = route.duration ? Math.max(1, Math.round((route.duration * h.remaining) / route.poly.length / 60)) : null;
-  setText('remaining', `${formatDistance(h.remaining)}${mins ? ` · ${mins} min` : ''}`);
+
+  const remainingEl = $('remaining');
+  if (isHud) {
+    remainingEl.textContent = '';
+    remainingEl.hidden = true;
+  } else {
+    remainingEl.hidden = false;
+    const mins = route.duration ? Math.max(1, Math.round((route.duration * h.remaining) / route.poly.length / 60)) : null;
+    setText('remaining', `${formatDistance(h.remaining)}${mins ? ` · ${mins} min` : ''}`);
+  }
+
   if (h.next) {
     renderGlyph(h.next.kind);
     setText('mDist', formatDistance(h.distToNext));
@@ -49,12 +104,20 @@ export function renderHud(h: HudInput) {
     setText('mStreet', h.next.street);
   }
   $('arrived').hidden = h.remaining > 20;
-  $('hazardBanner').hidden = !h.nearestHazard;
-  if (h.nearestHazard) setText('hazardBanner', `⚠ ${HAZARD_LABEL[h.nearestHazard.type]} en ${formatDistance(h.nearestHazard.dist)}`);
+
+  // In HUD mode, only warn about hazards within 150m to avoid windshield clutter
+  const showHazard = h.nearestHazard && (!isHud || h.nearestHazard.dist <= 150);
+  $('hazardBanner').hidden = !showHazard;
+  if (showHazard && h.nearestHazard) {
+    setText('hazardBanner', `⚠ ${HAZARD_LABEL[h.nearestHazard.type]} en ${formatDistance(h.nearestHazard.dist)}`);
+  }
   if (h.offRoute) setText('mText', 'Fuera de ruta…');
 }
 
 export function hideHud() {
   $('hud').hidden = true;
   $('arrived').hidden = true;
+  document.body.classList.remove('hud-mode');
+  document.documentElement.style.setProperty('--mirror-x', '1');
+  document.documentElement.style.setProperty('--flip-y', '1');
 }

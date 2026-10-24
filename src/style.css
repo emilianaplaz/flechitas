@@ -8,6 +8,8 @@
   --warn: #ff3b30;
   --amber: #ffb020;
   --ok: #22e07a;
+  --mirror-x: 1;
+  --flip-y: 1;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
   -webkit-tap-highlight-color: transparent;
@@ -31,7 +33,18 @@ button, input { font: inherit; color: inherit; }
   height: 100%;
 }
 #video { object-fit: cover; background: transparent; }
-#ar { pointer-events: none; }
+#ar {
+  pointer-events: none;
+  transform: scale(var(--mirror-x), var(--flip-y));
+  transform-origin: center center;
+}
+#hudProjection {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  transform: scale(var(--mirror-x), var(--flip-y));
+  transform-origin: center center;
+}
 
 /* ---------- sheets ---------- */
 .sheet {
@@ -156,25 +169,88 @@ button:disabled { opacity: 0.5; }
 }
 #leftBtns, #rightBtns {
   position: absolute;
-  bottom: max(12px, env(safe-area-inset-bottom));
+  bottom: max(14px, env(safe-area-inset-bottom));
   display: flex;
-  gap: 8px;
+  gap: 10px;
 }
-#leftBtns { left: max(12px, env(safe-area-inset-left)); }
-#rightBtns { right: max(12px, env(safe-area-inset-right)); }
-.report { background: var(--warn); font-size: 15px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); }
+#leftBtns { left: max(14px, env(safe-area-inset-left)); }
+#rightBtns { right: max(14px, env(safe-area-inset-right)); }
+.report {
+  padding: 14px 20px;
+  background: var(--warn);
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
 .report.alt { background: var(--amber); color: #2a1a00; }
 .round {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   padding: 0;
   border-radius: 50%;
   background: var(--panel);
   border: 1px solid var(--line);
-  font-size: 18px;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.round.active {
+  background: var(--guide);
+  color: #042b16;
+  border-color: var(--guide);
 }
 #rec.on { background: var(--warn); animation: blink 1s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0.6; } }
+
+/* ---------- Windshield HUD Mode ---------- */
+body.hud-mode {
+  background: #000 !important;
+}
+body.hud-mode #video {
+  display: none !important;
+}
+body.hud-mode #hudProjection .card {
+  background: transparent !important;
+  border: 0 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+body.hud-mode #maneuver {
+  max-width: min(520px, 75vw);
+}
+body.hud-mode #glyph {
+  width: 76px;
+  height: 76px;
+}
+body.hud-mode #mDist {
+  font-size: 46px;
+  color: #ffffff;
+  text-shadow: 0 0 12px rgba(0, 230, 118, 0.6);
+}
+body.hud-mode #mText {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+}
+body.hud-mode #mStreet {
+  font-size: 16px;
+  color: #a0ffc5;
+}
+body.hud-mode #stats {
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+}
+body.hud-mode #stats b {
+  font-size: 40px;
+  color: #ffffff;
+}
+body.hud-mode #hazardBanner {
+  font-size: 24px;
+  padding: 12px 22px;
+  border: 2px solid #ffffff;
+}
 #simBar {
   bottom: max(12px, env(safe-area-inset-bottom));
   left: 50%;

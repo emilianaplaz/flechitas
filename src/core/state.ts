@@ -5,9 +5,11 @@ import type { Route } from './route.ts';
 import type { Source } from './types.ts';
 
 export type Mode = 'gps' | 'sim' | 'replay';
+export type Display = 'camera' | 'hud';
 
 export const app = {
   mode: 'gps' as Mode,
+  display: 'camera' as Display,
   dest: null as { point: LatLon; label: string } | null,
   route: null as Route | null,
   source: null as Source | null, // where the car's position comes from

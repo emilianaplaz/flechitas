@@ -1,12 +1,24 @@
 // The setup screen: pick a mode, resolve the destination (typed, pasted or shared from Maps/Waze).
 import { extractUrl, resolveDestination } from './core/links.ts';
-import { app, type Mode } from './core/state.ts';
+import { app, type Display, type Mode } from './core/state.ts';
 import { $, setText, setupMsg } from './core/ui.ts';
+import { syncCalibProfile } from './render/calibDock.ts';
 
 function syncMode() {
   app.mode = (document.querySelector<HTMLInputElement>('input[name=mode]:checked')?.value ?? 'gps') as Mode;
   $('fromField').hidden = app.mode !== 'sim';
   $('replayFields').hidden = app.mode !== 'replay';
+}
+
+function syncDisplay() {
+  const chosen = (document.querySelector<HTMLInputElement>('input[name=display]:checked')?.value ?? 'camera') as Display;
+  app.display = chosen;
+  try {
+    localStorage.setItem('ar-nav.display', chosen);
+  } catch {
+    /* ignore */
+  }
+  syncCalibProfile();
 }
 
 export async function resolveDestInput(): Promise<void> {
@@ -29,9 +41,25 @@ export async function resolveDestInput(): Promise<void> {
 
 export function initSetupScreen() {
   document.querySelectorAll<HTMLInputElement>('input[name=mode]').forEach((r) => r.addEventListener('change', syncMode));
+  document.querySelectorAll<HTMLInputElement>('input[name=display]').forEach((r) => r.addEventListener('change', syncDisplay));
+  
+  try {
+    const savedDisplay = localStorage.getItem('ar-nav.display') as Display | null;
+    if (savedDisplay === 'camera' || savedDisplay === 'hud') {
+      const radio = document.querySelector<HTMLInputElement>(`input[name=display][value="${savedDisplay}"]`);
+      if (radio) radio.checked = true;
+    }
+  } catch {
+    /* ignore */
+  }
+
   // Browsers restore the checked radio after a reload without firing `change`.
   syncMode();
-  window.addEventListener('pageshow', syncMode);
+  syncDisplay();
+  window.addEventListener('pageshow', () => {
+    syncMode();
+    syncDisplay();
+  });
 
   $('dest').addEventListener('change', () => resolveDestInput().catch((e) => setupMsg((e as Error).message)));
   $('paste').onclick = async () => {

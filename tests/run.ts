@@ -12,6 +12,7 @@ import { cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
 import { BumpDetector } from '../src/hazards/bump.ts';
 import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
+import { defaultsFor, loadCalib, loadFlip, saveCalib, saveFlip } from '../src/render/calib.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -167,6 +168,20 @@ await (async () => {
   enqueue('hazards', { client_id: 'd' }, 'd', 9000);
   await flush({ send: ok, now: 9100, force: true });
   check('force flush ignores the undo window (drive ended)', sent.at(-1) === 'd' && pending().length === 0);
+
+  // ---- HUD & Calib profile tests ----
+  const camDef = defaultsFor('landscape', 'camera');
+  const hudDef = defaultsFor('landscape', 'hud');
+  check('HUD defaults have distinct pitch/fov for windshield reflection', hudDef.pitch > camDef.pitch && hudDef.fov > camDef.fov);
+
+  saveCalib({ ...camDef, pitch: 9.5 }, 'landscape', 'camera');
+  saveCalib({ ...hudDef, pitch: 14.5 }, 'landscape', 'hud');
+  check('camera and hud profiles persist independently in localStorage', loadCalib('landscape', 'camera').pitch === 9.5 && loadCalib('landscape', 'hud').pitch === 14.5);
+
+  saveFlip({ mirrorX: true, flipY: true });
+  check('flip state persists properly', loadFlip().mirrorX === true && loadFlip().flipY === true);
+  saveFlip({ mirrorX: false, flipY: false });
+  check('flip state toggles properly', loadFlip().mirrorX === false && loadFlip().flipY === false);
 })();
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');

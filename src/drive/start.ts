@@ -52,10 +52,10 @@ function readJsonFile(file: File): Promise<unknown> {
 
 /** Open the camera, build the route and start `app.source` for the selected mode. */
 export async function startSource(setRoute: (r: Route) => void) {
-  const { mode, dest } = app;
+  const { mode, dest, display } = app;
   if (mode === 'gps') {
     if (!dest) throw new Error('Elige un destino primero');
-    await startCamera(true);
+    if (display !== 'hud') await startCamera(true);
     const gps = new GpsSource((f) => recorder.addFix(f), toast);
     gps.start();
     app.source = gps;
@@ -67,7 +67,7 @@ export async function startSource(setRoute: (r: Route) => void) {
     const fromRaw = $<HTMLInputElement>('from').value.trim();
     const from = fromRaw ? (await resolveDestination(fromRaw)).point : await currentPosition();
     setRoute(await fetchRoute(from, dest.point));
-    await startCamera(false);
+    if (display !== 'hud') await startCamera(false);
     app.source = new RouteSim(app.route!.poly);
     $('simBar').hidden = false;
   } else {

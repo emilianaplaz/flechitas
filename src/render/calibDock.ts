@@ -10,9 +10,15 @@ type DockKey = keyof Calib | 'sync';
 const SYNC_RANGE = { min: -5, max: 5, step: 0.1, label: 'Sincronía video/GPS', unit: 's' };
 let dockKey: DockKey = 'fov';
 let layout = currentLayout();
-let calib: Calib = loadCalib(layout);
+let calib: Calib = loadCalib(layout, app.display);
 
 export const getCalib = (): Calib => calib;
+
+export function syncCalibProfile() {
+  layout = currentLayout();
+  calib = loadCalib(layout, app.display);
+  buildDock();
+}
 
 function dockKeys(): DockKey[] {
   const keys = Object.keys(CALIB_RANGES) as DockKey[];
@@ -33,7 +39,7 @@ function setDockValue(key: DockKey, raw: number) {
     if (app.source instanceof TrackReplay) app.source.syncOffset = clean;
   } else {
     calib = { ...calib, [key]: clean };
-    saveCalib(calib, layout);
+    saveCalib(calib, layout, app.display);
   }
   renderDockValue();
 }
@@ -77,7 +83,7 @@ function resize() {
   const now = currentLayout();
   if (now !== layout) {
     layout = now;
-    calib = loadCalib(layout);
+    calib = loadCalib(layout, app.display);
     buildDock();
     toast(layout === 'portrait' ? 'Modo vertical: calibración propia' : 'Modo horizontal: calibración propia');
   }
@@ -94,8 +100,8 @@ export function initCalibDock() {
   };
   $('calibClose').onclick = () => setCalibOpen(false);
   $('calibReset').onclick = () => {
-    calib = defaultsFor(layout);
-    saveCalib(calib, layout);
+    calib = defaultsFor(layout, app.display);
+    saveCalib(calib, layout, app.display);
     renderDockValue();
   };
   window.addEventListener('resize', resize);

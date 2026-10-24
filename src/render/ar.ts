@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { bearingAt, pointAt, toLocal, toRad, type LatLon, type Polyline } from '../core/geo.ts';
 import type { Calib } from './calib.ts';
+import type { Display } from '../core/state.ts';
 import type { Step, TurnKind } from '../core/route.ts';
 import { HAZARD_LABEL, type HazardType } from '../hazards/store.ts';
 import type { HazardView } from '../hazards/ahead.ts';
@@ -10,6 +11,7 @@ import type { HazardView } from '../hazards/ahead.ts';
 const GUIDE = 0x00e676;
 const RIBBON_STEP = 2; // m between ribbon samples
 const RIBBON_LEN = 160; // m of road ahead to draw
+const RIBBON_LEN_HUD = 110; // shorter range in HUD mode to cut reflection clutter
 const MAX_SAMPLES = Math.ceil(RIBBON_LEN / RIBBON_STEP) + 2;
 const CHEVRON_EVERY = 8;
 const MAX_CHEVRONS = Math.ceil(RIBBON_LEN / CHEVRON_EVERY);
@@ -24,6 +26,8 @@ export interface FrameInput {
   hazards: HazardView[];
   calib: Calib;
   pose?: { pitch: number; roll: number }; // phone sensors: replaces the calibrated pitch and adds roll
+  display?: Display;
+  degraded?: boolean; // Safe fallback: GPS signal poor/stale -> hide ribbon, keep turn glyph
 }
 
 function arrowShape(): THREE.Shape {
@@ -241,11 +245,14 @@ export class ArScene {
   }
 
   private updateRibbon(f: FrameInput) {
-    const { poly } = f;
+    const { poly, degraded, display } = f;
     let count = 0;
     let chevI = 0;
-    if (poly) {
-      const end = Math.min(poly.length, f.along + RIBBON_LEN);
+    const isHud = display === 'hud';
+    const activeLen = isHud ? RIBBON_LEN_HUD : RIBBON_LEN;
+
+    if (poly && !degraded) {
+      const end = Math.min(poly.length, f.along + activeLen);
       const half = f.calib.ribbonWidth / 2;
       const start = f.calib.ribbonStart;
       for (let d = f.along + start; d <= end && count < MAX_SAMPLES; d += RIBBON_STEP) {
@@ -258,9 +265,16 @@ export class ArScene {
         const o = count * 6;
         this.ribbonPos.set([c.x + nx * half, 0.02, c.z + nz * half, c.x - nx * half, 0.02, c.z - nz * half], o);
         const ahead = d - f.along;
-        const alpha = Math.min(1, (ahead - start) / 6) * Math.min(1, (end - d) / 25 + 0.15) * 0.45;
+        // In HUD mode, higher opacity and saturated green for windshield reflection
+        const alpha = isHud
+          ? Math.min(1, (ahead - start) / 4) * Math.min(1, (end - d) / 16 + 0.25) * 0.92
+          : Math.min(1, (ahead - start) / 6) * Math.min(1, (end - d) / 25 + 0.15) * 0.45;
         const ci = count * 8;
-        this.ribbonCol.set([0, 0.9, 1, alpha, 0, 0.9, 1, alpha], ci);
+        if (isHud) {
+          this.ribbonCol.set([0, 0.9, 0.46, alpha, 0, 0.9, 0.46, alpha], ci);
+        } else {
+          this.ribbonCol.set([0, 0.9, 1, alpha, 0, 0.9, 1, alpha], ci);
+        }
         count++;
 
         // Chevrons at fixed spots along the road so they scroll naturally as you drive.
@@ -269,7 +283,10 @@ export class ArScene {
           m.visible = true;
           m.position.set(c.x, 0.04, c.z);
           m.rotation.y = -b;
-          (m.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.9 - ahead / RIBBON_LEN);
+          const chevAlpha = isHud
+            ? Math.max(0, 1.0 - ahead / activeLen)
+            : Math.max(0, 0.9 - ahead / RIBBON_LEN);
+          (m.material as THREE.MeshBasicMaterial).opacity = chevAlpha;
         }
       }
     }

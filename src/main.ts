@@ -13,7 +13,7 @@ import { advance, resetProgress } from './drive/navigation.ts';
 import { startSource, stopDrive, stopSource } from './drive/start.ts';
 import { aheadOf, initHazardUi, loadHazards, reindexHazards, startBumpWatcher, startCloudSync, stopBumpWatcher, stopHazards, trackPosition } from './hazards/ui.ts';
 import { getCalib, initCalibDock } from './render/calibDock.ts';
-import { hideHud, renderHud } from './render/hud.ts';
+import { hideHud, initHudControls, renderHud, showHud } from './render/hud.ts';
 import { ar } from './render/scene.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
 import { align, sensorsActive, startSensors, stopSensors, updateView } from './walk/view.ts';
@@ -22,6 +22,7 @@ let lastFrame = performance.now();
 let wakeLock: { release(): Promise<void> } | null = null;
 
 initCalibDock();
+initHudControls();
 initHazardUi();
 initDriveControls();
 initSetupScreen();
@@ -50,7 +51,17 @@ function enterImmersive() {
 }
 
 function clearScene(yaw: number) {
-  ar?.update({ origin: { lat: 0, lon: 0 }, yaw, poly: null, along: 0, next: null, distToNext: Infinity, hazards: [], calib: getCalib() });
+  ar?.update({
+    origin: { lat: 0, lon: 0 },
+    yaw,
+    poly: null,
+    along: 0,
+    next: null,
+    distToNext: Infinity,
+    hazards: [],
+    calib: getCalib(),
+    display: app.display,
+  });
 }
 
 $('start').onclick = async () => {
@@ -67,7 +78,10 @@ $('start').onclick = async () => {
     await startSource(setRoute);
     startCloudSync();
     $('setup').hidden = true;
-    $('hud').hidden = false;
+    showHud(app.display);
+    if (app.display === 'hud') {
+      toast('Sube el brillo de la pantalla al máximo para el HUD');
+    }
     $<HTMLButtonElement>('align').hidden = !sensorsActive();
     await enterImmersive();
     app.running = true;
@@ -124,6 +138,11 @@ function frame(now: number) {
   const { ahead, nearest } = aheadOf(nav.along);
   const view = updateView(now, dt);
 
+  // Safe fallback (H9): if GPS accuracy > 30m or fix age > 3s, fade the ribbon to avoid misleading graphics
+  const staleFix = fix.t ? now - fix.t > 3000 : false;
+  const inaccurate = fix.accuracy ? fix.accuracy > 30 : false;
+  const degraded = (staleFix || inaccurate) && app.mode === 'gps';
+
   ar?.update({
     origin: nav.origin,
     yaw: view ? view.yaw : nav.yaw,
@@ -134,6 +153,8 @@ function frame(now: number) {
     hazards: ahead,
     calib,
     pose: view ? { pitch: view.pitch, roll: view.roll } : undefined,
+    display: app.display,
+    degraded,
   });
   renderHud({ route, speed: nav.speed, remaining: nav.remaining, next: nav.next, distToNext: nav.distToNext, nearestHazard: nearest, offRoute: !nav.onRoute && app.mode === 'gps' });
 }

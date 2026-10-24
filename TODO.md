@@ -6,8 +6,8 @@
 - [x] Route following: smoothed position, snapping to the route, next maneuver
 - [x] Automatic rerouting when off route
 - [x] Drive recorder (video + GPS track) for later replay
-- [ ] Windshield HUD display mode: black background, mirror/flip toggles, high-contrast palette (see `SPEC.md` §4–5)
-- [ ] Degrade gracefully on a bad GPS fix (show only the turn glyph and distance)
+- [x] Windshield HUD display mode: black background, mirror/flip toggles, high-contrast palette (see `SPEC.md` §4–5)
+- [x] Degrade gracefully on a bad GPS fix (show only the turn glyph and distance)
 
 ## Walk (`walk/`)
 
@@ -23,8 +23,8 @@
 - [x] HUD: speed, remaining distance and time, next maneuver, hazard banner
 - [x] Calibration dock with a separate profile for portrait and landscape
 - [ ] Fix the UI: review the HUD, settings panel (⚙) and report buttons on a real phone, in portrait and landscape, and list what's hard to use while driving
-- [ ] Make the main controls bigger and easier to tap at a glance
-- [ ] HUD render style (wider edge lines, solid chevrons, fewer elements)
+- [x] Make the main controls bigger and easier to tap at a glance
+- [x] HUD render style (wider edge lines, solid chevrons, fewer elements)
 
 ## Hazards (`hazards/`)
 

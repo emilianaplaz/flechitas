@@ -1,4 +1,5 @@
 // Camera calibration. Tune these once with the phone mounted (sliders in the ⚙ panel).
+import type { Display } from '../core/state.ts';
 
 export interface Calib {
   pitch: number; // degrees the camera looks down
@@ -19,7 +20,13 @@ const DEFAULTS: Record<Layout, Calib> = {
   portrait: { pitch: 5, fov: 65, height: 1.3, yawOffset: 0, lateral: 1.6, ribbonWidth: 3, ribbonStart: 6 },
 };
 
-export const defaultsFor = (layout: Layout): Calib => ({ ...DEFAULTS[layout] });
+const HUD_DEFAULTS: Record<Layout, Calib> = {
+  landscape: { pitch: 8, fov: 45, height: 1.2, yawOffset: 0, lateral: 1.6, ribbonWidth: 3.2, ribbonStart: 2.5 },
+  portrait: { pitch: 8, fov: 60, height: 1.2, yawOffset: 0, lateral: 1.6, ribbonWidth: 3.2, ribbonStart: 4.5 },
+};
+
+export const defaultsFor = (layout: Layout, display: Display = 'camera'): Calib =>
+  display === 'hud' ? { ...HUD_DEFAULTS[layout] } : { ...DEFAULTS[layout] };
 
 export function currentLayout(): Layout {
   return window.innerHeight > window.innerWidth ? 'portrait' : 'landscape';
@@ -35,21 +42,50 @@ export const CALIB_RANGES: Record<keyof Calib, { min: number; max: number; step:
   ribbonStart: { min: 2, max: 20, step: 0.5, label: 'Inicio de la guía', unit: 'm' },
 };
 
-const keyFor = (layout: Layout) => `ar-nav.calib.${layout}`;
+const keyFor = (layout: Layout, display: Display = 'camera') =>
+  display === 'hud' ? `ar-nav.calib.hud.${layout}` : `ar-nav.calib.${layout}`;
 const LEGACY_KEY = 'ar-nav.calib'; // before portrait support there was a single landscape profile
 
-export function loadCalib(layout: Layout): Calib {
+export function loadCalib(layout: Layout, display: Display = 'camera'): Calib {
   try {
-    const raw = localStorage.getItem(keyFor(layout)) ?? (layout === 'landscape' ? localStorage.getItem(LEGACY_KEY) : null);
-    return { ...DEFAULTS[layout], ...(JSON.parse(raw ?? '{}') as Partial<Calib>) };
+    const raw =
+      localStorage.getItem(keyFor(layout, display)) ??
+      (display === 'camera' && layout === 'landscape' ? localStorage.getItem(LEGACY_KEY) : null);
+    const def = defaultsFor(layout, display);
+    return { ...def, ...(JSON.parse(raw ?? '{}') as Partial<Calib>) };
   } catch {
-    return defaultsFor(layout);
+    return defaultsFor(layout, display);
   }
 }
 
-export function saveCalib(c: Calib, layout: Layout) {
+export function saveCalib(c: Calib, layout: Layout, display: Display = 'camera') {
   try {
-    localStorage.setItem(keyFor(layout), JSON.stringify(c));
+    localStorage.setItem(keyFor(layout, display), JSON.stringify(c));
+  } catch {
+    /* ignore */
+  }
+}
+
+export interface FlipState {
+  mirrorX: boolean;
+  flipY: boolean;
+}
+
+export function loadFlip(): FlipState {
+  try {
+    return {
+      mirrorX: localStorage.getItem('ar-nav.hud.mirrorX') === 'true',
+      flipY: localStorage.getItem('ar-nav.hud.flipY') === 'true',
+    };
+  } catch {
+    return { mirrorX: true, flipY: false };
+  }
+}
+
+export function saveFlip(flip: FlipState) {
+  try {
+    localStorage.setItem('ar-nav.hud.mirrorX', String(flip.mirrorX));
+    localStorage.setItem('ar-nav.hud.flipY', String(flip.flipY));
   } catch {
     /* ignore */
   }

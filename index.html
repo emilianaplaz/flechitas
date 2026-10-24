@@ -33,6 +33,14 @@
         <label><input type="radio" name="mode" value="replay" /> <b>Repetición</b><small>Video y recorrido grabados</small></label>
       </div>
 
+      <div class="field">
+        <span>Pantalla</span>
+        <div class="modes display-modes" role="radiogroup">
+          <label><input type="radio" name="display" value="camera" checked /> <b>Cámara AR</b><small>Video + 3D sobre la vía</small></label>
+          <label><input type="radio" name="display" value="hud" /> <b>HUD Parabrisas</b><small>Reflejo en parabrisas (fondo negro)</small></label>
+        </div>
+      </div>
+
       <label class="check">
         <input id="useSensors" type="checkbox" />
         <span><b>Usar sensores del teléfono</b><small>Para caminar o llevar el teléfono en la mano. En el carro con soporte fijo, déjalo apagado.</small></span>
@@ -59,19 +67,23 @@
 
     <!-- Driving HUD -->
     <section id="hud" hidden>
-      <div id="maneuver" class="card">
-        <div id="glyph"></div>
-        <div>
-          <div id="mDist">—</div>
-          <div id="mText">Calculando ruta…</div>
-          <div id="mStreet"></div>
+      <div id="hudProjection">
+        <div id="maneuver" class="card">
+          <div id="glyph"></div>
+          <div>
+            <div id="mDist">—</div>
+            <div id="mText">Calculando ruta…</div>
+            <div id="mStreet"></div>
+          </div>
         </div>
+        <div id="stats" class="card small">
+          <div><b id="speed">0</b> km/h</div>
+          <div id="remaining"></div>
+        </div>
+        <div id="hazardBanner" hidden></div>
+        <div id="arrived" hidden>Llegaste 🎉</div>
       </div>
-      <div id="stats" class="card small">
-        <div><b id="speed">0</b> km/h</div>
-        <div id="remaining"></div>
-      </div>
-      <div id="hazardBanner" hidden></div>
+
       <div id="detect" class="card" hidden>
         <div id="detectTitle">¿Qué fue eso?</div>
         <div class="row">
@@ -80,13 +92,14 @@
           <button data-detect="none" class="ghost">Nada</button>
         </div>
       </div>
-      <div id="arrived" hidden>Llegaste 🎉</div>
 
       <div id="leftBtns">
         <button data-report="hueco" class="report">⚠ Hueco</button>
         <button data-report="policia" class="report alt">▬ Policía acostado</button>
       </div>
       <div id="rightBtns">
+        <button id="mirrorX" class="round hudOnly" title="Reflejo horizontal (espejo)" hidden>⇄</button>
+        <button id="flipY" class="round hudOnly" title="Volteo vertical" hidden>⇅</button>
         <button id="align" class="round" title="Alinear con la calle" hidden>⌖</button>
         <button id="rec" class="round" title="Grabar recorrido">●</button>
         <button id="calibBtn" class="round" title="Calibrar">⚙</button>
