@@ -95,7 +95,6 @@ function setGo(walk: boolean) {
   $<HTMLInputElement>('useSensors').checked = walk;
   $('goWalk').setAttribute('aria-pressed', String(walk));
   $('goDrive').setAttribute('aria-pressed', String(!walk));
-  setText('chipCam', walk ? 'En la mano' : 'Cámara fija');
   try {
     localStorage.setItem('ar-nav.walk', walk ? '1' : '0');
   } catch {

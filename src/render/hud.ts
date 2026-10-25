@@ -1,5 +1,5 @@
 // The flat HUD drawn over the 3D scene: speed, remaining distance, next maneuver, hazard banner.
-import { HAZARD_LABEL, type HazardType } from '../hazards/store.ts';
+import { type HazardType } from '../hazards/store.ts';
 import { formatDistance, type Route, type Step, type TurnKind } from '../core/route.ts';
 import { app, type Display } from '../core/state.ts';
 import { $, setText } from '../core/ui.ts';
@@ -117,12 +117,6 @@ export function renderHud(h: HudInput) {
   }
   $('arrived').hidden = h.remaining > 20;
 
-  // In HUD mode, only warn about hazards within 150m to avoid windshield clutter
-  const showHazard = h.nearestHazard && (!isHud || h.nearestHazard.dist <= 150);
-  $('hazardBanner').hidden = !showHazard;
-  if (showHazard && h.nearestHazard) {
-    setText('hazardBanner', `⚠ ${HAZARD_LABEL[h.nearestHazard.type]} en ${formatDistance(h.nearestHazard.dist)}`);
-  }
   if (h.offRoute) setText('mText', 'Fuera de ruta…');
 }
 

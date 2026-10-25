@@ -319,7 +319,6 @@
     <section id="hud" hidden>
       <div id="driveChips" class="driveChips">
         <span id="chipHud" class="chip hudChip" hidden><span class="chipDot" aria-hidden="true"></span>iPad conectado</span>
-        <span id="chipCam" class="chip">Cámara fija</span>
         <span class="flex1"></span>
         <button id="calibBtn" class="roundBtn dark" type="button" aria-label="Calibrar la vista">
           <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7 H20 M4 17 H20" stroke-width="2" stroke-linecap="round" /><circle cx="9" cy="7" r="2.6" class="fillCur" /><circle cx="15" cy="17" r="2.6" class="fillCur" /></svg>
@@ -340,7 +339,6 @@
           <div><b id="speed">0</b> km/h</div>
           <div id="remaining"></div>
         </div>
-        <div id="hazardBanner" hidden></div>
         <div id="arrived" hidden>Llegaste</div>
       </div>
 
@@ -361,8 +359,6 @@
               <path d="M9 13.5l3 2-2 2.5 4 1" />
             </svg>
           </button>
-          <button data-report="hueco" class="report" type="button">⚠ Hueco</button>
-          <button data-report="policia" class="report alt" type="button">▬ Policía acostado</button>
         </div>
         <div id="simBar" class="simBar surface" hidden>
           <label for="simSpeed" class="vh">Velocidad de la simulación</label>
