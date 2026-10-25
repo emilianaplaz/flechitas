@@ -1283,7 +1283,7 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   check('same target in a trip does nothing', plan({ from: 'walk', to: 'walk' }).length === 0 && plan({ from: 'drive', to: 'drive' }).length === 0);
   const pre = plan({ from: 'drive', to: 'walk', running: false });
   check('before the trip only flags and controls change', same(pre, ['persist', 'syncControls']));
-  check('the sensor start precedes the recorded state', toWalk.indexOf('startSensors') < toWalk.indexOf('persist'));
+  check('the sensor start precedes the recorded state', toWalk.indexOf('startSensors') < toWalk.indexOf('persist'));
 }
 
 // ---- entry: who gets the welcome, the questions or the map, and which steps are asked ----
