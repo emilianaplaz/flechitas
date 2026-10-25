@@ -220,6 +220,11 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .dcText { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
 .dcTitle { font-size: 20px; font-weight: 800; }
 .dcSub { font-size: 14px; color: var(--muted); line-height: 1.35; }
+#startNow { width: 100%; min-height: 52px; margin-top: 10px; font-weight: 700; }
+#start.ghost { width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 16px; font-weight: 700; }
+#start.ghost svg { display: none; }
+#startNow { display: flex; align-items: center; justify-content: center; gap: 10px; }
+#startNow[hidden] { display: none; }
 
 /* map markers and attribution */
 .mapHere { width: 20px; height: 20px; border-radius: 50%; background: var(--route); border: 4px solid #fff; box-shadow: 0 0 0 6px rgba(75, 134, 245, 0.28); }
@@ -257,6 +262,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .mqCard .dcText { margin: 0; }
 .mqChips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
 .mqChips:empty { display: none; }
+#routeChips { margin-bottom: 12px; }
 .mqChips button { flex: 1 0 auto; height: 44px; padding: 0 14px; border-radius: 999px; border: 2px solid var(--field); color: var(--text); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .mqChips button[aria-pressed='true'] { border-color: var(--pri); background: var(--pri); color: var(--onpri); font-weight: 800; }
 .mqPin { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--text); border: 3px solid var(--bg); }
