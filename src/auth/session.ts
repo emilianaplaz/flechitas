@@ -16,6 +16,7 @@ export type AuthState =
 
 export type AuthFailure =
   | 'badCredentials'
+  | 'missingFields'
   | 'emailTaken'
   | 'weakPassword'
   | 'emailNotConfirmed'
@@ -24,6 +25,8 @@ export type AuthFailure =
   | 'invalidEmail'
   | 'passwordTooShort'
   | 'notConfigured'
+  | 'linkExpired'
+  | 'samePassword'
   | 'generic';
 
 export type Outcome = { ok: true } | { ok: false; code: AuthFailure; message: string };
@@ -41,18 +44,23 @@ export interface StorageLike {
 export const SESSION_KEY = 'ar-nav.session';
 export const MIN_PASSWORD = 8;
 export const REFRESH_MARGIN_MS = 60_000;
+/** A request that hangs (a tunnel, weak signal) gives up and reads as "no connection". */
+export const REQUEST_TIMEOUT_MS = 15_000;
 
 export const MESSAGES: Record<AuthFailure, string> = {
-  badCredentials: 'Correo o contraseña incorrectos.',
-  emailTaken: 'Ese correo ya tiene una cuenta. Prueba a entrar.',
-  weakPassword: 'La contraseña es muy débil. Usa al menos 8 caracteres y mezcla letras y números.',
+  badCredentials: 'El correo o la contraseña no coinciden con ninguna cuenta. Revísalos e inténtalo de nuevo.',
+  missingFields: 'Escribe tu correo y tu contraseña.',
+  emailTaken: 'Ya hay una cuenta con este correo. Toca «Entrar» para usarla.',
+  weakPassword: 'Esa contraseña es fácil de adivinar. Usa una más larga que mezcle letras y números.',
   emailNotConfirmed: 'Aún no confirmaste tu correo. Revisa tu bandeja de entrada.',
-  rateLimited: 'Demasiados intentos. Espera un momento y vuelve a probar.',
-  network: 'No hay conexión con el servidor. Revisa tu internet e inténtalo de nuevo.',
-  invalidEmail: 'Escribe un correo válido.',
-  passwordTooShort: `La contraseña debe tener al menos ${MIN_PASSWORD} caracteres.`,
-  notConfigured: 'Las cuentas necesitan el servidor configurado.',
-  generic: 'No se pudo completar. Inténtalo de nuevo.',
+  rateLimited: 'Hiciste muchos intentos seguidos. Espera unos minutos e inténtalo de nuevo.',
+  network: 'No pudimos conectar con el servidor. Revisa tu internet e inténtalo de nuevo.',
+  invalidEmail: 'Revisa el correo: debe verse como nombre@correo.com.',
+  passwordTooShort: `Usa al menos ${MIN_PASSWORD} caracteres.`,
+  notConfigured: 'Las cuentas aún no están disponibles. Puedes usar MapZ sin cuenta.',
+  linkExpired: 'Ese enlace ya venció o ya se usó. Entra con tu contraseña o toca «¿Olvidaste tu contraseña?» para recibir otro.',
+  samePassword: 'Esa ya es tu contraseña. Escribe una distinta.',
+  generic: 'No pudimos terminar. Espera unos segundos e inténtalo de nuevo.',
 };
 
 const fail = (code: AuthFailure): Outcome => ({ ok: false, code, message: MESSAGES[code] });
@@ -68,7 +76,9 @@ export function classifyError(status: number, body: unknown): AuthFailure {
   if (code === 'email_not_confirmed' || text.includes('not confirmed')) return 'emailNotConfirmed';
   if (code === 'invalid_credentials' || text.includes('invalid login credentials')) return 'badCredentials';
   if (code === 'user_already_exists' || code === 'email_exists' || text.includes('already registered')) return 'emailTaken';
+  if (code === 'same_password' || text.includes('different from the old')) return 'samePassword';
   if (code === 'weak_password' || text.includes('password should be') || text.includes('weak password')) return 'weakPassword';
+  if (code === 'otp_expired' || code === 'flow_state_expired' || text.includes('expired')) return 'linkExpired';
   return 'generic';
 }
 
@@ -108,6 +118,25 @@ export function parseStoredSession(raw: string | null): Session | null {
   }
 }
 
+export type Redirect =
+  | { kind: 'session'; type: string; accessToken: string; refreshToken: string; expiresIn: number }
+  | { kind: 'error'; code: string };
+
+/**
+ * The URL fragment a confirmation or password-recovery email link opens the app with
+ * (`#access_token=…&refresh_token=…&type=recovery`, or `#error=…&error_code=otp_expired`). Null when it is neither.
+ */
+export function parseRedirect(hash: string): Redirect | null {
+  const p = new URLSearchParams(hash.replace(/^#/, ''));
+  const err = p.get('error_code') || p.get('error');
+  if (err) return { kind: 'error', code: err };
+  const accessToken = p.get('access_token');
+  const refreshToken = p.get('refresh_token');
+  const expiresIn = Number(p.get('expires_in'));
+  if (!accessToken || !refreshToken || !Number.isFinite(expiresIn) || expiresIn <= 0) return null;
+  return { kind: 'session', type: p.get('type') ?? '', accessToken, refreshToken, expiresIn };
+}
+
 export const needsRefresh = (s: Session, now: number) => s.expiresAt - now < REFRESH_MARGIN_MS;
 
 /** Legacy anon keys are JWTs and also go in Authorization. New sb_publishable_ keys are not JWTs: apikey alone. */
@@ -129,10 +158,26 @@ export interface AuthClient {
   dismissConfirmation(): void;
   /** Refreshes the access token when it is about to expire. */
   ensureFresh(): Promise<void>;
+  /** Emails a link to choose a new password. Succeeds for any well-formed address, so it never tells who has an account. */
+  requestPasswordReset(email: string): Promise<Outcome>;
+  /** Emails the sign-up confirmation link again. */
+  resendConfirmation(email: string): Promise<Outcome>;
+  /** Signs in with the tokens a confirmation or recovery link left in the URL. `type` is `recovery` for a password reset. */
+  adoptRedirect(redirect: Redirect): Promise<Outcome & { type?: string }>;
+  /** New password for the signed-in user, e.g. after a recovery link. */
+  updatePassword(password: string): Promise<Outcome>;
 }
 
-export function createAuthClient(deps: { config: AuthConfig | null; fetch: typeof fetch; storage: StorageLike; now?: () => number }): AuthClient {
+export function createAuthClient(deps: {
+  config: AuthConfig | null;
+  fetch: typeof fetch;
+  storage: StorageLike;
+  now?: () => number;
+  /** Where email links (confirm, reset) send the user back to. Without it the server's Site URL is used. */
+  redirectTo?: string;
+}): AuthClient {
   const { config, storage } = deps;
+  const back = deps.redirectTo ? `?redirect_to=${encodeURIComponent(deps.redirectTo)}` : '';
   const now = deps.now ?? Date.now;
   let state: AuthState = { kind: 'signedOut' };
   const listeners = new Set<(s: AuthState) => void>();
@@ -167,6 +212,7 @@ export function createAuthClient(deps: { config: AuthConfig | null; fetch: typeo
         method: init.method,
         headers: requestHeaders(config!, init.token),
         ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+        ...(typeof AbortSignal.timeout === 'function' ? { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) } : {}),
       });
       return { status: res.status, body: await res.json().catch(() => null) };
     } catch {
@@ -204,8 +250,18 @@ export function createAuthClient(deps: { config: AuthConfig | null; fetch: typeo
     return ok(r) ? fail('generic') : failure(r);
   }
 
+  const validEmail = (email: string) => /^\S+@\S+\.\S+$/.test(email);
   const checkCredentials = (email: string, password: string): Outcome | null =>
-    !/^\S+@\S+\.\S+$/.test(email) ? fail('invalidEmail') : password.length < MIN_PASSWORD ? fail('passwordTooShort') : null;
+    !validEmail(email) ? fail('invalidEmail') : password.length < MIN_PASSWORD ? fail('passwordTooShort') : null;
+
+  /** Emails that only need an address: reset and resend. */
+  async function mail(path: string, email: string, body: Record<string, unknown>): Promise<Outcome> {
+    if (!config) return fail('notConfigured');
+    const e = email.trim();
+    if (!validEmail(e)) return fail('invalidEmail');
+    const r = await call(path, { method: 'POST', body: { email: e, ...body } });
+    return ok(r) ? { ok: true } : failure(r);
+  }
 
   async function doRefresh() {
     if (state.kind !== 'signedIn') return;
@@ -251,12 +307,12 @@ export function createAuthClient(deps: { config: AuthConfig | null; fetch: typeo
       const bad = checkCredentials(e, password);
       if (bad) return bad;
       const name = displayName.trim();
-      return enter('/auth/v1/signup', { email: e, password, ...(name ? { data: { display_name: name } } : {}) }, e);
+      return enter(`/auth/v1/signup${back}`, { email: e, password, ...(name ? { data: { display_name: name } } : {}) }, e);
     },
     async signIn({ email, password }) {
       if (!config) return fail('notConfigured');
       const e = email.trim();
-      if (!e || !password) return fail('badCredentials');
+      if (!e || !password) return fail('missingFields');
       return enter('/auth/v1/token?grant_type=password', { email: e, password });
     },
     async signOut() {
@@ -270,6 +326,33 @@ export function createAuthClient(deps: { config: AuthConfig | null; fetch: typeo
     },
     async ensureFresh() {
       if (state.kind === 'signedIn' && needsRefresh(state.session, now())) await refresh();
+    },
+    requestPasswordReset: (email) => mail(`/auth/v1/recover${back}`, email, {}),
+    resendConfirmation: (email) => mail(`/auth/v1/resend${back}`, email, { type: 'signup' }),
+    async adoptRedirect(redirect) {
+      if (!config) return fail('notConfigured');
+      if (redirect.kind === 'error') return fail(classifyError(403, { error_code: redirect.code }) === 'linkExpired' ? 'linkExpired' : 'generic');
+      if (state.kind === 'working') return fail('generic');
+      set({ kind: 'working' });
+      // The fragment carries the tokens but not who they belong to.
+      const r = await call('/auth/v1/user', { method: 'GET', token: redirect.accessToken });
+      const session = ok(r)
+        ? parseTokenResponse({ access_token: redirect.accessToken, refresh_token: redirect.refreshToken, expires_in: redirect.expiresIn, user: r.body }, now())
+        : null;
+      if (!session) {
+        set({ kind: 'signedOut' });
+        return r === null ? fail('network') : fail('linkExpired');
+      }
+      adopt(await withProfileName(session));
+      return { ok: true, type: redirect.type };
+    },
+    async updatePassword(password) {
+      if (!config) return fail('notConfigured');
+      if (password.length < MIN_PASSWORD) return fail('passwordTooShort');
+      if (state.kind === 'signedIn' && needsRefresh(state.session, now())) await refresh();
+      if (state.kind !== 'signedIn') return fail('generic');
+      const r = await call('/auth/v1/user', { method: 'PUT', body: { password }, token: state.session.accessToken });
+      return ok(r) ? { ok: true } : failure(r);
     },
   };
 }

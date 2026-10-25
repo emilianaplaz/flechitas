@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <title>MapZ</title>
+  <rect width="200" height="200" rx="44" fill="#0a0a0b" />
+  <g transform="translate(100 100) scale(0.82) translate(-100 -100)" fill="none" stroke-linecap="butt" stroke-linejoin="miter">
+    <path d="M56 50 H160 L124 80" stroke="#3e6ae1" stroke-width="14" />
+    <path d="M76 120 L40 150 H146" stroke="#3e6ae1" stroke-width="14" />
+    <circle cx="40" cy="50" r="15" stroke="#3e6ae1" stroke-width="11" />
+    <circle cx="160" cy="150" r="13" stroke="#3e6ae1" stroke-width="12" />
+    <circle cx="100" cy="100" r="11" fill="#ffe14d" stroke="none" />
+  </g>
+</svg>

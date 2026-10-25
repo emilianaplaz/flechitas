@@ -6,13 +6,241 @@
     <meta name="theme-color" content="#0a0a0b" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet" />
+    <!-- Not render-blocking: the splash draws with the fallback font while Manrope arrives. -->
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet" /></noscript>
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" href="/icon-192.png" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="icon" href="/mapz-mark.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-192.png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="MapZ" />
     <title>MapZ</title>
   </head>
   <body>
+    <!-- Entrada (src/ui/entry.ts): bienvenida, cuenta y preguntas. Visible desde el primer pintado como pantalla de
+         carga (el logo se traza mientras carga la app); si ya pasaste por aquí, se va sola al cargar. -->
+    <main id="entry" class="entry" aria-labelledby="enWord">
+      <svg class="vh" aria-hidden="true" focusable="false">
+        <symbol id="mzMark" viewBox="14 24 172 152">
+          <g fill="none" stroke-linecap="butt" stroke-linejoin="miter">
+            <path d="M56 50 H160 L124 80" stroke-width="14" style="stroke: var(--pri)" />
+            <path d="M76 120 L40 150 H146" stroke-width="14" style="stroke: var(--pri)" />
+            <circle cx="40" cy="50" r="15" stroke-width="11" style="stroke: var(--pri)" />
+            <circle cx="160" cy="150" r="13" stroke-width="12" style="stroke: var(--pri)" />
+          </g>
+          <circle cx="100" cy="100" r="11" stroke="none" style="fill: var(--haz)" />
+        </symbol>
+      </svg>
+
+      <!-- 7 · Bienvenida -->
+      <div id="enWelcome" class="enScreen enWelcome" data-loading>
+        <div class="enHudRow">
+          <button id="enHud" class="enText enSmall" type="button">Usar esta pantalla como HUD del parabrisas</button>
+        </div>
+        <div class="enHero">
+          <svg class="enLogo" viewBox="-30 -30 260 260" aria-hidden="true" focusable="false">
+            <g fill="none" stroke-linecap="butt" stroke-linejoin="miter">
+              <path class="lgD1" d="M56 50 H160 L124 80" stroke-width="14" pathLength="100" />
+              <path class="lgD2" d="M76 120 L40 150 H146" stroke-width="14" pathLength="100" />
+              <circle class="lgN1" cx="40" cy="50" r="15" stroke-width="11" />
+              <circle class="lgN2" cx="160" cy="150" r="13" stroke-width="12" />
+              <circle class="lgRip" cx="100" cy="100" r="11" stroke-width="3" />
+            </g>
+            <circle class="lgHole" cx="100" cy="100" r="11" stroke="none" />
+          </svg>
+          <h1 id="enWord" class="enWord" tabindex="-1">Map<span>Z</span></h1>
+          <p class="enTag">La ruta que esquiva el hueco</p>
+          <p id="enLoading" class="vh">Cargando MapZ…</p>
+          <p id="enStatus" class="enStatus" role="status"></p>
+          <p class="enSlow">Está tardando más de lo normal. <a href="">Reintentar</a></p>
+        </div>
+        <div class="enActions">
+          <button id="enToSignup" class="primary" type="button">Crear cuenta</button>
+          <button id="enToLogin" class="ghost enBtn" type="button">Ya tengo cuenta</button>
+          <button id="enStart" class="primary" type="button" hidden>Empezar</button>
+          <button id="enGuest" class="enText" type="button">Continuar sin cuenta</button>
+        </div>
+      </div>
+
+      <!-- 8 · Entrar -->
+      <div id="enLogin" class="enScreen" hidden>
+        <div class="enTop">
+          <button class="roundBtn" type="button" data-en-back aria-label="Volver">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
+        </div>
+        <form id="enLoginForm" class="enBody" novalidate aria-labelledby="enLoginTitle">
+          <div class="enHead">
+            <svg class="enMini" aria-hidden="true" focusable="false"><use href="#mzMark" /></svg>
+            <h1 id="enLoginTitle" tabindex="-1">Entra a MapZ</h1>
+            <p class="enLead">Tus lugares guardados te siguen a cualquier teléfono.</p>
+          </div>
+          <div class="enField">
+            <label for="enLoginEmail">Correo</label>
+            <input id="enLoginEmail" type="email" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" aria-describedby="enLoginEmailErr" />
+            <p id="enLoginEmailErr" class="enErr"></p>
+          </div>
+          <div class="enField">
+            <label for="enLoginPass">Contraseña</label>
+            <div class="enPass">
+              <input id="enLoginPass" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-describedby="enLoginPassErr enLoginMsg" />
+              <button class="enEye" type="button" aria-controls="enLoginPass" aria-pressed="false" aria-label="Mostrar contraseña">
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" fill="none" stroke-width="2" stroke-linejoin="round" /><circle cx="12" cy="12" r="3" fill="none" stroke-width="2" /><path class="eyeSlash" d="M4 4 L20 20" stroke-width="2" stroke-linecap="round" /></svg>
+              </button>
+            </div>
+            <p id="enLoginPassErr" class="enErr"></p>
+          </div>
+          <button id="enForgot" class="enText enForgot" type="button">¿Olvidaste tu contraseña?</button>
+          <div id="enLoginMsg" class="enMsg" role="alert"></div>
+          <div class="enFoot">
+            <button id="enLoginGo" class="primary" type="submit">Entrar</button>
+            <p class="enSwitch">¿No tienes cuenta? <button class="enLink" type="button" data-en-to="enSignup">Crea una</button></p>
+          </div>
+        </form>
+      </div>
+
+      <!-- Crear cuenta -->
+      <div id="enSignup" class="enScreen" hidden>
+        <div class="enTop">
+          <button class="roundBtn" type="button" data-en-back aria-label="Volver">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
+        </div>
+        <form id="enSignupForm" class="enBody" novalidate aria-labelledby="enSignupTitle">
+          <div class="enHead">
+            <svg class="enMini" aria-hidden="true" focusable="false"><use href="#mzMark" /></svg>
+            <h1 id="enSignupTitle" tabindex="-1">Crea tu cuenta</h1>
+            <p class="enLead">Guarda tus lugares y úsalos en cualquier teléfono.</p>
+          </div>
+          <div class="enField">
+            <label for="enSignupName">Nombre</label>
+            <input id="enSignupName" type="text" autocomplete="name" autocapitalize="words" enterkeyhint="next" maxlength="40" aria-describedby="enSignupNameHint enSignupNameErr" />
+            <p id="enSignupNameHint" class="enHint">Lo verá la persona a la que le pidas ver su ubicación.</p>
+            <p id="enSignupNameErr" class="enErr"></p>
+          </div>
+          <div class="enField">
+            <label for="enSignupEmail">Correo</label>
+            <input id="enSignupEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" aria-describedby="enSignupEmailErr" />
+            <p id="enSignupEmailErr" class="enErr"></p>
+          </div>
+          <div class="enField">
+            <label for="enSignupPass">Contraseña</label>
+            <div class="enPass">
+              <input id="enSignupPass" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-describedby="enSignupPassHint enSignupPassErr" />
+              <button class="enEye" type="button" aria-controls="enSignupPass" aria-pressed="false" aria-label="Mostrar contraseña">
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" fill="none" stroke-width="2" stroke-linejoin="round" /><circle cx="12" cy="12" r="3" fill="none" stroke-width="2" /><path class="eyeSlash" d="M4 4 L20 20" stroke-width="2" stroke-linecap="round" /></svg>
+              </button>
+            </div>
+            <p id="enSignupPassHint" class="enHint enLen">Mínimo 8 caracteres</p>
+            <p id="enSignupPassErr" class="enErr"></p>
+          </div>
+          <div id="enSignupMsg" class="enMsg" role="alert"></div>
+          <div class="enFoot">
+            <button id="enSignupGo" class="primary" type="submit">Crear cuenta</button>
+            <p class="enSwitch">¿Ya tienes cuenta? <button class="enLink" type="button" data-en-to="enLogin">Entra</button></p>
+          </div>
+        </form>
+      </div>
+
+      <!-- Revisa tu correo (confirmar la cuenta) -->
+      <div id="enMail" class="enScreen" hidden>
+        <div class="enTop">
+          <button class="roundBtn" type="button" data-en-back aria-label="Volver">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
+        </div>
+        <div class="enBody">
+          <div class="enHead">
+            <svg class="enMini" aria-hidden="true" focusable="false"><use href="#mzMark" /></svg>
+            <h1 tabindex="-1">Revisa tu correo</h1>
+            <p class="enLead">Te enviamos un enlace a <b id="enMailTo" class="enAddr"></b>. Ábrelo en este teléfono para confirmar tu correo y vuelve aquí. Si no lo ves, revisa el spam.</p>
+          </div>
+          <div id="enMailMsg" class="enMsg" role="status"></div>
+          <div class="enFoot">
+            <button id="enMailLogin" class="primary" type="button">Ya lo abrí, entrar</button>
+            <button id="enMailResend" class="ghost enBtn" type="button"><span class="enBtnLabel">Reenviar el enlace</span><span id="enMailWait" class="enNum" aria-hidden="true"></span></button>
+            <button class="enText" type="button" data-en-to="enSignup">Usar otro correo</button>
+            <button id="enMailGuest" class="enText enSmall" type="button">Seguir sin cuenta por ahora</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recuperar la contraseña -->
+      <div id="enReset" class="enScreen" hidden>
+        <div class="enTop">
+          <button class="roundBtn" type="button" data-en-back aria-label="Volver">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
+        </div>
+        <form id="enResetForm" class="enBody" novalidate aria-labelledby="enResetTitle">
+          <div class="enHead">
+            <svg class="enMini" aria-hidden="true" focusable="false"><use href="#mzMark" /></svg>
+            <h1 id="enResetTitle" tabindex="-1">Recupera tu contraseña</h1>
+            <p class="enLead">Escribe el correo de tu cuenta y te enviamos un enlace para crear una nueva.</p>
+          </div>
+          <div class="enField">
+            <label for="enResetEmail">Correo</label>
+            <input id="enResetEmail" type="email" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="send" aria-describedby="enResetEmailErr" />
+            <p id="enResetEmailErr" class="enErr"></p>
+          </div>
+          <div id="enResetMsg" class="enMsg" role="alert"></div>
+          <div class="enFoot">
+            <button id="enResetGo" class="primary" type="submit">Enviar enlace</button>
+          </div>
+        </form>
+        <div id="enResetSent" class="enBody" hidden>
+          <div class="enHead">
+            <svg class="enMini" aria-hidden="true" focusable="false"><use href="#mzMark" /></svg>
+            <h1 tabindex="-1">Revisa tu correo</h1>
+            <p class="enLead">Si <b id="enResetTo" class="enAddr"></b> tiene una cuenta, te llegará un enlace en unos minutos. Ábrelo en este teléfono. Si no lo ves, revisa el spam.</p>
+          </div>
+          <div class="enFoot">
+            <button id="enResetDone" class="primary" type="button">Volver a entrar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contraseña nueva (desde el enlace de recuperación) -->
+      <div id="enNewPass" class="enScreen" hidden>
+        <form id="enNewPassForm" class="enBody" novalidate aria-labelledby="enNewPassTitle">
+          <div class="enHead">
+            <svg class="enMini" aria-hidden="true" focusable="false"><use href="#mzMark" /></svg>
+            <h1 id="enNewPassTitle" tabindex="-1">Crea una contraseña nueva</h1>
+            <p class="enLead">Para <b id="enNewPassMail" class="enAddr"></b>.</p>
+          </div>
+          <input id="enNewPassUser" class="vh" type="email" autocomplete="username" tabindex="-1" aria-hidden="true" readonly />
+          <div class="enField">
+            <label for="enNewPassInput">Contraseña nueva</label>
+            <div class="enPass">
+              <input id="enNewPassInput" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-describedby="enNewPassHint enNewPassErr" />
+              <button class="enEye" type="button" aria-controls="enNewPassInput" aria-pressed="false" aria-label="Mostrar contraseña">
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" fill="none" stroke-width="2" stroke-linejoin="round" /><circle cx="12" cy="12" r="3" fill="none" stroke-width="2" /><path class="eyeSlash" d="M4 4 L20 20" stroke-width="2" stroke-linecap="round" /></svg>
+              </button>
+            </div>
+            <p id="enNewPassHint" class="enHint enLen">Mínimo 8 caracteres</p>
+            <p id="enNewPassErr" class="enErr"></p>
+          </div>
+          <div id="enNewPassMsg" class="enMsg" role="alert"></div>
+          <div class="enFoot">
+            <button id="enNewPassGo" class="primary" type="submit">Guardar y entrar</button>
+            <button id="enNewPassLater" class="enText" type="button">Ahora no</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- 9 · Preguntas y permisos (src/ui/entry.ts arma cada paso) -->
+      <div id="enQuiz" class="enScreen" hidden>
+        <div class="enTop">
+          <button id="enQBack" class="roundBtn" type="button" aria-label="Volver">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
+          <div id="enBars" class="enRoute" aria-hidden="true"></div>
+          <span id="enCount" class="enCount" aria-hidden="true"></span>
+        </div>
+        <div id="enStep" class="enBody"></div>
+      </div>
+    </main>
+
     <video id="video" playsinline muted autoplay></video>
     <canvas id="ar"></canvas>
 
@@ -62,7 +290,7 @@
         </div>
         <div class="destCard surface">
           <div class="dcText">
-            <span id="dcTitle" class="dcTitle">¿A dónde vas?</span>
+            <span id="dcTitle" class="dcTitle" tabindex="-1">¿A dónde vas?</span>
             <span id="destLabel" class="dcSub">Escribe una dirección, pega un enlace o toca el mapa</span>
           </div>
           <button id="start" class="primary" type="button">
@@ -445,7 +673,7 @@
       </div>
     </section>
 
-    <div id="toast" hidden></div>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="/src/boot.ts"></script>
   </body>
 </html>
