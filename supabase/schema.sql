@@ -47,3 +47,41 @@ grant insert on detections to anon;
 -- Migration: a detected hit counts half until the driver taps the hole button. Safe to rerun.
 alter table hazards add column if not exists confirmed boolean not null default false;
 update hazards set confirmed = true where source = 'tap';
+
+-- Accounts: one profile per Supabase Auth user. Safe to rerun.
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  display_name text,
+  created_at timestamptz not null default now()
+);
+
+-- Runs as the table owner so it can insert for a user who has no privileges on profiles yet.
+create or replace function public.handle_new_user() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.profiles (id, display_name)
+  values (new.id, new.raw_user_meta_data->>'display_name')
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Users that signed up before this block existed.
+insert into public.profiles (id, display_name)
+select id, raw_user_meta_data->>'display_name' from auth.users
+on conflict (id) do nothing;
+
+alter table profiles enable row level security;
+
+drop policy if exists "users read own profile" on profiles;
+drop policy if exists "users update own profile" on profiles;
+create policy "users read own profile" on profiles for select to authenticated using (id = (select auth.uid()));
+create policy "users update own profile" on profiles for update to authenticated
+  using (id = (select auth.uid())) with check (id = (select auth.uid()));
+
+revoke all on profiles from anon, authenticated;
+grant select, update on profiles to authenticated;
