@@ -213,12 +213,13 @@
         <div class="modes" role="radiogroup" aria-label="Modo">
           <label><input type="radio" name="mode" value="gps" checked /> <b>Real</b><small>GPS y cámara</small></label>
           <label><input type="radio" name="mode" value="sim" /> <b>Simulación</b><small>Recorre la ruta sin moverte</small></label>
-          <label><input type="radio" name="mode" value="replay" /> <b>Repetición</b><small>Video y recorrido grabados</small></label>
+          <label><input type="radio" name="mode" value="replay" /> <b>Repetición</b><small>Video, con o sin recorrido grabado</small></label>
         </div>
         <div id="fromField" hidden></div>
         <div id="replayFields" hidden>
           <label class="field"><span>Video del recorrido</span><input id="replayVideo" type="file" accept="video/*" /></label>
-          <label class="field"><span>Recorrido GPS (.json)</span><input id="replayTrack" type="file" accept="application/json,.json" /></label>
+          <label class="field"><span>Recorrido GPS (.json), opcional</span><input id="replayTrack" type="file" accept="application/json,.json" /></label>
+          <p class="sub muted">Sin recorrido, el carro avanza por la ruta que elegiste al ritmo del video y de la velocidad del control.</p>
         </div>
 
         <h2 class="secTitle">OPCIONES</h2>
@@ -319,8 +320,17 @@
     <section id="hud" hidden>
       <div id="driveChips" class="driveChips">
         <span id="chipHud" class="chip hudChip" hidden><span class="chipDot" aria-hidden="true"></span>iPad conectado</span>
-        <span id="chipCam" class="chip">Cámara fija</span>
         <span class="flex1"></span>
+        <div id="travel" class="seg travelSeg" role="group" aria-label="Cómo vas">
+          <button id="travelDrive" type="button" aria-label="Manejar" aria-pressed="true">
+              <svg width="18" height="16" viewBox="0 0 20 18" aria-hidden="true"><path d="M2 12 L3.5 7 H16.5 L18 12 V15 H2 Z M2 12 H18" fill="none" stroke-width="2" stroke-linejoin="round" /><circle cx="6" cy="12" r="1.2" class="fillCur" /><circle cx="14" cy="12" r="1.2" class="fillCur" /></svg>
+              <span class="lbl">Manejar</span>
+            </button>
+          <button id="travelWalk" type="button" aria-label="Caminar" aria-pressed="false">
+              <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true"><circle cx="10" cy="3" r="2" class="fillCur" /><path d="M10 6 L8 11 L5 16 M8 11 L12 13 L13 17 M10 6 L6 8 M10 6 L13 9" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              <span class="lbl">Caminar</span>
+            </button>
+        </div>
         <button id="calibBtn" class="roundBtn dark" type="button" aria-label="Calibrar la vista">
           <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7 H20 M4 17 H20" stroke-width="2" stroke-linecap="round" /><circle cx="9" cy="7" r="2.6" class="fillCur" /><circle cx="15" cy="17" r="2.6" class="fillCur" /></svg>
         </button>
@@ -340,7 +350,6 @@
           <div><b id="speed">0</b> km/h</div>
           <div id="remaining"></div>
         </div>
-        <div id="hazardBanner" hidden></div>
         <div id="arrived" hidden>Llegaste</div>
       </div>
 
@@ -361,8 +370,6 @@
               <path d="M9 13.5l3 2-2 2.5 4 1" />
             </svg>
           </button>
-          <button data-report="hueco" class="report" type="button">⚠ Hueco</button>
-          <button data-report="policia" class="report alt" type="button">▬ Policía acostado</button>
         </div>
         <div id="simBar" class="simBar surface" hidden>
           <label for="simSpeed" class="vh">Velocidad de la simulación</label>

@@ -29,6 +29,7 @@ import { initFind } from './find/ui.ts';
 import { go, initShell } from './ui/shell.ts';
 import { setDestination } from './setup.ts';
 import { clearSigns, setSigns, signsAheadOf } from './signs/store.ts';
+import { setTravel } from './walk/switch.ts';
 import { align, sensorsActive, startSensors, stopSensors, updateView } from './walk/view.ts';
 
 let lastFrame = performance.now();
@@ -238,7 +239,7 @@ $('start').onclick = async () => {
     // First awaits in the handler: iOS only shows the sensor permission prompts inside the tap.
     // Bump detection is optional: without motion permission the drive still starts, just without it.
     let bumpWarning = '';
-    if ($<HTMLInputElement>('detectBumps').checked && app.mode !== 'replay') {
+    if ($<HTMLInputElement>('detectBumps').checked && app.mode === 'gps') {
       try {
         await startBumpWatcher();
       } catch (e) {
@@ -259,6 +260,7 @@ $('start').onclick = async () => {
       toast('Sube el brillo de la pantalla al máximo para el HUD');
     }
     $<HTMLButtonElement>('align').hidden = !sensorsActive();
+    $('travel').hidden = app.mode === 'replay' || app.display === 'hud';
     enterImmersive();
     if (bumpWarning) toast(bumpWarning, 5000);
     app.running = true;
@@ -274,6 +276,9 @@ $('start').onclick = async () => {
     btn.disabled = false;
   }
 };
+
+$('travelWalk').onclick = () => void setTravel('walk');
+$('travelDrive').onclick = () => void setTravel('drive');
 
 $('align').onclick = () => {
   if (align(app.yaw, performance.now())) toast('Alineado con la calle');

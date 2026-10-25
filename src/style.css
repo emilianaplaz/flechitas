@@ -1023,3 +1023,11 @@ button.primary { min-height: 52px; border-radius: 14px; font-size: 16px; font-we
 
 /* Build marker, to tell which deploy is live */
 .verBadge { position: fixed; top: max(3px, env(safe-area-inset-top)); right: 8px; z-index: 50; padding: 1px 7px; border-radius: 999px; background: var(--pri); color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; line-height: 1.5; pointer-events: none; }
+
+/* In-trip Manejar | Caminar switch: dark like the other #hud controls, 40 px targets, fits 360 px next to the chips. */
+.travelSeg { flex: none; padding: 2px; gap: 2px; background: rgba(12, 12, 14, 0.72); border-color: rgba(255, 255, 255, 0.16); box-shadow: none; }
+.travelSeg button { min-height: 40px; padding: 0 10px; gap: 5px; font-size: 13px; color: rgba(255, 255, 255, 0.78); }
+.travelSeg button[aria-pressed='true'] { color: var(--onpri); }
+@media (max-width: 400px) { .travelSeg button { padding: 0 8px; gap: 4px; } }
+/* With the iPad chip showing there is no room for the words at 360 px: icons only, the aria-labels keep the names. */
+@media (max-width: 400px) { .driveChips:has(#chipHud:not([hidden])) .travelSeg .lbl { display: none; } .driveChips:has(#chipHud:not([hidden])) .travelSeg button { min-width: 44px; justify-content: center; } }

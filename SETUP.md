@@ -31,9 +31,9 @@ In **Dispositivos → Modo**:
 
 - **Real**: camera + GPS. Mount the phone on the dash, pointing at the road, in landscape or portrait. Each orientation keeps its own calibration. The ● button records video + GPS track together for later replay.
 - **Simulación**: drives along the route at the speed on the slider. Use it indoors and on stage. "Desde" on the map screen sets the start point (empty = your location).
-- **Repetición**: load a recorded video + its `.json` track and the overlay runs on top of the real drive. Use the calibration sliders → "Sincronía" if the video and GPS drift apart.
+- **Repetición**: load a recorded video, optionally with its `.json` track, and the overlay runs on top of it. With the track, the car follows the recorded drive. Without it, pick a destination first: the car follows the planned route in step with the video (pause and seeking move it too) at the speed on the slider. Use the calibration sliders → "Sincronía" if the video and GPS drift apart.
 
-Caminar / Manejar on the map: Caminar uses the phone sensors (phone in the hand), Manejar assumes a fixed mount.
+Caminar / Manejar on the map: Caminar uses the phone sensors (phone in the hand), Manejar assumes a fixed mount. During a trip the **Manejar | Caminar** switch at the top of the drive screen changes it without ending the trip (not in Repetición or the iPad HUD): Caminar starts the sensors and shows ⌖, Manejar goes back to the fixed-mount tilt and, on a real drive with hazard detection on, to the bump sensor. The route stays the car route in both.
 
 ## Phone sensors (walking, phone in hand)
 

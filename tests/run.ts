@@ -11,6 +11,7 @@ const mem = new Map<string, string>();
 import { amend, cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
 import { BumpDetector } from '../src/hazards/bump.ts';
 import { HazardStore } from '../src/hazards/store.ts';
+import { mockObstacles, simulateHit } from '../src/hazards/mockMotion.ts';
 import { clusterHazards, weightOf } from '../src/hazards/cluster.ts';
 import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
@@ -18,6 +19,8 @@ import { defaultsFor, loadCalib, loadFlip, saveCalib, saveFlip } from '../src/re
 import { DEFAULT_LENS_HFOV, TiltWindow, steadyMean, visibleVfov } from '../src/render/autocalib.ts';
 import { decodeRoute, encodeRoute, formatCode, hudPeerId, newHudCode, normalizeCode } from '../src/remote/protocol.ts';
 import { interfaceAngle, physicalAngle, uprightPlan } from '../src/remote/orient.ts';
+import { VideoRouteSource } from '../src/drive/sources.ts';
+import { switchPlan, type SwitchAction } from '../src/walk/switchPlan.ts';
 import { Vector3, Vector4 } from 'three';
 import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransform, placementAdvice, reflectMatrix, virtualImage, worldToCss } from '../src/render/optics.ts';
 import { RouteProfile, gridPoint, limitAt, speedLimits, tileElevation, tileOf, tileToLatLon, tileXY, type Tile, type TileSign, type TileWay } from '../src/core/maqueta.ts';
@@ -180,6 +183,44 @@ for (let t = 0; t <= 3000; t += 16) {
   if (e) flippedEv.push(e);
 }
 check('same result with inverted sign convention (iOS)', flippedEv.length === 1 && (flippedEv[0] as { type: string }).type === 'hueco', JSON.stringify(flippedEv));
+
+// ---- mock accelerometer (Simulación / Repetición) ----
+{
+  const line = buildPolyline([{ lat: 10, lon: -66 }, { lat: 10.0225, lon: -66 }, { lat: 10.0225, lon: -65.98 }]);
+  const obs = mockObstacles(line);
+  check('mock obstacles: first about 150 m in, then every 300 m', obs.length >= 8 && obs[0]!.along === 150 && obs.every((o, i) => i === 0 || near(o.along - obs[i - 1]!.along, 300, 0.01)), obs.map((o) => o.along).join());
+  check('mock obstacles: policia, hueco, policia pattern', obs.slice(0, 6).map((o) => o.kind).join() === 'policia,hueco,policia,policia,hueco,policia');
+  check('mock obstacles: heading follows the route (north, then east)', near(obs[0]!.heading, 0, 1) && near(obs[obs.length - 1]!.heading, 90, 1), obs.map((o) => Math.round(o.heading)).join());
+  check('mock obstacles: points lie on the route', near(haversine(obs[0]!, { lat: 10, lon: -66 }), 150, 1));
+  check('mock obstacles: same route, same obstacles', JSON.stringify(mockObstacles(line)) === JSON.stringify(obs));
+  check('mock obstacles: none for an empty, single-point or very short route', mockObstacles(buildPolyline([])).length === 0 && mockObstacles(buildPolyline([{ lat: 10, lon: -66 }])).length === 0 && mockObstacles(buildPolyline([{ lat: 10, lon: -66 }, { lat: 10.001, lon: -66 }])).length === 0);
+
+  check('mock hit: hole at 10 m/s is hueco', simulateHit('hueco', 10)?.type === 'hueco');
+  check('mock hit: bump at 5 m/s is policia on the soft path', simulateHit('policia', 5)?.type === 'policia' && simulateHit('policia', 5)!.peak < 5.5);
+  check('mock hit: hole at 5 m/s is hueco', simulateHit('hueco', 5)?.type === 'hueco');
+  check('mock hit: under 2.5 m/s nothing is detected', simulateHit('hueco', 2) === null && simulateHit('policia', 2) === null);
+  // The lift comes first, so even a hard fast pass over a bump reads as policia, not hueco.
+  check('mock hit: bump at 14 m/s is still policia, harder and shorter', simulateHit('policia', 14)?.type === 'policia' && simulateHit('policia', 14)!.peak > simulateHit('policia', 5)!.peak && simulateHit('policia', 14)!.durationMs < simulateHit('policia', 5)!.durationMs);
+}
+
+// ---- simulated reports never leave the device ----
+{
+  const store = new HazardStore();
+  store.local = [];
+  const stored = localStorage.getItem('ar-nav.hazards');
+  const queued = JSON.stringify(pending());
+  const a = store.addSimulated('policia', { lat: 10.5, lon: -66.9 }, { heading: 90 });
+  check('simulated: unconfirmed detected report flagged simulated', a.simulated === true && a.confirmed === false && a.source === 'detected');
+  check('simulated: not persisted and not queued', localStorage.getItem('ar-nav.hazards') === stored && JSON.stringify(pending()) === queued);
+  check('simulated: one alone stays hidden like any 0.5 report', store.all().length === 0);
+  store.addSimulated('policia', { lat: 10.50005, lon: -66.9 }, { heading: 90 });
+  check('simulated: two nearby reach the show weight', store.all().length === 1);
+  const c = store.confirm(a.id);
+  check('simulated: confirm flips to a confirmed hueco without touching storage or the outbox', c?.type === 'hueco' && c.confirmed === true && localStorage.getItem('ar-nav.hazards') === stored && JSON.stringify(pending()) === queued);
+  check('simulated: undoLast ignores them', store.undoLast() === undefined);
+  store.clearSimulated();
+  check('simulated: clearing removes them', store.all().length === 0 && store.simulated.length === 0);
+}
 
 // ---- merging reports of the same hazard ----
 {
@@ -1100,6 +1141,77 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
     check('sign-in adopts signed-out pins and uploads them', posts.length === 1 && (posts[0].body as { client_id: string }).client_id === 'pin-888' && loadPins()[0].owner === 'U');
     setPinOwner(null);
   }
+}
+
+{
+  const clk = { currentTime: 0, paused: false };
+  const vs = new VideoRouteSource(poly, clk);
+  vs.start();
+  const f0 = vs.current(0);
+  check('video route: starts at the route start, heading east', near(haversine(f0.p, caracas), 0, 0.5) && near(f0.heading ?? -1, 90, 1) && near(f0.speed ?? -1, 35 / 3.6, 0.01));
+  clk.currentTime = 10;
+  vs.current(1);
+  check('video route: advances speed * video dt', near(vs.along, (35 / 3.6) * 10, 0.01), String(vs.along));
+  clk.paused = true;
+  const fp = vs.current(2);
+  const before = vs.along;
+  vs.current(3);
+  check('video route: paused video holds the car and reports speed 0', vs.along === before && fp.speed === 0);
+  clk.paused = false;
+  clk.currentTime = 20;
+  vs.current(4);
+  check('video route: seek forward moves by the seek distance', near(vs.along - before, (35 / 3.6) * 10, 0.01));
+  clk.currentTime = 15;
+  vs.current(5);
+  check('video route: seek backward moves back', near(vs.along, (35 / 3.6) * 15, 0.01), String(vs.along));
+  clk.currentTime = 0;
+  vs.current(6);
+  clk.currentTime = -100;
+  vs.current(7);
+  check('video route: clamps at 0', vs.along === 0);
+  const c3 = { currentTime: 0, paused: false };
+  const v3 = new VideoRouteSource(poly, c3);
+  v3.start();
+  v3.current(0);
+  c3.currentTime = 5;
+  v3.current(1);
+  v3.speedKmh = 72;
+  const at5 = v3.along;
+  c3.currentTime = 10;
+  v3.current(2);
+  check('video route: speed change only affects later movement', near(at5, (35 / 3.6) * 5, 0.01) && near(v3.along - at5, 100, 0.01), String(v3.along));
+  clk.currentTime = 1000;
+  const fe = vs.current(10);
+  check('video route: clamps at the route end with speed 0 and the last heading north', vs.along === poly.length && fe.speed === 0 && near(fe.heading ?? -1, 0, 1));
+  const c2 = { currentTime: 0, paused: false };
+  const v2 = new VideoRouteSource(poly, c2);
+  v2.start();
+  v2.current(0);
+  v2.syncOffset = 2;
+  v2.current(1);
+  check('video route: syncOffset shifts the position', near(v2.along, (35 / 3.6) * 2, 0.01), String(v2.along));
+  c2.currentTime = 250 / (35 / 3.6);
+  const turn = v2.current(2);
+  check('video route: heading follows the route past the corner', near(turn.heading ?? -1, 0, 1), String(turn.heading));
+}
+
+// ---- walk / drive switch ----
+{
+  const base = { detectBumps: true, display: 'camera' as const, running: true };
+  const plan = (o: Partial<Parameters<typeof switchPlan>[0]> & { from: 'drive' | 'walk'; to: 'drive' | 'walk' }) => switchPlan({ mode: 'gps', ...base, ...o });
+  const same = (a: SwitchAction[], b: SwitchAction[]) => a.join() === b.join();
+  const toWalk: SwitchAction[] = ['startSensors', 'stopAutoTilt', 'stopBumpWatcher', 'showAlign', 'persist', 'syncControls', 'toast:walk'];
+  check('GPS drive to walk: sensors on, tilt and bump watcher off, align shown', same(plan({ from: 'drive', to: 'walk' }), toWalk));
+  check('GPS walk to drive with bumps: sensors off, tilt and watcher back', same(plan({ from: 'walk', to: 'drive' }), ['stopSensors', 'startAutoTilt', 'startBumpWatcher', 'hideAlign', 'persist', 'syncControls', 'toast:drive']));
+  check('GPS walk to drive without bumps: no watcher', same(plan({ from: 'walk', to: 'drive', detectBumps: false }), ['stopSensors', 'startAutoTilt', 'hideAlign', 'persist', 'syncControls', 'toast:drive']));
+  check('Simulación walk to drive never starts the real watcher', !plan({ from: 'walk', to: 'drive', mode: 'sim' }).includes('startBumpWatcher'));
+  check('Simulación drive to walk still switches sensors', plan({ from: 'drive', to: 'walk', mode: 'sim' }).includes('startSensors'));
+  check('Repetición has no in-trip switch', plan({ from: 'drive', to: 'walk', mode: 'replay' }).length === 0);
+  check('HUD display has no in-trip switch', plan({ from: 'drive', to: 'walk', display: 'hud' }).length === 0);
+  check('same target in a trip does nothing', plan({ from: 'walk', to: 'walk' }).length === 0 && plan({ from: 'drive', to: 'drive' }).length === 0);
+  const pre = plan({ from: 'drive', to: 'walk', running: false });
+  check('before the trip only flags and controls change', same(pre, ['persist', 'syncControls']));
+  check('the sensor start precedes the recorded state', toWalk.indexOf('startSensors') < toWalk.indexOf('persist'));
 }
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');
