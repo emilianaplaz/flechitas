@@ -68,15 +68,23 @@ export function describe(type: string, modifier: string | undefined, exit?: numb
   return { kind, text: KIND_TEXT[kind] };
 }
 
-export async function fetchRoute(from: LatLon, to: LatLon): Promise<Route> {
+/** The fastest route first, then the alternatives OSRM finds (often none on short trips). */
+export async function fetchRoutes(from: LatLon, to: LatLon): Promise<Route[]> {
   const url =
     `https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}` +
-    `?steps=true&geometries=geojson&overview=full`;
+    `?steps=true&geometries=geojson&overview=full&alternatives=true`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`El servidor de rutas respondió ${res.status}`);
   const data = await res.json();
   if (data.code !== 'Ok' || !data.routes?.length) throw new Error('No se encontró una ruta');
-  const r = data.routes[0];
+  return data.routes.map(toRoute);
+}
+
+export async function fetchRoute(from: LatLon, to: LatLon): Promise<Route> {
+  return (await fetchRoutes(from, to))[0];
+}
+
+function toRoute(r: { geometry: { coordinates: [number, number][] }; legs: { steps: OsrmStep[] }[]; duration: number }): Route {
   const pts: LatLon[] = r.geometry.coordinates.map(([lon, lat]: [number, number]) => ({ lat, lon }));
   const poly = buildPolyline(pts);
 

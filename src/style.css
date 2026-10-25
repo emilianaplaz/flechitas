@@ -259,10 +259,11 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .mqChips:empty { display: none; }
 .mqChips button { flex: 1 0 auto; height: 44px; padding: 0 14px; border-radius: 999px; border: 2px solid var(--field); color: var(--text); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .mqChips button[aria-pressed='true'] { border-color: var(--pri); background: var(--pri); color: var(--onpri); font-weight: 800; }
-.mqBadge { position: absolute; transform: translate(-50%, -50%); min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 88%, transparent); color: var(--text); font-size: 12px; font-weight: 800; white-space: nowrap; }
 .mqPin { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--text); border: 3px solid var(--bg); }
 .mqPin.on { width: 22px; height: 22px; margin: -11px 0 0 -11px; background: var(--haz); box-shadow: 0 0 0 9px color-mix(in srgb, var(--haz) 30%, transparent); }
 .mqPinLabel { position: absolute; transform: translate(-50%, 18px); padding: 4px 12px; border-radius: 13px; background: var(--surf); border: 1.5px solid var(--haz); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.mqStart { position: absolute; transform: translate(-50%, -100%); margin-top: -4px; padding: 4px 12px; border-radius: 13px; background: var(--pri); color: var(--onpri); font-size: 12px; font-weight: 800; white-space: nowrap; }
+.mqStart::after { content: ""; position: absolute; left: 50%; top: 100%; margin-left: -5px; border: 5px solid transparent; border-top-color: var(--pri); }
 @media (orientation: landscape) and (max-height: 540px) {
   .mqHead { right: auto; width: min(380px, 48vw); }
   .mqCard { left: auto; width: min(360px, 44vw); bottom: calc(64px + env(safe-area-inset-bottom) + 12px); }

@@ -14,6 +14,7 @@ export const app = {
   dest: null as { point: LatLon; label: string } | null,
   from: null as LatLon | null, // where a simulation starts, typed or picked on the map; null = this phone's GPS
   route: null as Route | null,
+  chosenRoute: null as Route | null, // alternative picked in the maqueta; the next drive follows it if it still fits
   arrival: null as Arrival | null, // exact arrival point picked in the maqueta (building entrance), if any
   source: null as Source | null, // where the car's position comes from
   stream: null as MediaStream | null, // camera feed

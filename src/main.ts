@@ -23,7 +23,7 @@ import { remoteGps, remotePhone, remoteTilt, startHudLink } from './remote/hudLi
 import { connectHud, disconnectHud, hudLinked, onHudState, sendFix, sendRoute, sendStop, setDriveProvider, type LinkState } from './remote/phoneLink.ts';
 import { normalizeCode } from './remote/protocol.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
-import { destZone, initDestino } from './ui/destino.ts';
+import { destZone, getHere, initDestino } from './ui/destino.ts';
 import { initMaqueta, prepareMaqueta } from './ui/maqueta.ts';
 import { initFind } from './find/ui.ts';
 import { go, initShell } from './ui/shell.ts';
@@ -106,7 +106,8 @@ if (hudRole) {
   initDestino();
   initFind();
   // Maqueta: "Confirmar punto y conducir" sets the exact arrival point and starts the drive.
-  initMaqueta(({ arrival, label }) => {
+  initMaqueta(({ arrival, label, route }) => {
+    app.chosenRoute = route;
     setDestination({ point: { lat: arrival.lat, lon: arrival.lon }, label }, false, arrival);
     go('destino');
     $('start').click();
@@ -223,7 +224,7 @@ $('start').onclick = async () => {
     btn.disabled = true;
     setupMsg('Cargando la maqueta…');
     try {
-      await prepareMaqueta(zone, app.dest.point);
+      await prepareMaqueta(zone, app.dest.point, app.mode === 'sim' && app.from ? app.from : getHere());
       setupMsg('');
       go('maqueta');
     } catch (e) {

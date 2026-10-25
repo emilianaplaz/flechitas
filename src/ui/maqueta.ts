@@ -2,15 +2,16 @@
 // tile ways) where the driver taps the building they're going to and picks the exact entrance.
 // The chosen entrance becomes the arrival point: the route goes there and the AR/HUD marks it.
 import * as THREE from 'three';
-import { toLocal, type LatLon } from '../core/geo.ts';
+import { fromLocal, toLocal, type LatLon } from '../core/geo.ts';
 import { buildingsIn, ENTRANCE_FALLBACK_NAME, entrancesOf, insideOutline, loadTile, type Tile, type TileBuilding, type TileEntrance, type TileWay } from '../core/maqueta.ts';
 import { $, setText, toast } from '../core/ui.ts';
+import { fetchRoutes, formatDistance, type Route } from '../core/route.ts';
 import type { Arrival } from '../remote/protocol.ts';
 import type { Zone } from './destino.ts';
 
 const PALETTE = {
-  dark: { bg: 0x0a0a0b, gnd: 0x111214, street: 0x2a2d32, top: 0x3a3e45, left: 0x24272c, right: 0x181a1d, stop: 0x4b86f5, sleft: 0x3e6ae1, sright: 0x2a4aa8 },
-  light: { bg: 0xf4f8fb, gnd: 0xe2ecf2, street: 0xffffff, top: 0xffffff, left: 0xcbd9e3, right: 0xb0c2d0, stop: 0x3b74e0, sleft: 0x1a56c4, sright: 0x123f94 },
+  dark: { bg: 0x0a0a0b, gnd: 0x111214, street: 0x2a2d32, top: 0x3a3e45, left: 0x24272c, right: 0x181a1d, stop: 0x4b86f5, sleft: 0x3e6ae1, sright: 0x2a4aa8, alt: 0x6b7482 },
+  light: { bg: 0xf4f8fb, gnd: 0xe2ecf2, street: 0xffffff, top: 0xffffff, left: 0xcbd9e3, right: 0xb0c2d0, stop: 0x3b74e0, sleft: 0x1a56c4, sright: 0x123f94, alt: 0x8aa0b4 },
 };
 const ELEV = THREE.MathUtils.degToRad(35); // camera elevation: the isometric look of the canvas
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -24,6 +25,7 @@ interface Item {
 
 export interface MaquetaChoice {
   arrival: Arrival; // where the pin goes: the entrance, with the building outline
+  route: Route | null; // the route picked among the alternatives
   label: string; // destination name for the cards: building name or "Edificio B"
 }
 
@@ -41,6 +43,12 @@ let entIdx = 0;
 let az = THREE.MathUtils.degToRad(45);
 let scale = 0.4; // metres per CSS pixel
 const target = new THREE.Vector3();
+let half = { x: 0, z: 0 }; // half extent of the ground, local metres
+const routeGroup = new THREE.Group();
+let routeSeq = 0;
+let routeStart: { at: LatLon; far: boolean } | null = null; // where the drawn route begins; far: it began outside the zone
+let startPt: LatLon | null = null;
+let fitted = false;
 let onConfirm: (c: MaquetaChoice) => void = () => {};
 let frameReq = 0;
 
@@ -80,32 +88,37 @@ function buildingMesh(b: TileBuilding): THREE.Mesh {
   return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true }));
 }
 
-/** Streets as flat ribbons, one quad per segment plus a round-ish joint. */
-function streetsMesh(list: TileWay[]): THREE.Mesh {
-  const pos: number[] = [];
-  for (const w of list) {
-    const half = Math.max(3, ((w.lanes ?? 2) * 3.2) / 2);
-    const p = w.pts.map(([lat, lon]) => local({ lat, lon }));
-    for (let i = 0; i < p.length - 1; i++) {
-      const a = p[i];
-      const b = p[i + 1];
-      const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-      const nx = (-(b.z - a.z) / len) * half;
-      const nz = ((b.x - a.x) / len) * half;
-      const ex = ((b.x - a.x) / len) * half * 0.5; // a little overlap hides the gaps at bends
-      const ez = ((b.z - a.z) / len) * half * 0.5;
-      const q = [
-        [a.x - ex + nx, a.z - ez + nz],
-        [a.x - ex - nx, a.z - ez - nz],
-        [b.x + ex - nx, b.z + ez - nz],
-        [b.x + ex + nx, b.z + ez + nz],
-      ];
-      for (const k of [0, 1, 2, 0, 2, 3]) pos.push(q[k][0], 0.05, q[k][1]);
-    }
+/** A polyline on the ground (local metres) as flat quads of half-width `half`, one per segment. */
+function pushRibbon(pos: number[], p: { x: number; z: number }[], half: number, y: number) {
+  for (let i = 0; i < p.length - 1; i++) {
+    const a = p[i];
+    const b = p[i + 1];
+    const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+    const nx = (-(b.z - a.z) / len) * half;
+    const nz = ((b.x - a.x) / len) * half;
+    const ex = ((b.x - a.x) / len) * half * 0.5; // a little overlap hides the gaps at bends
+    const ez = ((b.z - a.z) / len) * half * 0.5;
+    const q = [
+      [a.x - ex + nx, a.z - ez + nz],
+      [a.x - ex - nx, a.z - ez - nz],
+      [b.x + ex - nx, b.z + ez - nz],
+      [b.x + ex + nx, b.z + ez + nz],
+    ];
+    for (const k of [0, 1, 2, 0, 2, 3]) pos.push(q[k][0], y, q[k][1]);
   }
+}
+
+function ribbonMesh(pos: number[], mat: THREE.Material): THREE.Mesh {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: theme().street, side: THREE.DoubleSide }));
+  return new THREE.Mesh(g, mat);
+}
+
+/** Streets as flat ribbons. */
+function streetsMesh(list: TileWay[]): THREE.Mesh {
+  const pos: number[] = [];
+  for (const w of list) pushRibbon(pos, w.pts.map(([lat, lon]) => local({ lat, lon })), Math.max(3, ((w.lanes ?? 2) * 3.2) / 2), 0.05);
+  return ribbonMesh(pos, new THREE.MeshBasicMaterial({ color: theme().street, side: THREE.DoubleSide }));
 }
 
 async function buildZone(zone: Zone) {
@@ -123,6 +136,7 @@ async function buildZone(zone: Zone) {
   const pad = 40;
   const gw = ne.x - sw.x + pad * 2;
   const gd = sw.z - ne.z + pad * 2;
+  half = { x: gw / 2, z: gd / 2 };
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(gw, gd), new THREE.MeshBasicMaterial({ color: c.gnd }));
   ground.rotation.x = -Math.PI / 2;
   world.add(ground);
@@ -145,6 +159,7 @@ async function buildZone(zone: Zone) {
     return item;
   });
   scene.add(world);
+  scene.add(routeGroup);
   scale = Math.max(gw, gd) / Math.min(innerWidth, innerHeight) / 1.15;
   target.set(0, 0, 0);
 }
@@ -183,15 +198,14 @@ function toScreen(p: LatLon, y = 0): { x: number; y: number } {
 function drawLabels() {
   const box = $('mqLabels');
   box.textContent = '';
-  for (const it of items) {
-    if (!it.letter) continue;
-    const s = toScreen(it.center, it.b.height + 2);
-    const el = document.createElement('div');
-    el.className = 'mqBadge';
-    el.textContent = it.letter;
-    el.style.left = `${s.x}px`;
-    el.style.top = `${s.y}px`;
-    box.appendChild(el);
+  if (routeStart) {
+    const s = toScreen(routeStart.at, 0.5);
+    const start = document.createElement('div');
+    start.className = 'mqStart';
+    start.textContent = routeStart.far ? 'Entras a la zona' : 'Salida';
+    start.style.left = `${s.x}px`;
+    start.style.top = `${s.y}px`;
+    box.appendChild(start);
   }
   entrances.forEach((en, i) => {
     const s = toScreen(en, 0.5);
@@ -231,6 +245,126 @@ function render() {
 }
 const redraw = () => (frameReq ||= requestAnimationFrame(render));
 
+// ---------- route ----------
+
+const routeCache = new Map<string, Route[]>();
+let routes: Route[] = [];
+let routeIdx = 0;
+/** Each route's stretch inside the zone, in local metres, for drawing and for tapping it. */
+let drawn: { kept: { x: number; z: number }[]; from: LatLon; far: boolean }[] = [];
+
+const routeLine = (r: Route, en: LatLon) => [...r.poly.pts, en]; // OSRM snaps to the road: the line ends at the entrance
+
+/** Routes from the start to the chosen entrance, the fastest first, drawn over the streets. */
+async function loadRoutes() {
+  const en = entrances[entIdx];
+  const seq = ++routeSeq;
+  routes = [];
+  routeIdx = 0;
+  if (!startPt || !en) return showRoutes();
+  const key = `${startPt.lat},${startPt.lon}>${en.lat},${en.lon}`;
+  try {
+    let found = routeCache.get(key);
+    if (!found) {
+      found = await fetchRoutes(startPt, en);
+      routeCache.set(key, found);
+    }
+    if (seq !== routeSeq) return;
+    routes = found;
+  } catch {
+    if (seq !== routeSeq) return;
+  }
+  showRoutes();
+}
+
+function showRoutes() {
+  routeGroup.children.slice().forEach((c) => routeGroup.remove(c));
+  routeStart = null;
+  drawn = [];
+  const en = entrances[entIdx];
+  const inside = (q: { x: number; z: number }) => Math.abs(q.x) <= half.x && Math.abs(q.z) <= half.z;
+  routes.forEach((r) => {
+    const pts = routeLine(r, en);
+    const p = pts.map(local);
+    let i = p.length - 1;
+    while (i > 0 && inside(p[i - 1])) i--; // the last stretch that stays inside the zone's ground
+    drawn.push({ kept: p.slice(i), from: pts[i], far: i > 0 });
+  });
+  // Alternatives first and thin, the chosen one on top with its outline.
+  drawn.forEach((d, k) => {
+    if (k === routeIdx || d.kept.length < 2) return;
+    routeGroup.add(ribbon(d.kept, 2.2, 0.15, theme().alt, 1));
+  });
+  const sel = drawn[routeIdx];
+  if (sel && sel.kept.length > 1) {
+    routeGroup.add(ribbon(sel.kept, 5.5, 0.2, theme().bg, 2), ribbon(sel.kept, 3.2, 0.3, theme().stop, 3));
+    routeStart = { at: sel.from, far: sel.far };
+    if (!fitted) fit(sel.kept);
+  }
+  renderRouteChips();
+  redraw();
+}
+
+function ribbon(p: { x: number; z: number }[], w: number, y: number, color: number, order: number): THREE.Mesh {
+  const pos: number[] = [];
+  pushRibbon(pos, p, w, y);
+  const m = ribbonMesh(pos, new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, depthTest: false }));
+  m.renderOrder = order; // above the buildings: the whole route stays readable
+  return m;
+}
+
+function chooseRoute(i: number) {
+  routeIdx = i;
+  showRoutes();
+}
+
+function renderRouteChips() {
+  const box = $('mqRoutes');
+  box.textContent = '';
+  if (routes.length < 2) return;
+  routes.forEach((r, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = `${Math.max(1, Math.round(r.duration / 60))} min · ${formatDistance(r.poly.length)}`;
+    b.setAttribute('aria-pressed', String(i === routeIdx));
+    b.onclick = () => chooseRoute(i);
+    box.appendChild(b);
+  });
+}
+
+/** An alternative route under a tap (screen px), if any. */
+function routeAt(x: number, y: number): number {
+  const near = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+    return Math.hypot(x - (a.x + t * dx), y - (a.y + t * dy));
+  };
+  let best = -1;
+  let bestD = 16; // px
+  drawn.forEach((d, k) => {
+    if (k === routeIdx) return;
+    const s = d.kept.map((q) => toScreen(fromLocal(origin, q.x, q.z), 0.3));
+    for (let i = 0; i < s.length - 1; i++) {
+      const dist = near(s[i], s[i + 1]);
+      if (dist < bestD) (bestD = dist), (best = k);
+    }
+  });
+  return best;
+}
+
+/** Frames the whole drawn route in the free area (once per opening; later entrance changes keep the view). */
+function fit(p: { x: number; z: number }[]) {
+  fitted = true;
+  const xs = p.map((q) => q.x);
+  const zs = p.map((q) => q.z);
+  const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+  target.set((x0 + x1) / 2, 0, (z0 + z1) / 2);
+  const diag = Math.hypot(x1 - x0, z1 - z0) + 40;
+  const free = Math.min(innerWidth, Math.max(240, innerHeight - 280));
+  scale = Math.min(3, Math.max(0.1, diag / free));
+}
+
 // ---------- selection ----------
 
 function nextLetter(): string {
@@ -253,6 +387,7 @@ function select(item: Item | null) {
   entIdx = 0;
   renderCard();
   redraw();
+  void loadRoutes();
 }
 
 const buildingName = (it: Item) => `Edificio ${it.letter}${it.b.name ? ` · ${it.b.name}` : ''}`;
@@ -270,7 +405,7 @@ function renderCard() {
   setText('mqTitle', buildingName(selected));
   const fallback = entrances.length === 1 && entrances[0].name === ENTRANCE_FALLBACK_NAME;
   setText('mqSub', !entrances.length ? 'No hay calle cerca para llegar a este edificio' : fallback ? 'Sin entradas registradas: llegas frente al edificio' : 'Elige el punto exacto de llegada');
-  entrances.forEach((en, i) => {
+  if (!fallback) entrances.forEach((en, i) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = en.name;
@@ -279,6 +414,7 @@ function renderCard() {
       entIdx = i;
       renderCard();
       redraw();
+      void loadRoutes();
     };
     chips.appendChild(b);
   });
@@ -289,6 +425,8 @@ function pick(clientX: number, clientY: number) {
   const ray = new THREE.Raycaster();
   ray.setFromCamera(new THREE.Vector2((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1), camera);
   const hit = ray.intersectObjects(items.map((i) => i.mesh), false)[0];
+  const alt = routeAt(clientX, clientY);
+  if (alt >= 0) return chooseRoute(alt);
   if (hit) select(hit.object.userData.item as Item);
 }
 
@@ -432,7 +570,7 @@ function bindGestures(el: HTMLElement) {
  * Loads the zone (once) and preselects the building at or nearest to the destination.
  * The caller then shows the screen. Rejects when the zone has no tiles.
  */
-export async function prepareMaqueta(zone: Zone, dest: LatLon) {
+export async function prepareMaqueta(zone: Zone, dest: LatLon, start: LatLon | null) {
   if (!renderer) {
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(2, devicePixelRatio));
@@ -443,6 +581,10 @@ export async function prepareMaqueta(zone: Zone, dest: LatLon) {
     await buildZone(zone);
     zoneKey = zone.name;
   }
+  startPt = start;
+  fitted = false;
+  routes = [];
+  showRoutes();
   // Letters for the buildings around the destination, nearest first, like the canvas (A–E).
   const d = local(dest);
   const byDist = [...items].sort((a, b) => {
@@ -457,7 +599,7 @@ export async function prepareMaqueta(zone: Zone, dest: LatLon) {
   select(inside ?? byDist[0] ?? null);
   const at = selected ? local(selected.center) : d;
   target.set(at.x, 0, at.z);
-  scale = Math.min(scale, 0.35);
+  scale = Math.min(scale, 0.35); // until the route arrives and frames itself
   // How to turn it, for the way this device is driven.
   const touch = matchMedia('(pointer: coarse)').matches;
   setText('mqZone', touch ? 'Toca un edificio · gira con dos dedos' : 'Toca un edificio · Ctrl + arrastrar para girar');
@@ -477,6 +619,7 @@ export function initMaqueta(confirm: (c: MaquetaChoice) => void) {
     const en = entrances[entIdx];
     onConfirm({
       arrival: { lat: en.lat, lon: en.lon, label: `Edif. ${selected.letter} · ${en.name}`, outline: selected.b.outline, height: selected.b.height },
+      route: routes[routeIdx] ?? null,
       label: selected.b.name ?? `Edificio ${selected.letter}`,
     });
   };

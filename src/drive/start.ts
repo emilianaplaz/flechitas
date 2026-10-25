@@ -1,7 +1,7 @@
 // Starting and stopping the position source for each mode: real GPS, simulated drive, or replay.
 import { fetchRoute, routeFromTrack, type Route } from '../core/route.ts';
 import { resolveDestination } from '../core/links.ts';
-import type { LatLon } from '../core/geo.ts';
+import { haversine, type LatLon } from '../core/geo.ts';
 import { app } from '../core/state.ts';
 import { $, setupMsg, toast } from '../core/ui.ts';
 import type { Fix, Source } from '../core/types.ts';
@@ -37,6 +37,15 @@ function currentPosition(): Promise<LatLon> {
 async function routeOrigin(): Promise<LatLon> {
   const fromRaw = $<HTMLInputElement>('from').value.trim();
   return app.from ?? (fromRaw ? (await resolveDestination(fromRaw)).point : await currentPosition());
+}
+
+/** The route picked in the maqueta when it still starts here and ends there; otherwise the fastest. */
+async function routeFor(from: LatLon, to: LatLon): Promise<Route> {
+  const r = app.chosenRoute;
+  app.chosenRoute = null;
+  const pts = r?.poly.pts;
+  if (r && pts && haversine(pts[0], from) < 150 && haversine(pts[pts.length - 1], to) < 40) return r;
+  return fetchRoute(from, to);
 }
 
 async function playVideoFile(vf: File) {
@@ -78,10 +87,10 @@ export async function startSource(setRoute: (r: Route) => void) {
     app.source = gps;
     setupMsg('Esperando señal de GPS…');
     const fix = await waitForFix(gps);
-    setRoute(await fetchRoute(fix.p, dest.point));
+    setRoute(await routeFor(fix.p, dest.point));
   } else if (mode === 'sim') {
     if (!dest) throw new Error('Elige un destino primero');
-    setRoute(await fetchRoute(await routeOrigin(), dest.point));
+    setRoute(await routeFor(await routeOrigin(), dest.point));
     if (display !== 'hud') await startCamera(false);
     app.source = new RouteSim(app.route!.poly);
     $('simBar').hidden = false;
@@ -104,7 +113,7 @@ export async function startSource(setRoute: (r: Route) => void) {
       app.source = new TrackReplay(track, await playVideoFile(vf));
     } else {
       if (!dest) throw new Error('Elige un destino primero');
-      setRoute(await fetchRoute(await routeOrigin(), dest.point));
+      setRoute(await routeFor(await routeOrigin(), dest.point));
       app.source = new VideoRouteSource(app.route!.poly, await playVideoFile(vf));
       $('simBar').hidden = false;
     }
