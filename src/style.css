@@ -666,10 +666,10 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
 .hgReadout b { color: var(--text); }
 .hgFine { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
 
-/* ---------- Encontrar: markers over the camera, saved places, a person sharing ---------- */
+/* ---------- Encontrar: markers over the camera, a person sharing with you ---------- */
 #find { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
 #find button, #find input { pointer-events: auto; }
-#find.shareOnly { background: var(--bg); }
+#find.noCamera { background: var(--bg); }
 .fMarks { position: absolute; inset: 0; overflow: hidden; }
 .fMark { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
 .fTag {
@@ -721,7 +721,7 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
 .fDist { font-weight: 700; }
 .fX { padding: 8px 12px; color: var(--muted); }
 .fBox { display: flex; flex-direction: column; gap: 6px; }
-.fWatch {
+.fShareCard {
   position: absolute;
   top: calc(max(12px, env(safe-area-inset-top)) + 58px);
   left: 12px;
@@ -729,16 +729,16 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
   padding: 12px 14px;
   border-radius: 20px;
 }
-.fWatchHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.fWatchHead .muted { font-size: 13px; }
-.fWatchHead button { flex: none; min-height: 44px; padding: 8px 14px; }
-.fCode { display: block; font-size: 30px; font-weight: 800; letter-spacing: 0.08em; }
+.fShareHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fShareHead .muted { font-size: 13px; }
+.fShareHead button { flex: none; min-height: 44px; padding: 8px 14px; }
+.fCodeText { display: block; font-size: 30px; font-weight: 800; letter-spacing: 0.08em; }
 .fState { margin: 0; font-size: 14px; color: var(--muted); min-height: 1.2em; }
-#fShareCode { padding: 12px 14px; font-size: 22px; font-weight: 800; letter-spacing: 0.08em; border-radius: 14px; border: 2px solid var(--line); background: transparent; }
+#fSeeCode { padding: 12px 14px; font-size: 22px; font-weight: 800; letter-spacing: 0.08em; border-radius: 14px; border: 2px solid var(--line); background: transparent; }
 .fActions { display: flex; gap: 8px; }
 .fActions button { flex: 1; min-height: 48px; padding: 8px; font-size: 14px; }
 .fActions button.primary { flex: 1.3; font-size: 14px; }
-#find.shareOnly .fActions, #find.shareOnly .fList, #find.shareOnly .fMarks { display: none; }
+#find.noCamera .fActions, #find.noCamera .fList, #find.noCamera .fMarks { display: none; }
 body:has(#find:not([hidden])) #toast { bottom: auto; top: 40%; }
 
 /* ==========================================================================
@@ -879,7 +879,7 @@ input[type='range']:active::-webkit-slider-thumb { scale: 1.18; }
    Sleek pass: filled fields instead of outlines, thinner chrome, floating
    side panel on wide screens (the Tesla layout), smaller type.
    ========================================================================== */
-input[type='text'], input[type='email'], input[type='password'], select, #fShareCode, .hgField input {
+input[type='text'], input[type='email'], input[type='password'], select, #fSeeCode, .hgField input {
   border: 1px solid transparent;
   background: rgba(255, 255, 255, 0.06);
   transition: border-color 0.25s var(--ease), box-shadow 0.25s var(--ease), background-color 0.25s var(--ease);

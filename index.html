@@ -258,7 +258,7 @@
       </nav>
     </section>
 
-    <!-- Encontrar: camera with a marker on saved places and on one person sharing their location -->
+    <!-- Encontrar: camera with a marker on the one person sharing their location with you -->
     <section id="find" hidden>
       <div id="fMarks" class="fMarks" aria-hidden="true"></div>
       <div class="fTop">
@@ -268,27 +268,27 @@
         <span id="fGps" class="chip">Buscando GPS…</span>
         <span id="fCompass" class="chip warn" hidden>Sin brújula</span>
       </div>
-      <div id="fWatchBox" class="fWatch surface" hidden>
-        <div class="fWatchHead">
+      <div id="fShareCard" class="fShareCard surface" hidden>
+        <div class="fShareHead">
           <div>
             <span class="muted">Código para compartir</span>
-            <output id="fCode" class="fCode">··· ···</output>
+            <output id="fShareCodeText" class="fCodeText">··· ···</output>
           </div>
-          <button id="fInvite" class="ghost" type="button">Enviar enlace</button>
+          <button id="fShareInvite" class="ghost" type="button">Enviar enlace</button>
         </div>
-        <p id="fWatchState" class="fState"></p>
+        <p id="fShareState" class="fState"></p>
       </div>
       <div id="fBottom" class="fBottom surface">
         <div id="fList" class="fList" hidden></div>
-        <div id="fShareBox" class="fBox" hidden>
-          <label for="fShareCode" class="muted">Código de quien te busca</label>
-          <input id="fShareCode" type="text" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="000 000" />
-          <p id="fShareState" class="fState"></p>
-          <button id="fShareBtn" class="primary" type="button">Compartir mi ubicación</button>
+        <div id="fSeeBox" class="fBox" hidden>
+          <label for="fSeeCode" class="muted">Código de quien comparte</label>
+          <input id="fSeeCode" type="text" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="000 000" />
+          <p id="fSeeState" class="fState"></p>
+          <button id="fSeeBtn" class="primary" type="button">Ver ubicación</button>
         </div>
         <div class="fActions">
-          <button id="fSee" class="ghost" type="button">Ver a alguien</button>
-          <button id="fShareOpen" class="ghost" type="button">Compartir la mía</button>
+          <button id="fShareToggle" class="ghost" type="button">Compartir ubicación</button>
+          <button id="fSeeToggle" class="ghost" type="button">Ver a alguien</button>
         </div>
       </div>
     </section>

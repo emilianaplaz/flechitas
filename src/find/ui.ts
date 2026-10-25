@@ -1,6 +1,8 @@
 // "Encontrar": location sharing. The camera with a marker over one person who shares their live
-// location, drawn from GPS and the phone's compass. The same screen, without the camera, is where
-// that person shares. (Saved places live in Ajustes and on the map.)
+// location with you, drawn from GPS and the phone's compass. The same screen is where you share yours:
+// you show a code, they type it. Opened from a `?comparte=` link it starts without the camera, with the
+// code typed in, because iOS wants the camera and motion permission inside a tap. (Saved places live in
+// Ajustes and on the map.)
 import { angleDiff, haversine, type LatLon } from '../core/geo.ts';
 import { formatDistance } from '../core/route.ts';
 import { app } from '../core/state.ts';
@@ -31,10 +33,10 @@ let compassWarned = false;
 let watcher: Watcher | null = null;
 let sharer: Sharer | null = null;
 let friend: { s: Sighting; seen: number } | null = null;
-let watchCode = '';
+let shareCode = '';
 let raf = 0;
 let last = 0;
-let camera = false;
+let camera = false; // camera and sensors are running (or were asked for)
 let view: { yaw: number; pitch: number } | null = null;
 let lens: Lens | null = null;
 let lensKey = '';
@@ -57,24 +59,34 @@ function targets(now: number): Target[] {
   return list;
 }
 
-/** Call inside a tap: iOS asks for the motion permission there. */
-export async function openFind(opts: { camera: boolean; shareCode?: string }) {
+/** Call inside a tap. With `camera: false` the screen opens plain, and `enableCamera` runs later from another tap. */
+export async function openFind(opts: { camera: boolean; seeCode?: string }) {
   if (isOpen()) return;
-  camera = opts.camera;
+  camera = false;
   compassWarned = false;
   $('setup').hidden = true;
   $('find').hidden = false;
-  $('find').classList.toggle('shareOnly', !camera);
-  $('fShareBox').hidden = camera;
-  $('fWatchBox').hidden = true;
-  if (opts.shareCode) $<HTMLInputElement>('fShareCode').value = formatCode(opts.shareCode);
+  $('find').classList.toggle('noCamera', !opts.camera);
+  $('fShareCard').hidden = true;
+  $('fSeeBox').hidden = true;
+  if (opts.seeCode) {
+    $<HTMLInputElement>('fSeeCode').value = formatCode(opts.seeCode);
+    $('fSeeBox').hidden = false;
+  }
   rowsKey = '';
 
   gps = new GpsSource(() => {}, toast);
   gps.start();
   last = performance.now();
   raf = requestAnimationFrame(frame);
-  if (!camera) return;
+  if (opts.camera) await enableCamera();
+}
+
+/** Starts the compass and the camera. Call inside a tap: iOS asks for the motion permission there. */
+async function enableCamera() {
+  if (camera) return;
+  camera = true;
+  $('find').classList.remove('noCamera');
   try {
     sensor = new OrientationSensor();
     await sensor.start();
@@ -87,6 +99,17 @@ export async function openFind(opts: { camera: boolean; shareCode?: string }) {
   } catch (e) {
     toast(`${(e as Error).message} Solo verás la distancia.`);
   }
+  if (!isOpen()) stopCamera(); // the screen was closed while the permission prompts were up
+}
+
+function stopCamera() {
+  sensor?.stop();
+  sensor = null;
+  app.stream?.getTracks().forEach((t) => t.stop());
+  app.stream = null;
+  const video = $<HTMLVideoElement>('video');
+  video.pause();
+  video.srcObject = null;
 }
 
 export function closeFind() {
@@ -96,16 +119,11 @@ export function closeFind() {
   stopSharing();
   gps?.stop();
   gps = null;
-  sensor?.stop();
-  sensor = null;
+  stopCamera();
+  camera = false;
   view = null;
   lens = null;
   lensKey = '';
-  app.stream?.getTracks().forEach((t) => t.stop());
-  app.stream = null;
-  const video = $<HTMLVideoElement>('video');
-  video.pause();
-  video.srcObject = null;
   marks.forEach((el) => el.remove());
   marks.clear();
   $('find').hidden = true;
@@ -225,44 +243,109 @@ function renderRows(list: Target[], me: LatLon | null) {
   box.hidden = list.length === 0;
 }
 
-// ---------- watching someone ----------
+// ---------- seeing someone ----------
 
 const WATCH_TEXT: Record<WatchState, string> = {
-  waiting: 'Esperando a que abra el enlace o escriba el código…',
+  connecting: 'Conectando…',
   live: 'Conectado: lo verás en la cámara',
-  lost: 'Se perdió la señal. Su teléfono tiene que seguir con la pantalla encendida.',
+  lost: 'Se perdió la señal. Su teléfono tiene que seguir con la pantalla encendida. Reconectando…',
   offline: 'Sin conexión con el servidor de enlace. Revisa tu internet.',
+  inactive: 'Ese código no está activo. Revisa los 6 dígitos con quien comparte.',
 };
 
-async function startWatching() {
-  stopWatching();
-  $('fWatchBox').hidden = false;
-  $('fSee').textContent = 'Dejar de ver';
-  $('fCode').textContent = '··· ···';
-  watcher = new Watcher({
-    onCode: (code) => {
-      watchCode = code;
-      $('fCode').textContent = formatCode(code);
-    },
-    onPos: (s) => (friend = { s, seen: performance.now() }),
-    onState: (s) => say('fWatchState', WATCH_TEXT[s]),
-  });
-  await watcher.start().catch(() => say('fWatchState', WATCH_TEXT.offline));
+function showSeeBox() {
+  stopSharing();
+  $('fSeeBox').hidden = false;
 }
 
-function stopWatching() {
+/** The box's button: a tap, so the camera and sensors a link-opened screen skipped start here. */
+async function startWatching() {
+  const code = normalizeCode($<HTMLInputElement>('fSeeCode').value);
+  if (!code) return toast('Escribe los 6 dígitos');
+  stopWatching();
+  stopSharing();
+  const input = $<HTMLInputElement>('fSeeCode');
+  input.disabled = true;
+  $('fSeeBtn').hidden = true;
+  $('fSeeBox').hidden = false;
+  $('fSeeToggle').textContent = 'Dejar de ver';
+  const w = new Watcher(code, {
+    onPos: (s) => (friend = { s, seen: performance.now() }),
+    onState: (s) => {
+      if (watcher !== w) return;
+      if (s === 'inactive') stopWatching(WATCH_TEXT.inactive);
+      else say('fSeeState', WATCH_TEXT[s]);
+    },
+  });
+  watcher = w;
+  void enableCamera();
+  await w.start().catch(() => say('fSeeState', WATCH_TEXT.offline));
+}
+
+/** `note` keeps the box open with a message (the code was refused); without it the box closes. */
+function stopWatching(note?: string) {
   watcher?.stop();
   watcher = null;
   friend = null;
-  watchCode = '';
-  $('fWatchBox').hidden = true;
-  $('fSee').textContent = 'Ver a alguien';
+  $<HTMLInputElement>('fSeeCode').disabled = false;
+  $('fSeeBtn').hidden = false;
+  $('fSeeBox').hidden = !note;
+  say('fSeeState', note ?? '');
+  $('fSeeToggle').textContent = 'Ver a alguien';
 }
 
-async function shareInvite() {
-  if (!watchCode) return;
-  const url = shareLink(location.origin, watchCode);
-  const text = `Comparte tu ubicación conmigo para encontrarte: ${url}`;
+// ---------- sharing my location ----------
+
+const SHARE_TEXT: Record<ShareState, string> = {
+  connecting: 'Conectando…',
+  waiting: 'Esperando a que escriban el código o abran el enlace…',
+  live: 'Te están viendo. Deja esta pantalla abierta.',
+  offline: 'Sin conexión con el servidor de enlace. Revisa tu internet.',
+  expired: 'El código venció. Toca Compartir ubicación para crear otro.',
+};
+
+async function startSharing() {
+  stopSharing();
+  stopWatching();
+  shareCode = '';
+  $('fShareCodeText').textContent = '··· ···';
+  $<HTMLButtonElement>('fShareInvite').disabled = true;
+  $('fShareCard').hidden = false;
+  $('fShareToggle').textContent = 'Dejar de compartir';
+  const s = new Sharer({
+    onCode: (code) => {
+      if (sharer !== s) return;
+      shareCode = code;
+      $('fShareCodeText').textContent = formatCode(code);
+      $<HTMLButtonElement>('fShareInvite').disabled = false;
+    },
+    onState: (st) => {
+      if (sharer !== s) return;
+      if (st === 'expired') stopSharing(SHARE_TEXT.expired);
+      else say('fShareState', SHARE_TEXT[st]);
+    },
+    onError: (m) => sharer === s && say('fShareState', m),
+  });
+  sharer = s;
+  await s.start().catch(() => say('fShareState', SHARE_TEXT.offline));
+}
+
+/** `note` keeps the card open with a message and no code (the share ended by itself); without it the card closes. */
+function stopSharing(note?: string) {
+  sharer?.stop();
+  sharer = null;
+  shareCode = '';
+  $('fShareCard').hidden = !note;
+  $('fShareCodeText').textContent = '··· ···';
+  $<HTMLButtonElement>('fShareInvite').disabled = true;
+  say('fShareState', note ?? '');
+  $('fShareToggle').textContent = 'Compartir ubicación';
+}
+
+async function sendInvite() {
+  if (!shareCode) return;
+  const url = shareLink(location.origin, shareCode);
+  const text = `Mira dónde estoy en Vía AR: ${url}`;
   try {
     if (navigator.share) return await navigator.share({ text });
     await navigator.clipboard.writeText(text);
@@ -272,47 +355,14 @@ async function shareInvite() {
   }
 }
 
-// ---------- sharing my location ----------
-
-const SHARE_TEXT: Record<ShareState, string> = {
-  connecting: 'Conectando…',
-  on: 'Compartiendo tu ubicación. Deja esta pantalla abierta.',
-  lost: 'Reconectando…',
-};
-
-async function startSharing() {
-  const code = normalizeCode($<HTMLInputElement>('fShareCode').value);
-  if (!code) return toast('Escribe los 6 dígitos');
-  stopSharing();
-  const btn = $<HTMLButtonElement>('fShareBtn');
-  btn.textContent = 'Dejar de compartir';
-  btn.dataset.on = '1';
-  sharer = new Sharer(code, {
-    onState: (s) => say('fShareState', SHARE_TEXT[s]),
-    onError: (m) => say('fShareState', m),
-  });
-  await sharer.start();
-}
-
-function stopSharing() {
-  sharer?.stop();
-  sharer = null;
-  const btn = $<HTMLButtonElement>('fShareBtn');
-  btn.textContent = 'Compartir mi ubicación';
-  delete btn.dataset.on;
-  say('fShareState', '');
-}
-
 export function initFind() {
   $('findOpen').onclick = () => void openFind({ camera: true });
   $('fClose').onclick = closeFind;
-  $('fSee').onclick = () => (watcher ? stopWatching() : void startWatching());
-  $('fInvite').onclick = () => void shareInvite();
-  $('fShareOpen').onclick = () => ($('fShareBox').hidden = !$('fShareBox').hidden);
-  $('fShareBtn').onclick = () => (sharer ? stopSharing() : void startSharing());
-  // Opened from a link someone sent: go straight to sharing, without the camera.
+  $('fShareToggle').onclick = () => (sharer ? stopSharing() : void startSharing());
+  $('fSeeToggle').onclick = () => (watcher ? stopWatching() : $('fSeeBox').hidden ? showSeeBox() : stopWatching());
+  $('fSeeBtn').onclick = () => void startWatching();
+  $('fShareInvite').onclick = () => void sendInvite();
+  // Opened from a link the sharer sent: show the code box filled in, and wait for a tap to start the camera.
   const code = codeFromSearch(location.search);
-  if (code) {
-    void openFind({ camera: false, shareCode: code });
-  }
+  if (code) void openFind({ camera: false, seeCode: code });
 }

@@ -23,7 +23,7 @@ import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransfo
 import { RouteProfile, gridPoint, limitAt, speedLimits, tileElevation, tileOf, tileToLatLon, tileXY, type Tile, type TileSign, type TileWay } from '../src/core/maqueta.ts';
 import { indexSigns, signsAhead } from '../src/signs/ahead.ts';
 import { aim, lensOnScreen, onEdge } from '../src/find/aim.ts';
-import { ageLabel, codeFromSearch, findPeerId, parsePos, shareLink } from '../src/find/protocol.ts';
+import { CODE_TTL_MS, LOST_MS, ViewerSlot, ageLabel, codeFromSearch, findPeerId, parsePos, shareLink } from '../src/find/protocol.ts';
 import { MAX_PINS, addPin, adoptUnowned, loadPins, onPinChange, removePin, renamePin, setPinOwner, type Pin } from '../src/find/pins.ts';
 import { OUTBOX_KEY, createPinsSync, mergePins, type PinsSync } from '../src/find/pinsSync.ts';
 
@@ -631,6 +631,49 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   check('share link: ignores a malformed code', codeFromSearch('?comparte=12') === null && codeFromSearch('') === null);
   check('findPeerId differs from the HUD ids', findPeerId('123456') === 'viaar-find-123456' && findPeerId('123456') !== hudPeerId('123456'));
   check('ageLabel', ageLabel(12_000) === 'hace 12 s' && ageLabel(180_000) === 'hace 3 min');
+}
+
+// ---- find: one viewer, and the code expiring ----
+{
+  let t = 0;
+  const slot = new ViewerSlot(() => t);
+  check('slot: the first viewer takes the seat', slot.admit() === true);
+  t += LOST_MS - 1;
+  check('slot: a second one is refused while the first is alive', slot.admit() === false);
+  slot.heard();
+  t += LOST_MS - 1;
+  check('slot: hearing the viewer keeps the seat taken', slot.admit() === false && slot.alive());
+  t += 2;
+  check('slot: a silent viewer loses the seat to the next one', !slot.alive() && slot.admit() === true);
+  slot.release();
+  check('slot: released seat is free', slot.admit() === true);
+
+  t = 0;
+  const idle = new ViewerSlot(() => t);
+  t = CODE_TTL_MS - 1;
+  check('slot: not expired just before the TTL', !idle.expired());
+  t = CODE_TTL_MS;
+  check('slot: expires when nobody connects within the TTL', idle.expired());
+
+  t = 0;
+  const used = new ViewerSlot(() => t);
+  used.admit();
+  t = CODE_TTL_MS * 3;
+  used.heard();
+  check('slot: never expires while a viewer is alive', !used.expired());
+  used.release();
+  t += CODE_TTL_MS - 1;
+  check('slot: the TTL restarts when the viewer leaves', !used.expired());
+  t += 1;
+  check('slot: and expires after an empty TTL', used.expired());
+
+  t = 0;
+  const silent = new ViewerSlot(() => t);
+  silent.admit();
+  t = LOST_MS + CODE_TTL_MS - 1;
+  check('slot: a silent viewer counts as gone from its last ping', !silent.expired());
+  t += 1;
+  check('slot: expiry follows from the last ping plus the TTL', silent.expired());
 }
 
 // ---- find: saved places ----
