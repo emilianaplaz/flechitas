@@ -12,6 +12,7 @@
   --link: #7db2ff;
   --sel: #10346b;
   --route: #4b86f5;
+  --origin: #22e07a; /* where a drive starts, on the map and in the search card; the destination is --pri */
   --haz: #ffe14d;
   --bump: #ff6fb5;
   --mbg: #031017;
@@ -45,6 +46,7 @@
     --link: #1457c7;
     --sel: #dce8fb;
     --route: #1a56c4;
+    --origin: #14a356;
     --haz: #a87c00;
     --bump: #c71f6e;
     --mbg: #e6eef3;
@@ -184,10 +186,9 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .searchRows { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .sRow { display: flex; gap: 10px; align-items: center; }
 .sRow svg { flex: none; }
-.icoOrigin { fill: none; stroke: var(--route); }
+.icoOrigin { fill: none; stroke: var(--origin); }
 .icoDest { fill: var(--pri); stroke: none; }
 .icoDestDot { fill: var(--onpri); stroke: none; }
-#from:disabled { opacity: 1; border-style: dashed; }
 
 .modeRow {
   position: absolute;
@@ -243,6 +244,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 
 /* map markers and attribution */
 .mapHere { width: 20px; height: 20px; border-radius: 50%; background: var(--route); border: 4px solid #fff; box-shadow: 0 0 0 6px rgba(75, 134, 245, 0.25); }
+.mapFrom { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 6px solid var(--origin); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45); cursor: grab; }
 .mapDest { width: 30px; height: 40px; background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 40'%3E%3Cpath d='M15 1C7.3 1 1 7.2 1 14.9 1 25.4 15 39 15 39s14-13.6 14-24.1C29 7.2 22.7 1 15 1z' fill='%232563EB' stroke='%23fff' stroke-width='2'/%3E%3Ccircle cx='15' cy='15' r='5' fill='%23fff'/%3E%3C/svg%3E"); }
 .map .maplibregl-ctrl-top-right { top: calc(max(16px, env(safe-area-inset-top)) + 248px); }
 .map .maplibregl-ctrl-attrib { background: var(--surf); color: var(--muted); }
@@ -269,6 +271,9 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .mqLabels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .mqHead { position: absolute; top: max(16px, env(safe-area-inset-top)); left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; }
 .mqHead .phText { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.mqNorth { transform-origin: 12px 12px; transform-box: view-box; }
+.needleN { fill: var(--warn); }
+.needleS { fill: var(--muted); }
 .mqTitleTop { font-size: 18px; font-weight: 800; line-height: 1.1; }
 .mqHead .muted { font-size: 13px; }
 .mqCard { position: absolute; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom) + 14px); padding: 16px; border-radius: 28px; display: flex; flex-direction: column; gap: 12px; }

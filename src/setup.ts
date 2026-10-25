@@ -3,7 +3,7 @@ import { extractUrl, resolveDestination } from './core/links.ts';
 import type { LatLon } from './core/geo.ts';
 import type { Arrival } from './remote/protocol.ts';
 import { app, type Display, type Mode } from './core/state.ts';
-import { $, setText, setupMsg } from './core/ui.ts';
+import { $, setText, setupMsg, toast } from './core/ui.ts';
 import { syncCalibProfile } from './render/calibDock.ts';
 
 const DEST_HINT = 'Escribe una dirección, pega un enlace o toca el mapa';
@@ -12,10 +12,26 @@ function syncMode() {
   app.mode = (document.querySelector<HTMLInputElement>('input[name=mode]:checked')?.value ?? 'gps') as Mode;
   // Real drives start from the GPS; a simulation can start anywhere.
   const from = $<HTMLInputElement>('from');
-  from.disabled = app.mode !== 'sim';
   from.placeholder = app.mode === 'sim' ? 'Desde (vacío = mi ubicación)' : 'Mi ubicación actual';
-  if (app.mode !== 'sim') from.value = '';
+  if (app.mode !== 'sim' && from.value) {
+    from.value = '';
+    from.dispatchEvent(new Event('change')); // the map preview goes back to starting here
+  }
   $('replayFields').hidden = app.mode !== 'replay';
+}
+
+/** Starting somewhere else means a simulation: a real drive can only start where the phone is. */
+export function useSimulation() {
+  if (app.mode === 'sim') return;
+  const sim = document.querySelector<HTMLInputElement>('input[name=mode][value=sim]');
+  if (!sim) return;
+  sim.checked = true;
+  sim.dispatchEvent(new Event('change'));
+  toast('Modo Simulación: el viaje empieza en el origen que elegiste', 4000);
+}
+
+function originTyped() {
+  if ($<HTMLInputElement>('from').value.trim()) useSimulation();
 }
 
 function syncDisplay() {
@@ -118,6 +134,8 @@ export function initSetupScreen() {
     syncDisplay();
   });
 
+  // Before the map's own listener (initDestino), so the preview already starts from the typed origin.
+  $('from').addEventListener('change', originTyped);
   $('dest').addEventListener('change', () => resolveDestInput().catch((e) => setupMsg((e as Error).message)));
   $('paste').onclick = async () => {
     try {

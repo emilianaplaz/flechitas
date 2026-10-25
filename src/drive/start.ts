@@ -67,7 +67,8 @@ export async function startSource(setRoute: (r: Route) => void) {
   } else if (mode === 'sim') {
     if (!dest) throw new Error('Elige un destino primero');
     const fromRaw = $<HTMLInputElement>('from').value.trim();
-    const from = fromRaw ? (await resolveDestination(fromRaw)).point : await currentPosition();
+    // The point picked on the map or already found for the typed text; else look the text up, else here.
+    const from = app.from ?? (fromRaw ? (await resolveDestination(fromRaw)).point : await currentPosition());
     setRoute(await fetchRoute(from, dest.point));
     if (display !== 'hud') await startCamera(false);
     app.source = new RouteSim(app.route!.poly);

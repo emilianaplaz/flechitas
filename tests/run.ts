@@ -491,5 +491,40 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   check('buildings: buildingsIn by bbox, each once, old tiles ok', found === 'osm:w1,ms:a', found);
 }
 
+// ---- elevation across tile edges: neighbours that disagree are blended, no step ----
+{
+  const { elevationIn } = await import('../src/core/maqueta.ts');
+  const flat = (x: number, h: number): Tile => ({ v: 1, tile: [16, x, 30843], built: '', sources: [], elev: { rows: 3, cols: 3, z: Array(9).fill(h) }, signs: [], ways: [] });
+  const elev = elevationIn([flat(20597, 0), flat(20598, 10)]);
+  const at = (x: number) => elev(tileToLatLon(x, 30843.5))!;
+  check('seam: each tile keeps its height away from the edge', near(at(20597.2), 0, 1e-6) && near(at(20598.8), 10, 1e-6));
+  check('seam: halfway on the shared edge', near(at(20598), 5, 1e-6), String(at(20598)));
+  let jump = 0;
+  for (let x = 20597.5; x < 20598.5; x += 0.001) jump = Math.max(jump, Math.abs(at(x + 0.001) - at(x)));
+  check('seam: continuous across the edge', jump < 0.05, String(jump));
+  check('seam: nothing far from every tile', elev(tileToLatLon(20600, 30843.5)) === null);
+}
+
+// ---- scenery: the maqueta as the 3D street in Simulación ----
+{
+  const { readFileSync } = await import('node:fs');
+  const { Scenery } = await import('../src/render/scenery.ts');
+  const tiles = ['20597/30843', '20598/30843'].map((k) => JSON.parse(readFileSync(`public/maqueta/16/${k}.json`, 'utf8')) as Tile);
+  const sc = new Scenery();
+  check('scenery: builds from real tiles', sc.set(tiles) && sc.set(tiles));
+  const at = { lat: 10.5108, lon: -66.8519 }; // San Juan Bosco, inside 20597/30843
+  check('scenery: covers its tiles only', sc.covers(at) && !sc.covers(caracas));
+  const meshes: { geometry: { getAttribute(n: string): { count: number } } }[] = [];
+  sc.scene.traverse((o) => 'geometry' in o && meshes.push(o as never));
+  check('scenery: terrain, streets, lines and buildings', meshes.length === 4 && meshes.every((m) => m.geometry.getAttribute('position').count > 0), String(meshes.length));
+  // Placed under the car, the ground there is at height 0 (terrain's own height when no profile).
+  sc.place(at, null);
+  const { Raycaster, Vector3 } = await import('three');
+  sc.scene.updateMatrixWorld();
+  const hit = new Raycaster(new Vector3(0, 200, 0), new Vector3(0, -1, 0)).intersectObject(sc.scene.children.at(-1)!, true).at(-1);
+  check('scenery: ground under the car at 0', !!hit && near(hit.point.y, 0, 0.3), String(hit?.point.y));
+  check('scenery: no tiles, nothing to draw', !sc.set(null) && !sc.covers(at));
+}
+
 console.log(failed ? `\n${failed} failed` : '\nall passed');
 process.exit(failed ? 1 : 0);

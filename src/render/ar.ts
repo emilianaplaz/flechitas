@@ -3,7 +3,7 @@
 // beam, markers on reported hazards and the maqueta's road signs. With a maqueta elevation profile
 // everything follows the road's slope; without one the road is flat.
 import * as THREE from 'three';
-import { bearingAt, pointAt, toDeg, toLocal, toRad, type LatLon, type Polyline } from '../core/geo.ts';
+import { angleDiff, bearingAt, pointAt, toDeg, toLocal, toRad, type LatLon, type Polyline } from '../core/geo.ts';
 import type { Calib } from './calib.ts';
 import type { Display } from '../core/state.ts';
 import type { Step, TurnKind } from '../core/route.ts';
@@ -11,6 +11,8 @@ import { HAZARD_LABEL, type HazardType } from '../hazards/store.ts';
 import type { HazardView } from '../hazards/ahead.ts';
 import type { SignView } from '../signs/ahead.ts';
 import { SignMarkers } from './signMarkers.ts';
+import { Scenery } from './scenery.ts';
+import type { Tile } from '../core/maqueta.ts';
 import { mirrorCamera, virtualImage, type Optics } from './optics.ts';
 
 const GUIDE = 0x00e676;
@@ -26,6 +28,11 @@ const MAX_CHEVRONS = Math.ceil(RIBBON_LEN / CHEVRON_EVERY);
 // Chevrons lie almost flat close by and lean back further away, where a flat shape would vanish at the grazing angle.
 const CHEVRON_TILT_NEAR = toRad(8);
 const CHEVRON_TILT_FAR = toRad(40);
+// Where the road turns away from the driver's view, a flat chevron is seen edge-on and seems to point
+// somewhere else. Between these angles off the view it stands up, facing the driver, tip toward the turn.
+const CHEVRON_SIDE_FROM = 20;
+const CHEVRON_SIDE_FULL = 65;
+const CHEVRON_STAND = toRad(78);
 const TURN_SHOW = 300; // m before a turn where its arrow appears
 const ARRIVE_SHOW = 500;
 const GATE_SHOW = 200; // m before a turn where the roadside chevron signs appear
@@ -57,6 +64,8 @@ export interface FrameInput {
   signs?: SignView[];
   /** Exact arrival point picked in the maqueta (an entrance) and its building: pin there, outline lit. */
   arrival?: { p: LatLon; outline?: [number, number][]; height?: number } | null;
+  /** Maqueta tiles to draw as the 3D street behind the overlay where the car is inside them (Simulación). Not in the HUD. */
+  scenery?: Tile[] | null;
 }
 
 const OUTLINE_SHOW = 300; // m of route left when the destination building lights up
@@ -320,6 +329,7 @@ export class ArScene {
   private outlineAnchor: LatLon | null = null;
 
   private signMarkers = new SignMarkers();
+  private scenery = new Scenery();
   // Road height along the route for this frame, relative to the ground under the car.
   private elevAlong: ((d: number) => number) | null = null;
   private elevBase = 0;
@@ -360,19 +370,18 @@ export class ArScene {
     this.ribbon.frustumCulled = false;
     this.world.add(this.ribbon);
 
-    // Chevrons floating just above the road, tip toward -z (forward), each with a shadow.
-    // Both pivot on the chevron's tail so tilting raises the tip.
-    const chevGeo = solid(chevronShape(), 0.06, 0.03).rotateX(-Math.PI / 2).translate(0, 0, -0.75);
-    const shadowGeo = new THREE.ShapeGeometry(chevronShape()).rotateX(-Math.PI / 2).translate(0, 0, -0.75);
+    // Chevrons floating just above the road, tip toward -z (forward), each with a shadow. Centred, so
+    // they turn and stand up in place (see updateRibbon).
+    const chevGeo = solid(chevronShape(), 0.06, 0.03).rotateX(-Math.PI / 2).translate(0, 0, 0.125);
+    const shadowGeo = new THREE.ShapeGeometry(chevronShape()).rotateX(-Math.PI / 2).translate(0, 0, 0.125);
     for (let i = 0; i < MAX_CHEVRONS; i++) {
       const mat = lit(0xffffff, 0.35, { transparent: true, depthWrite: false });
       mat.emissive.set(0x9fffc8);
       const sideMat = lit(GUIDE, 0.4, { transparent: true, depthWrite: false });
       const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, depthWrite: false, side: THREE.DoubleSide });
       const shadow = new THREE.Mesh(shadowGeo, shadowMat);
-      shadow.position.set(0, 0.03, 0.6);
+      shadow.position.y = 0.03;
       const body = new THREE.Mesh(chevGeo, [mat, sideMat]);
-      body.position.set(0, 0.12, 0.6);
       const group = new THREE.Group();
       group.add(shadow, body);
       group.visible = false;
@@ -522,6 +531,17 @@ export class ArScene {
     this.updateHazards(f, now);
     this.signMarkers.update(f.poly ? (f.signs ?? []) : [], f.origin, f.along, this.heightAt);
     this.updateOutline(f);
+    // Opaque where the car is inside the maqueta: it covers the camera picture. Elsewhere, as before.
+    const scenery = this.scenery.set(f.scenery ?? null) && !this.optics && f.display !== 'hud' && !!f.poly && this.scenery.covers(f.origin);
+    if (scenery) {
+      // The overlay always draws over the street, as it does over the camera picture.
+      this.scenery.place(f.origin, this.elevAlong ? this.elevBase : null);
+      this.scene.updateMatrixWorld(); // the camera lives in the overlay scene; this pass needs its pose already
+      this.renderer.autoClear = true; // clears to the scenery's sky
+      this.renderer.render(this.scenery.scene, this.camera);
+      this.renderer.clearDepth();
+    }
+    this.renderer.autoClear = !scenery;
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -612,17 +632,24 @@ export class ArScene {
           const ch = this.chevrons[chevI++];
           ch.group.visible = true;
           ch.group.position.set(c.x, y - 0.02, c.z);
-          ch.group.rotation.y = -b;
-          const tilt = THREE.MathUtils.lerp(CHEVRON_TILT_NEAR, CHEVRON_TILT_FAR, clamp01((ahead - 10) / 50));
-          ch.body.rotation.x = tilt;
-          ch.shadow.scale.z = Math.cos(tilt);
+          // Turned to the view; the chevron then points `off` degrees off it, on the road.
+          ch.group.rotation.y = -toRad(f.yaw);
+          const off = angleDiff(f.yaw, toDeg(b));
+          const side = THREE.MathUtils.smoothstep(Math.abs(off), CHEVRON_SIDE_FROM, CHEVRON_SIDE_FULL);
+          // Leans back toward the driver (about the view's horizontal axis) so it doesn't vanish at the
+          // grazing angle; sideways it stands up and its tip points left or right on the screen.
+          const lean = THREE.MathUtils.lerp(CHEVRON_TILT_NEAR, CHEVRON_TILT_FAR, clamp01((ahead - 10) / 50));
+          const tilt = THREE.MathUtils.lerp(lean, CHEVRON_STAND, side);
+          ch.body.rotation.set(tilt, -toRad(off), 0); // Euler XYZ: turned on the road first, then tilted
+          ch.body.position.y = 0.12 + 0.65 * Math.sin(tilt); // its lower edge stays off the road
+          ch.shadow.rotation.y = -toRad(off);
           // Soft as they come into view, so the nearest ones never cover the road.
           const fade = isHud
             ? Math.max(0, 1.0 - ahead / activeLen)
             : clamp01((ahead - 6) / 18) * Math.max(0, 0.95 - ahead / RIBBON_LEN);
           ch.mat.opacity = fade;
           ch.sideMat.opacity = fade;
-          ch.shadowMat.opacity = 0.3 * fade;
+          ch.shadowMat.opacity = 0.3 * fade * (1 - side);
           // A glow that runs forward along the road, faster than the car, to show the way to go.
           const wave = Math.max(0, Math.sin(2 * Math.PI * (d / 48 - now * 0.9))) ** 3;
           ch.mat.emissiveIntensity = 0.35 + 0.65 * wave;
