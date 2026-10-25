@@ -1,27 +1,120 @@
 {
-  "v": 1,
-  "zoom": 16,
-  "tiles": [
-    "20597/30843",
-    "20597/30844",
-    "20598/30843",
-    "20598/30844"
-  ],
-  "zones": [
-    {
-      "name": "san-juan-bosco",
-      "bbox": [
-        10.509,
-        -66.854,
-        10.5128,
-        -66.8498
-      ],
-      "tiles": [
-        "20597/30843",
-        "20597/30844",
-        "20598/30843",
-        "20598/30844"
-      ]
-    }
-  ]
+ "v": 1,
+ "z": 16,
+ "tiles": [
+  {
+   "tile": [
+    16,
+    20597,
+    30843
+   ],
+   "zone": "altamira-norte",
+   "signs": 7,
+   "ways": 38,
+   "buildings": 234
+  },
+  {
+   "tile": [
+    16,
+    20598,
+    30843
+   ],
+   "zone": "altamira-norte",
+   "signs": 13,
+   "ways": 28,
+   "buildings": 160
+  },
+  {
+   "tile": [
+    16,
+    20597,
+    30844
+   ],
+   "zone": "altamira-norte",
+   "signs": 24,
+   "ways": 38,
+   "buildings": 320
+  },
+  {
+   "tile": [
+    16,
+    20598,
+    30844
+   ],
+   "zone": "altamira-norte",
+   "signs": 69,
+   "ways": 88,
+   "buildings": 299
+  },
+  {
+   "tile": [
+    16,
+    20597,
+    30845
+   ],
+   "zone": "altamira-sur",
+   "signs": 72,
+   "ways": 85,
+   "buildings": 206
+  },
+  {
+   "tile": [
+    16,
+    20598,
+    30845
+   ],
+   "zone": "altamira-sur",
+   "signs": 54,
+   "ways": 109,
+   "buildings": 245
+  },
+  {
+   "tile": [
+    16,
+    20597,
+    30846
+   ],
+   "zone": "altamira-sur",
+   "signs": 96,
+   "ways": 98,
+   "buildings": 185
+  },
+  {
+   "tile": [
+    16,
+    20598,
+    30846
+   ],
+   "zone": "altamira-sur",
+   "signs": 73,
+   "ways": 148,
+   "buildings": 160
+  }
+ ],
+ "zones": [
+  {
+   "name": "altamira-norte",
+   "label": "Altamira norte (incluye el tramo de prueba de San Juan Bosco)",
+   "bbox": [
+    10.504016,
+    -66.8573,
+    10.514818,
+    -66.846313
+   ],
+   "built": "2026-10-25T04:43:08Z",
+   "tiles": 4
+  },
+  {
+   "name": "altamira-sur",
+   "label": "Altamira sur, La Castellana y Chacao hasta la Francisco de Miranda",
+   "bbox": [
+    10.493213,
+    -66.8573,
+    10.504016,
+    -66.846313
+   ],
+   "built": "2026-10-25T04:43:08Z",
+   "tiles": 4
+  }
+ ]
 }
