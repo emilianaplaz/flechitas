@@ -5,7 +5,7 @@
 Toda la interfaz está en [index.html](../index.html) (secciones fijas, mostradas y ocultadas con
 `hidden`) y [src/style.css](../src/style.css). Tema oscuro grafito con azul `--pri: #3e6ae1` y fuente
 Manrope. Hoy **solo hay tema oscuro**: `theme()` en `ui/destino.ts` y `ui/maqueta.ts` devuelve siempre
-`'dark'`, aunque las paletas claras siguen en el código. Arriba a la izquierda hay una insignia `v2`.
+`'dark'`, aunque las paletas claras siguen en el código. Arriba a la derecha hay una insignia fija `v2`.
 
 ## 1. Mapa de pantallas
 

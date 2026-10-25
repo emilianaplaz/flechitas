@@ -187,4 +187,5 @@ Ver [interfaz.md](interfaz.md).
 | [supabase/schema.sql](../supabase/schema.sql) | Esquema completo, idempotente. |
 | [public/](../public/) | `manifest.webmanifest`, `sw.js`, íconos, `maqueta/`. |
 | [pipeline3d/](../pipeline3d/README.md), [PRUEBA RENDER/](../PRUEBA%20RENDER/README.md) | Experimento video → calle 3D (COLMAP + OpenMVS) y su visor. No está conectado a la app. |
+| [experiments/fachadas/](../experiments/fachadas/README.md) | Experimento de fachadas reales (Vite aparte, `npm run fachadas`). Fuera del build de la app. |
 | [tests/run.ts](../tests/run.ts) | Tests de lógica. |

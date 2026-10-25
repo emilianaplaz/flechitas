@@ -234,3 +234,8 @@ destino, los peligros y las señales, y suma la pendiente bajo el carro a la inc
 - Carriles: ancho de la cinta y `lateral` por tramo según `lanes`/`turn:lanes` (fase 3).
 - Más zonas: los bordes de Chacao que faltan (MAQUETA.md), después el resto de Caracas.
 - En la Cota Mil el modelo de 90 m mezcla el cerro con la vía (rejilla con 60–70 % de pendiente).
+- **Aspecto de los edificios**: el experimento de fachadas
+  ([experiments/fachadas/RESULTADOS.md](../experiments/fachadas/RESULTADOS.md)) recomienda fachadas
+  procedurales en la pantalla Maqueta, alturas de Open Buildings 2.5D o 3D-GloBFP en el script (campos
+  opcionales `use` y `heightSource`), y más adelante techos satelitales de OpenAerialMap (CC BY-NC) si el
+  equipo acepta la licencia no comercial. Ninguno está hecho.

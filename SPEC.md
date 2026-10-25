@@ -201,7 +201,7 @@ TURN públicos que PeerJS trae por defecto. Mismo Wi-Fi o hotspot del iPhone.
 | M10 | Calle 3D en Simulación | ✅ |
 | M11 | Zonas: `san-juan-bosco` y `altamira-sur` | ✅ · Chacao completo ⏳ en curso |
 | M12 | Nombres, alturas y entradas medidos | ⏳ |
-| M13 | Visuales reales de fachadas | ⏳ experimento en curso |
+| M13 | Aspecto real de los edificios | ⏳ experimento hecho ([experiments/fachadas/RESULTADOS.md](experiments/fachadas/RESULTADOS.md)): recomienda fachadas procedurales y alturas de datos abiertos; techos satelitales sujetos a la licencia no comercial |
 
 ## 10. Peligros (ver [docs/peligros.md](docs/peligros.md))
 
@@ -329,6 +329,8 @@ Abierto:
 5. Lente: ¿tabla por modelo, medición única, o ambas?
 6. Nombre del producto: *MapZ* (interfaz) o *Vía AR* (manifest, textos).
 7. ¿Tema claro? ¿Alcabalas como tipo de peligro reportable?
+8. ¿La app seguirá siendo no comercial? De eso depende usar los techos satelitales de OpenAerialMap
+   (CC BY-NC 4.0) en la maqueta ([experiments/fachadas/RESULTADOS.md](experiments/fachadas/RESULTADOS.md)).
 
 ## 19. Supuestos
 
