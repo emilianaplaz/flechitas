@@ -3,8 +3,8 @@
 // destination and a preview of the route. Tapping the map picks the destination.
 // MapLibre (~800 KB) is loaded only when this screen first opens.
 import type { FilterSpecification, GeoJSONSource, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
-import type { LatLon } from '../core/geo.ts';
-import type { MaquetaIndex, Tile } from '../core/maqueta.ts';
+import { bearing, type LatLon } from '../core/geo.ts';
+import type { MaquetaIndex, Tile, TileWay } from '../core/maqueta.ts';
 import { resolveDestination } from '../core/links.ts';
 import { fetchRoute, formatDistance, type Route } from '../core/route.ts';
 import { app } from '../core/state.ts';
@@ -86,7 +86,12 @@ function style(t: Theme): StyleSpecification {
       { id: 'route-case', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': c.bg, 'line-width': 10 } },
       { id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': c.route, 'line-width': 6 } },
       { id: 'holes', type: 'circle', source: 'holes', layout: { visibility: visible.holes ? 'visible' : 'none' }, paint: { 'circle-color': c.haz, 'circle-radius': 6, 'circle-stroke-color': c.bg, 'circle-stroke-width': 2 } },
-      { id: 'bumps', type: 'circle', source: 'bumps', layout: { visibility: visible.bumps ? 'visible' : 'none' }, paint: { 'circle-color': c.bump, 'circle-radius': 5, 'circle-stroke-color': c.bg, 'circle-stroke-width': 2 } },
+      {
+        id: 'bumps',
+        type: 'symbol',
+        source: 'bumps',
+        layout: { visibility: visible.bumps ? 'visible' : 'none', 'icon-image': 'bump-bar', 'icon-rotate': ['coalesce', ['get', 'rot'], 0], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.35, 16, 1] },
+      },
       {
         id: 'road-names',
         type: 'symbol',
@@ -142,7 +147,8 @@ async function loadZones() {
   for (const key of new Set(zones.flatMap((z) => z.tiles))) {
     try {
       const t = (await (await fetch(`/maqueta/16/${key}.json`)).json()) as Tile;
-      for (const s of t.signs) if (s.type === 'bump' || s.type === 'hump' || s.type === 'table') bumps.push(point(s));
+      for (const s of t.signs) if (s.type === 'bump' || s.type === 'hump' || s.type === 'table') bumps.push(point(s, { rot: s.dir ?? roadBearing(s, t.ways) }));
+      knownWays.push(...t.ways);
     } catch {
       /* tile missing: skip */
     }
@@ -152,11 +158,33 @@ async function loadZones() {
   syncDest(); // a destination typed before the zones arrived
 }
 let bumpsFromMaqueta: GeoJSON.Feature[] = [];
+const knownWays: TileWay[] = [];
+
+/** Compass bearing of the road under `p` (its nearest way segment), 0 where no way is known. The bar icon lies east-west, so rotating it by this bearing lays it across the road. */
+function roadBearing(p: LatLon, ways: TileWay[]): number {
+  const kx = Math.cos((p.lat * Math.PI) / 180);
+  let best = 0;
+  let bestD = Infinity;
+  for (const w of ways) {
+    for (let i = 0; i + 1 < w.pts.length; i++) {
+      const [a, b] = [w.pts[i], w.pts[i + 1]];
+      const [ax, ay, bx, by] = [(a[1] - p.lon) * kx, a[0] - p.lat, (b[1] - p.lon) * kx, b[0] - p.lat];
+      const [dx, dy] = [bx - ax, by - ay];
+      const t = dx || dy ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy))) : 0;
+      const d = Math.hypot(ax + t * dx, ay + t * dy);
+      if (d < bestD) {
+        bestD = d;
+        best = bearing({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] });
+      }
+    }
+  }
+  return best;
+}
 
 function refreshHazards() {
   const all = allHazards();
   setData('holes', { type: 'FeatureCollection', features: all.filter((h) => h.type === 'hueco').map((h) => point(h)) });
-  setData('bumps', { type: 'FeatureCollection', features: [...bumpsFromMaqueta, ...all.filter((h) => h.type === 'policia' && h.source !== 'osm').map((h) => point(h))] });
+  setData('bumps', { type: 'FeatureCollection', features: [...bumpsFromMaqueta, ...all.filter((h) => h.type === 'policia' && h.source !== 'osm').map((h) => point(h, { rot: roadBearing(h, knownWays) }))] });
 }
 
 function watchHere() {
@@ -244,6 +272,23 @@ async function placeName(p: LatLon): Promise<string> {
   }
 }
 
+/** The speed-bump marker: a rounded bar, laid across the road when the sign knows its direction. */
+function bumpIcon(): ImageData {
+  const [w, h] = [56, 24];
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const g = cv.getContext('2d')!;
+  g.beginPath();
+  g.roundRect(3, 3, w - 6, h - 6, (h - 6) / 2);
+  g.fillStyle = PALETTE[theme()].bump;
+  g.fill();
+  g.lineWidth = 3;
+  g.strokeStyle = PALETTE[theme()].bg;
+  g.stroke();
+  return g.getImageData(0, 0, w, h);
+}
+
 function applyTheme() {
   map?.setStyle(style(theme()), { diff: false });
 }
@@ -275,6 +320,13 @@ export function showDestinoMap(): Promise<void> {
     map.addControl(new ml.AttributionControl({ compact: true }), 'top-right');
     if (import.meta.env.DEV) (window as unknown as { __map: MlMap }).__map = map; // for debugging in the browser
     map.touchZoomRotate.disableRotation();
+    // Data that arrived before the style finished loading had no source to go into yet.
+    map.once('load', () => {
+      for (const k of Object.keys(data) as (keyof typeof data)[]) (map!.getSource(k) as GeoJSONSource | undefined)?.setData(data[k]);
+    });
+    map.on('styleimagemissing', (e) => {
+      if (e.id === 'bump-bar' && !map!.hasImage(e.id)) map!.addImage(e.id, bumpIcon(), { pixelRatio: 2 });
+    });
     map.on('click', async (e) => {
       const p = { lat: e.lngLat.lat, lon: e.lngLat.lng };
       setDestination({ point: p, label: 'Punto en el mapa' });

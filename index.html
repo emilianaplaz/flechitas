@@ -56,7 +56,7 @@
         </div>
         <div class="layerChips" role="group" aria-label="Capas del mapa">
           <button id="layerHoles" class="layerChip haz" type="button" aria-pressed="true"><span class="dot" aria-hidden="true"></span>Huecos</button>
-          <button id="layerBumps" class="layerChip bump" type="button" aria-pressed="true"><span class="bar" aria-hidden="true"></span>Reductores</button>
+          <button id="layerBumps" class="layerChip bump" type="button" aria-pressed="true"><span class="bar" aria-hidden="true"></span>Policías acostados</button>
         </div>
         <div class="destCard surface">
           <div class="dcText">
@@ -167,7 +167,7 @@
         <h2 class="secTitle">OPCIONES</h2>
         <label class="check">
           <input id="detectBumps" type="checkbox" checked />
-          <span><b>Detectar huecos y policías acostados</b><small>Con el acelerómetro. Te pregunta qué fue para confirmar.</small></span>
+          <span><b>Detectar huecos y policías acostados</b><small>Con el acelerómetro. Se guarda solo, sin preguntarte; ignora los baches leves.</small></span>
         </label>
         <input id="useSensors" type="checkbox" hidden />
 
@@ -279,15 +279,6 @@
         <div id="arrived" hidden>Llegaste</div>
       </div>
 
-      <div id="detect" class="card" hidden>
-        <div id="detectTitle">¿Qué fue eso?</div>
-        <div class="row">
-          <button data-detect="hueco">Hueco</button>
-          <button data-detect="policia">Policía acostado</button>
-          <button data-detect="none" class="ghost">Nada</button>
-        </div>
-      </div>
-
       <div id="rightBtns">
         <button id="mirrorX" class="round hudOnly" title="Reflejo horizontal (espejo)" aria-label="Reflejo horizontal" hidden>⇄</button>
         <button id="flipY" class="round hudOnly" title="Volteo vertical" aria-label="Volteo vertical" hidden>⇅</button>
@@ -369,7 +360,6 @@
           <summary>Más</summary>
           <div class="moreBtns">
             <button id="undoReport" class="ghost">Deshacer reporte</button>
-            <button id="exportHazards" class="ghost">Exportar reportes</button>
           </div>
         </details>
         <button id="calibClose" class="primary">Listo</button>
