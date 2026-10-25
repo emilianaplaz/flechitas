@@ -15,7 +15,7 @@ import { onDest, setDestination, useSimulation } from '../setup.ts';
 
 type Theme = 'dark' | 'light';
 const PALETTE = {
-  dark: { bg: '#031017', minor: '#0E2D3C', road: '#12384A', major: '#1A4A5E', water: '#071F2B', park: '#0B2F33', bldg: '#082636', label: '#7FA3B3', pri: '#2563EB', route: '#4B86F5', haz: '#FFE14D', bump: '#FF6FB5' },
+  dark: { bg: '#0A0A0B', minor: '#17181A', road: '#222428', major: '#2C2F34', water: '#0B1118', park: '#0F1613', bldg: '#121315', label: '#8A8E96', pri: '#3E6AE1', route: '#4B86F5', haz: '#FFE14D', bump: '#FF6FB5' },
   light: { bg: '#E6EEF3', minor: '#DAE5EC', road: '#FFFFFF', major: '#FFFFFF', water: '#BFD9EA', park: '#CFE6D6', bldg: '#D3DFE7', label: '#5E7A8E', pri: '#1A56C4', route: '#1A56C4', haz: '#A87C00', bump: '#C71F6E' },
 };
 
@@ -41,7 +41,7 @@ const empty = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', fea
 const data = { zone: empty(), route: empty(), holes: empty(), bumps: empty() };
 const visible = { holes: true, bumps: true };
 
-const theme = (): Theme => (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+const theme = (): Theme => 'dark';
 const ZONE_LABEL: Record<string, string> = { 'san-juan-bosco': 'Av. San Juan Bosco' };
 export const zoneLabel = (z: Zone) => ZONE_LABEL[z.name] ?? z.name;
 
