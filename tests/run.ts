@@ -19,6 +19,7 @@ import { defaultsFor, loadCalib, loadFlip, saveCalib, saveFlip } from '../src/re
 import { DEFAULT_LENS_HFOV, TiltWindow, steadyMean, visibleVfov } from '../src/render/autocalib.ts';
 import { decodeRoute, encodeRoute, formatCode, hudPeerId, newHudCode, normalizeCode } from '../src/remote/protocol.ts';
 import { interfaceAngle, physicalAngle, uprightPlan } from '../src/remote/orient.ts';
+import { VideoRouteSource } from '../src/drive/sources.ts';
 import { Vector3, Vector4 } from 'three';
 import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransform, placementAdvice, reflectMatrix, virtualImage, worldToCss } from '../src/render/optics.ts';
 import { RouteProfile, gridPoint, limitAt, speedLimits, tileElevation, tileOf, tileToLatLon, tileXY, type Tile, type TileSign, type TileWay } from '../src/core/maqueta.ts';
@@ -1139,6 +1140,58 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
     check('sign-in adopts signed-out pins and uploads them', posts.length === 1 && (posts[0].body as { client_id: string }).client_id === 'pin-888' && loadPins()[0].owner === 'U');
     setPinOwner(null);
   }
+}
+
+{
+  const clk = { currentTime: 0, paused: false };
+  const vs = new VideoRouteSource(poly, clk);
+  vs.start();
+  const f0 = vs.current(0);
+  check('video route: starts at the route start, heading east', near(haversine(f0.p, caracas), 0, 0.5) && near(f0.heading ?? -1, 90, 1) && near(f0.speed ?? -1, 35 / 3.6, 0.01));
+  clk.currentTime = 10;
+  vs.current(1);
+  check('video route: advances speed * video dt', near(vs.along, (35 / 3.6) * 10, 0.01), String(vs.along));
+  clk.paused = true;
+  const fp = vs.current(2);
+  const before = vs.along;
+  vs.current(3);
+  check('video route: paused video holds the car and reports speed 0', vs.along === before && fp.speed === 0);
+  clk.paused = false;
+  clk.currentTime = 20;
+  vs.current(4);
+  check('video route: seek forward moves by the seek distance', near(vs.along - before, (35 / 3.6) * 10, 0.01));
+  clk.currentTime = 15;
+  vs.current(5);
+  check('video route: seek backward moves back', near(vs.along, (35 / 3.6) * 15, 0.01), String(vs.along));
+  clk.currentTime = 0;
+  vs.current(6);
+  clk.currentTime = -100;
+  vs.current(7);
+  check('video route: clamps at 0', vs.along === 0);
+  const c3 = { currentTime: 0, paused: false };
+  const v3 = new VideoRouteSource(poly, c3);
+  v3.start();
+  v3.current(0);
+  c3.currentTime = 5;
+  v3.current(1);
+  v3.speedKmh = 72;
+  const at5 = v3.along;
+  c3.currentTime = 10;
+  v3.current(2);
+  check('video route: speed change only affects later movement', near(at5, (35 / 3.6) * 5, 0.01) && near(v3.along - at5, 100, 0.01), String(v3.along));
+  clk.currentTime = 1000;
+  const fe = vs.current(10);
+  check('video route: clamps at the route end with speed 0 and the last heading north', vs.along === poly.length && fe.speed === 0 && near(fe.heading ?? -1, 0, 1));
+  const c2 = { currentTime: 0, paused: false };
+  const v2 = new VideoRouteSource(poly, c2);
+  v2.start();
+  v2.current(0);
+  v2.syncOffset = 2;
+  v2.current(1);
+  check('video route: syncOffset shifts the position', near(v2.along, (35 / 3.6) * 2, 0.01), String(v2.along));
+  c2.currentTime = 250 / (35 / 3.6);
+  const turn = v2.current(2);
+  check('video route: heading follows the route past the corner', near(turn.heading ?? -1, 0, 1), String(turn.heading));
 }
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');

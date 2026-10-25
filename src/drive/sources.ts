@@ -1,5 +1,5 @@
 // Where the car's position comes from: real GPS, a simulated drive along the route,
-// or a recorded track replayed in sync with a recorded dashcam video.
+// a recorded track replayed in sync with a recorded dashcam video, or a video alone driven along the route.
 import { bearing, bearingAt, haversine, pointAt, type Polyline } from '../core/geo.ts';
 import type { Fix, Source } from '../core/types.ts';
 
@@ -7,10 +7,12 @@ export class GpsSource implements Source {
   readonly name = 'gps' as const;
   private watchId: number | null = null;
   private last: Fix | null = null;
-  constructor(
-    private onFix: (f: Fix) => void = () => {},
-    private onError: (msg: string) => void = () => {},
-  ) {}
+  private onFix: (f: Fix) => void;
+  private onError: (msg: string) => void;
+  constructor(onFix: (f: Fix) => void = () => {}, onError: (msg: string) => void = () => {}) {
+    this.onFix = onFix;
+    this.onError = onError;
+  }
   start() {
     if (!('geolocation' in navigator)) {
       this.onError('Este navegador no tiene GPS');
@@ -69,7 +71,10 @@ export class RouteSim implements Source {
   speedKmh = 35;
   paused = false;
   private lastNow: number | null = null;
-  constructor(private poly: Polyline) {}
+  private poly: Polyline;
+  constructor(poly: Polyline) {
+    this.poly = poly;
+  }
   start() {
     this.lastNow = null;
   }
@@ -81,6 +86,51 @@ export class RouteSim implements Source {
     this.lastNow = now;
     const speed = this.paused || this.along >= this.poly.length ? 0 : this.speedKmh / 3.6;
     return { p: pointAt(this.poly, this.along).p, speed, heading: bearingAt(this.poly, this.along), accuracy: 3, t: now };
+  }
+}
+
+/** The part of an HTMLVideoElement a position source reads. */
+export interface VideoClock {
+  currentTime: number;
+  paused: boolean;
+}
+
+/**
+ * Replays a video with no GPS track: the car follows the planned route, advancing with the video
+ * clock. Integrating clock deltas (not time * speed) keeps pause, seeks and speed changes honest.
+ */
+export class VideoRouteSource implements Source {
+  readonly name = 'replay' as const;
+  along = 0;
+  speedKmh = 35;
+  private lastTime: number | null = null;
+  private poly: Polyline;
+  private video: VideoClock;
+  /** seconds added to video time (fix sync drift) */
+  syncOffset: number;
+  constructor(poly: Polyline, video: VideoClock, syncOffset = 0) {
+    this.poly = poly;
+    this.video = video;
+    this.syncOffset = syncOffset;
+  }
+  start() {
+    this.lastTime = null;
+  }
+  stop() {}
+  current(now: number): Fix {
+    const t = this.video.currentTime + this.syncOffset;
+    if (this.lastTime !== null) {
+      this.along = Math.min(this.poly.length, Math.max(0, this.along + (this.speedKmh / 3.6) * (t - this.lastTime)));
+    }
+    this.lastTime = t;
+    const moving = !this.video.paused && this.along < this.poly.length;
+    return {
+      p: pointAt(this.poly, this.along).p,
+      speed: moving ? this.speedKmh / 3.6 : 0,
+      heading: bearingAt(this.poly, this.along),
+      accuracy: 3,
+      t: now,
+    };
   }
 }
 
@@ -102,12 +152,15 @@ export interface Track {
 /** Replays a recorded GPS track, synced to video.currentTime. */
 export class TrackReplay implements Source {
   readonly name = 'replay' as const;
-  constructor(
-    private track: Track,
-    private video: HTMLVideoElement,
-    /** seconds to add to video time to get track time (fix sync drift) */
-    public syncOffset = 0,
-  ) {}
+  private track: Track;
+  private video: HTMLVideoElement;
+  /** seconds to add to video time to get track time (fix sync drift) */
+  syncOffset: number;
+  constructor(track: Track, video: HTMLVideoElement, syncOffset = 0) {
+    this.track = track;
+    this.video = video;
+    this.syncOffset = syncOffset;
+  }
   start() {}
   stop() {}
   current(now: number): Fix | null {
