@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Fachadas · experimento</title>
+    <link rel="stylesheet" href="/src/estilo.css" />
+  </head>
+  <body>
+    <div id="vista"></div>
+
+    <header id="cabeza">
+      <div class="marca">
+        <b>Fachadas</b>
+        <span>experimento · San Juan Bosco</span>
+      </div>
+      <nav id="modos" role="tablist" aria-label="Enfoque">
+        <button role="tab" data-modo="hoy">Hoy</button>
+        <button role="tab" data-modo="procedural">Procedural</button>
+        <button role="tab" data-modo="aerea">Techos aéreos</button>
+        <button role="tab" data-modo="fotos">Video propio</button>
+        <button role="tab" data-modo="mapillary">Mapillary</button>
+        <button role="tab" data-modo="google">Google 3D</button>
+      </nav>
+    </header>
+
+    <aside id="panel" aria-live="polite">
+      <h2 id="pTitulo"></h2>
+      <p id="pResumen"></p>
+      <div id="pControles"></div>
+      <dl id="pMedidas"></dl>
+      <div id="pSel"></div>
+    </aside>
+
+    <footer id="pie">
+      <div class="grupo" role="group" aria-label="Cámara">
+        <button data-vista="iso">Isométrica</button>
+        <button data-vista="pajaro">Pájaro</button>
+        <button data-vista="calle">Calle</button>
+      </div>
+      <div class="grupo" role="group" aria-label="Tema">
+        <button data-tema="dark">Oscuro</button>
+        <button data-tema="light">Claro</button>
+      </div>
+      <button id="capturar" title="Guarda una captura en experiments/fachadas/capturas">Capturar</button>
+    </footer>
+
+    <div id="atrib"></div>
+    <div id="aviso" hidden></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,236 @@
+:root {
+  --bg: #0a0a0b;
+  --panel: rgba(18, 19, 22, 0.92);
+  --line: #2a2d32;
+  --text: #e8eaee;
+  --muted: #9aa0aa;
+  --pri: #4b86f5;
+  --ok: #35c46a;
+  --warn: #e0a43a;
+  color-scheme: dark;
+}
+:root[data-tema='light'] {
+  --bg: #f4f8fb;
+  --panel: rgba(255, 255, 255, 0.94);
+  --line: #cbd9e3;
+  --text: #13202b;
+  --muted: #5b6b78;
+  --pri: #1a56c4;
+  color-scheme: light;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+#vista,
+#vista canvas {
+  position: fixed;
+  inset: 0;
+  display: block;
+  touch-action: none;
+}
+button {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-height: 34px;
+}
+button[aria-pressed='true'],
+button[aria-selected='true'] {
+  background: var(--pri);
+  border-color: var(--pri);
+  color: #fff;
+}
+button:focus-visible {
+  outline: 2px solid var(--pri);
+  outline-offset: 2px;
+}
+#cabeza {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 10px 12px;
+  background: linear-gradient(var(--panel), transparent);
+  pointer-events: none;
+}
+#cabeza > * {
+  pointer-events: auto;
+}
+.marca b {
+  font-size: 16px;
+  margin-right: 6px;
+}
+.marca span {
+  color: var(--muted);
+}
+#modos {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  max-width: 100%;
+  scrollbar-width: none;
+}
+#modos button {
+  white-space: nowrap;
+  background: var(--panel);
+}
+#panel {
+  position: fixed;
+  right: 12px;
+  top: 64px;
+  width: 340px;
+  max-height: calc(100% - 140px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+#panel h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+#pResumen {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+#pControles {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+#pControles label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#pControles select {
+  max-width: 220px;
+  font: inherit;
+}
+#pControles input[type="range"] {
+  flex: 1;
+}
+#pControles input[type='text'],
+#pControles input[type='password'] {
+  flex: 1;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+.nota {
+  font-size: 13px;
+  color: var(--muted);
+  border-left: 3px solid var(--warn);
+  padding: 4px 8px;
+  margin: 0;
+}
+.nota code {
+  font-size: 12px;
+}
+#pMedidas {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+#pMedidas dt {
+  color: var(--muted);
+}
+#pMedidas dd {
+  margin: 0;
+}
+#pSel {
+  margin-top: 10px;
+  font-size: 13px;
+}
+#pSel:empty {
+  display: none;
+}
+#pie {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#pie .grupo {
+  display: flex;
+  gap: 2px;
+  background: var(--panel);
+  border-radius: 10px;
+  padding: 2px;
+}
+#pie .grupo button {
+  border: 0;
+}
+#capturar {
+  background: var(--panel);
+}
+#atrib {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  max-width: 50%;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+#atrib img {
+  height: 16px;
+}
+#aviso {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 16px;
+}
+@media (max-width: 720px) {
+  #panel {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 64px;
+    width: auto;
+    max-height: 38%;
+  }
+  .marca span {
+    display: none;
+  }
+  #atrib {
+    bottom: 56px;
+    max-width: 100%;
+    left: 12px;
+  }
+}

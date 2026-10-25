@@ -9,7 +9,8 @@
     "preview": "vite preview --host",
     "test": "node --experimental-strip-types tests/run.ts",
     "maqueta": "node --experimental-strip-types scripts/maqueta/build.ts",
-    "maqueta:check": "node --experimental-strip-types scripts/maqueta/check.ts"
+    "maqueta:check": "node --experimental-strip-types scripts/maqueta/check.ts",
+    "fachadas": "npm --prefix experiments/fachadas install --no-audit --no-fund && npm --prefix experiments/fachadas run dev"
   },
   "dependencies": {
     "maplibre-gl": "^4.7.1",
