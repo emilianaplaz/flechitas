@@ -11,6 +11,7 @@ const mem = new Map<string, string>();
 import { amend, cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
 import { BumpDetector } from '../src/hazards/bump.ts';
 import { HazardStore } from '../src/hazards/store.ts';
+import { mockObstacles, simulateHit } from '../src/hazards/mockMotion.ts';
 import { clusterHazards, weightOf } from '../src/hazards/cluster.ts';
 import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
@@ -180,6 +181,44 @@ for (let t = 0; t <= 3000; t += 16) {
   if (e) flippedEv.push(e);
 }
 check('same result with inverted sign convention (iOS)', flippedEv.length === 1 && (flippedEv[0] as { type: string }).type === 'hueco', JSON.stringify(flippedEv));
+
+// ---- mock accelerometer (Simulación / Repetición) ----
+{
+  const line = buildPolyline([{ lat: 10, lon: -66 }, { lat: 10.0225, lon: -66 }, { lat: 10.0225, lon: -65.98 }]);
+  const obs = mockObstacles(line);
+  check('mock obstacles: first about 150 m in, then every 300 m', obs.length >= 8 && obs[0]!.along === 150 && obs.every((o, i) => i === 0 || near(o.along - obs[i - 1]!.along, 300, 0.01)), obs.map((o) => o.along).join());
+  check('mock obstacles: policia, hueco, policia pattern', obs.slice(0, 6).map((o) => o.kind).join() === 'policia,hueco,policia,policia,hueco,policia');
+  check('mock obstacles: heading follows the route (north, then east)', near(obs[0]!.heading, 0, 1) && near(obs[obs.length - 1]!.heading, 90, 1), obs.map((o) => Math.round(o.heading)).join());
+  check('mock obstacles: points lie on the route', near(haversine(obs[0]!, { lat: 10, lon: -66 }), 150, 1));
+  check('mock obstacles: same route, same obstacles', JSON.stringify(mockObstacles(line)) === JSON.stringify(obs));
+  check('mock obstacles: none for an empty, single-point or very short route', mockObstacles(buildPolyline([])).length === 0 && mockObstacles(buildPolyline([{ lat: 10, lon: -66 }])).length === 0 && mockObstacles(buildPolyline([{ lat: 10, lon: -66 }, { lat: 10.001, lon: -66 }])).length === 0);
+
+  check('mock hit: hole at 10 m/s is hueco', simulateHit('hueco', 10)?.type === 'hueco');
+  check('mock hit: bump at 5 m/s is policia on the soft path', simulateHit('policia', 5)?.type === 'policia' && simulateHit('policia', 5)!.peak < 5.5);
+  check('mock hit: hole at 5 m/s is hueco', simulateHit('hueco', 5)?.type === 'hueco');
+  check('mock hit: under 2.5 m/s nothing is detected', simulateHit('hueco', 2) === null && simulateHit('policia', 2) === null);
+  // The lift comes first, so even a hard fast pass over a bump reads as policia, not hueco.
+  check('mock hit: bump at 14 m/s is still policia, harder and shorter', simulateHit('policia', 14)?.type === 'policia' && simulateHit('policia', 14)!.peak > simulateHit('policia', 5)!.peak && simulateHit('policia', 14)!.durationMs < simulateHit('policia', 5)!.durationMs);
+}
+
+// ---- simulated reports never leave the device ----
+{
+  const store = new HazardStore();
+  store.local = [];
+  const stored = localStorage.getItem('ar-nav.hazards');
+  const queued = JSON.stringify(pending());
+  const a = store.addSimulated('policia', { lat: 10.5, lon: -66.9 }, { heading: 90 });
+  check('simulated: unconfirmed detected report flagged simulated', a.simulated === true && a.confirmed === false && a.source === 'detected');
+  check('simulated: not persisted and not queued', localStorage.getItem('ar-nav.hazards') === stored && JSON.stringify(pending()) === queued);
+  check('simulated: one alone stays hidden like any 0.5 report', store.all().length === 0);
+  store.addSimulated('policia', { lat: 10.50005, lon: -66.9 }, { heading: 90 });
+  check('simulated: two nearby reach the show weight', store.all().length === 1);
+  const c = store.confirm(a.id);
+  check('simulated: confirm flips to a confirmed hueco without touching storage or the outbox', c?.type === 'hueco' && c.confirmed === true && localStorage.getItem('ar-nav.hazards') === stored && JSON.stringify(pending()) === queued);
+  check('simulated: undoLast ignores them', store.undoLast() === undefined);
+  store.clearSimulated();
+  check('simulated: clearing removes them', store.all().length === 0 && store.simulated.length === 0);
+}
 
 // ---- merging reports of the same hazard ----
 {
