@@ -4,23 +4,45 @@
 // only a position about once a second.
 import type { DataConnection, Peer } from 'peerjs'; // loaded on demand
 import { GpsSource } from '../drive/sources.ts';
-import { LOST_MS, PING_MS, ViewerSlot, findPeerId, newShareCode, parsePos, type FindMsg, type Sighting } from './protocol.ts';
+import {
+  ApprovalGate,
+  LOST_MS,
+  PING_MS,
+  ViewerSlot,
+  findPeerId,
+  newSessionId,
+  newShareCode,
+  parseHello,
+  parsePos,
+  type FindMsg,
+  type Sighting,
+} from './protocol.ts';
 
-export type ShareState = 'connecting' | 'waiting' | 'live' | 'offline' | 'expired';
-export type WatchState = 'connecting' | 'live' | 'lost' | 'offline' | 'inactive';
+export type ShareState = 'connecting' | 'waiting' | 'asking' | 'live' | 'offline' | 'expired' | 'locked';
+export type WatchState = 'connecting' | 'asking' | 'live' | 'lost' | 'offline' | 'inactive' | 'denied';
+
+/** A viewer that says nothing this long is treated as anonymous. */
+const HELLO_WAIT_MS = 3000;
+/** A refusal message needs a moment to leave before the channel closes. */
+const FAREWELL_MS = 300;
 
 export interface ShareEvents {
   onCode(code: string): void;
   onState(s: ShareState): void;
+  /** Always followed by `onState('asking')`; `name` is the viewer's self-reported name. */
+  onAsk(name: string | null): void;
   onError(msg: string): void;
 }
 
-/** Shares this phone's GPS with one viewer. Call `start` inside a tap: it asks for the location permission. */
+/** Shares this phone's GPS with one viewer the user approves. Call `start` inside a tap: it asks for the location permission. */
 export class Sharer {
   private peer: Peer | null = null;
   private conn: DataConnection | null = null;
   private gps: GpsSource;
   private slot = new ViewerSlot(() => performance.now());
+  private gate = new ApprovalGate(() => performance.now());
+  private approved = false; // the current viewer may receive positions
+  private helloTimer = 0;
   private timer = 0;
   private stopped = false;
   private lastSent = 0;
@@ -28,7 +50,7 @@ export class Sharer {
   private wakeLock: { release(): Promise<void> } | null = null;
 
   constructor(private ev: ShareEvents) {
-    this.gps = new GpsSource((f) => this.send({ t: 'pos', lat: f.p.lat, lon: f.p.lon, acc: f.accuracy }), (m) => ev.onError(m));
+    this.gps = new GpsSource((f) => this.approved && this.send({ t: 'pos', lat: f.p.lat, lon: f.p.lon, acc: f.accuracy }), (m) => ev.onError(m));
   }
 
   async start() {
@@ -42,6 +64,8 @@ export class Sharer {
   stop() {
     this.stopped = true;
     clearInterval(this.timer);
+    clearTimeout(this.helloTimer);
+    this.approved = false;
     this.gps.stop();
     this.conn?.close();
     this.conn = null;
@@ -63,7 +87,59 @@ export class Sharer {
     }
   }
 
-  /** Nothing leaves the phone until a viewer holds the seat. */
+  /** The prompt's Permitir: the viewer starts receiving positions. */
+  allow() {
+    if (!this.conn || !this.gate.asking()) return;
+    this.gate.allow();
+    this.goLive();
+  }
+
+  /** The prompt's Rechazar, or the 60 s timeout. A third denial stops the share. */
+  deny() {
+    if (!this.gate.asking()) return;
+    this.gate.deny();
+    this.farewell({ t: 'deny' });
+    this.slot.release();
+    if (this.gate.locked()) {
+      this.stop();
+      this.ev.onState('locked');
+    } else this.ev.onState('waiting');
+  }
+
+  /** Tells the viewer, then drops the connection and frees the seat. */
+  private farewell(m: FindMsg) {
+    const c = this.conn;
+    this.conn = null;
+    this.approved = false;
+    clearTimeout(this.helloTimer);
+    if (!c) return;
+    if (c.open) c.send(m);
+    setTimeout(() => c.close(), FAREWELL_MS);
+  }
+
+  private goLive() {
+    this.approved = true;
+    this.send({ t: 'ok' });
+    const fix = this.gps.current();
+    if (fix) this.send({ t: 'pos', lat: fix.p.lat, lon: fix.p.lon, acc: fix.accuracy });
+    this.ev.onState('live');
+  }
+
+  private onHello(c: DataConnection, name: string | null, sid: string) {
+    if (this.conn !== c) return;
+    const v = this.gate.hello(sid, name);
+    if (v === 'auto') this.goLive();
+    else if (v === 'ask') {
+      this.ev.onAsk(name);
+      this.ev.onState('asking');
+    } else {
+      this.farewell({ t: 'deny' });
+      this.slot.release();
+      this.ev.onState('waiting');
+    }
+  }
+
+  /** Nothing leaves the phone until the viewer has been approved (pings carry no location). */
   private send(m: FindMsg) {
     if (!this.conn?.open) return;
     this.conn.send(m);
@@ -73,16 +149,24 @@ export class Sharer {
   private tick() {
     if (this.conn && !this.slot.alive()) {
       this.conn.close();
-      this.conn = null;
-      this.slot.release();
-      this.ev.onState('waiting');
+      this.dropViewer();
     }
+    if (this.gate.askExpired()) this.deny();
     if (!this.conn && this.slot.expired()) {
       this.stop();
       this.ev.onState('expired');
       return;
     }
     if (performance.now() - this.lastSent >= PING_MS / 2) this.send({ t: 'ping' });
+  }
+
+  private dropViewer() {
+    clearTimeout(this.helloTimer);
+    this.conn = null;
+    this.approved = false;
+    this.gate.leave();
+    this.slot.release();
+    this.ev.onState('waiting');
   }
 
   private async open() {
@@ -93,7 +177,7 @@ export class Sharer {
     this.peer = p;
     p.on('open', () => {
       this.ev.onCode(this.code);
-      this.ev.onState(this.conn ? 'live' : 'waiting');
+      this.ev.onState(this.approved ? 'live' : this.gate.asking() ? 'asking' : 'waiting');
     });
     p.on('connection', (c) => this.onViewer(c));
     p.on('disconnected', () => !this.stopped && p.reconnect());
@@ -109,25 +193,34 @@ export class Sharer {
   }
 
   private onViewer(c: DataConnection) {
-    if (!this.slot.admit()) return c.close();
+    if (this.gate.locked() || !this.slot.admit()) return c.close();
     const old = this.conn;
     this.conn = c;
+    this.approved = false;
+    this.gate.leave();
     old?.close();
+    let greeted = false;
+    const greet = (name: string | null, sid: string) => {
+      if (greeted) return;
+      greeted = true;
+      clearTimeout(this.helloTimer);
+      this.onHello(c, name, sid);
+    };
     c.on('open', () => {
       if (this.conn !== c) return;
-      this.ev.onState('live');
       this.send({ t: 'ping' });
-      const fix = this.gps.current();
-      if (fix) this.send({ t: 'pos', lat: fix.p.lat, lon: fix.p.lon, acc: fix.accuracy });
+      this.helloTimer = window.setTimeout(() => greet(null, newSessionId()), HELLO_WAIT_MS);
     });
     c.on('data', (raw) => {
-      if (this.conn === c && (raw as { t?: unknown } | null)?.t === 'ping') this.slot.heard();
+      if (this.conn !== c) return;
+      const hello = parseHello(raw);
+      if (hello) {
+        this.slot.heard();
+        greet(hello.name, hello.sid);
+      } else if ((raw as { t?: unknown } | null)?.t === 'ping') this.slot.heard();
     });
     const gone = () => {
-      if (this.conn !== c) return;
-      this.conn = null;
-      this.slot.release();
-      this.ev.onState('waiting');
+      if (this.conn === c) this.dropViewer();
     };
     c.on('close', gone);
     c.on('error', gone);
@@ -148,10 +241,12 @@ export class Watcher {
   private retry = 0;
   private stopped = false;
   private live = false;
-  private everLive = false;
+  private everLive = false; // the sharer approved us once: a drop is a lost signal, not a wrong code
+  private sid = newSessionId();
 
   constructor(
     private code: string,
+    private identity: () => string | null,
     private ev: WatchEvents,
   ) {}
 
@@ -200,19 +295,30 @@ export class Watcher {
       c.on('open', () => {
         if (this.peer !== p) return;
         this.lastHeard = performance.now();
+        c.send({ t: 'hello', name: this.identity(), sid: this.sid } satisfies FindMsg);
         c.send({ t: 'ping' } satisfies FindMsg);
+        if (!this.everLive) this.ev.onState('asking');
       });
       c.on('data', (raw) => {
         if (this.conn !== c) return;
         this.lastHeard = performance.now();
-        this.retry = 0;
-        this.everLive = true;
-        if (!this.live) {
-          this.live = true;
-          this.ev.onState('live');
+        const type = (raw as { t?: unknown } | null)?.t;
+        if (type === 'deny') {
+          this.stop();
+          this.ev.onState('denied');
+        } else if (type === 'ok') {
+          this.retry = 0;
+          this.everLive = true;
+          this.ev.onState('connecting');
+        } else if (this.everLive) {
+          const s = parsePos(raw);
+          if (!s) return;
+          if (!this.live) {
+            this.live = true;
+            this.ev.onState('live');
+          }
+          this.ev.onPos(s);
         }
-        const s = parsePos(raw);
-        if (s) this.ev.onPos(s);
       });
       c.on('close', () => this.drop(p));
       c.on('error', () => this.drop(p));

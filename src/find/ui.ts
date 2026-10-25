@@ -14,6 +14,7 @@ import { aim, lensOnScreen, onEdge, type Lens } from './aim.ts';
 import { Sharer, Watcher, type ShareState, type WatchState } from './link.ts';
 import { STALE_MS, ageLabel, codeFromSearch, normalizeCode, shareLink, type Sighting } from './protocol.ts';
 import { formatCode } from '../remote/protocol.ts';
+import { auth } from '../auth/ui.ts';
 
 const PERSON_DROP = 0.4; // m below the camera: aim at their chest, not their feet
 const EDGE_MARGIN = 56;
@@ -68,6 +69,7 @@ export async function openFind(opts: { camera: boolean; seeCode?: string }) {
   $('find').hidden = false;
   $('find').classList.toggle('noCamera', !opts.camera);
   $('fShareCard').hidden = true;
+  hideAsk();
   $('fSeeBox').hidden = true;
   if (opts.seeCode) {
     $<HTMLInputElement>('fSeeCode').value = formatCode(opts.seeCode);
@@ -247,11 +249,19 @@ function renderRows(list: Target[], me: LatLon | null) {
 
 const WATCH_TEXT: Record<WatchState, string> = {
   connecting: 'Conectando…',
+  asking: 'Esperando que acepten…',
   live: 'Conectado: lo verás en la cámara',
   lost: 'Se perdió la señal. Su teléfono tiene que seguir con la pantalla encendida. Reconectando…',
   offline: 'Sin conexión con el servidor de enlace. Revisa tu internet.',
   inactive: 'Ese código no está activo. Revisa los 6 dígitos con quien comparte.',
+  denied: 'No aceptaron compartir su ubicación.',
 };
+
+/** The signed-in account's name, or null: sent to the sharer so they know who is asking. */
+function myName(): string | null {
+  const s = auth.state();
+  return s.kind === 'signedIn' ? s.session.user.displayName : null;
+}
 
 function showSeeBox() {
   stopSharing();
@@ -269,11 +279,11 @@ async function startWatching() {
   $('fSeeBtn').hidden = true;
   $('fSeeBox').hidden = false;
   $('fSeeToggle').textContent = 'Dejar de ver';
-  const w = new Watcher(code, {
+  const w = new Watcher(code, myName, {
     onPos: (s) => (friend = { s, seen: performance.now() }),
     onState: (s) => {
       if (watcher !== w) return;
-      if (s === 'inactive') stopWatching(WATCH_TEXT.inactive);
+      if (s === 'inactive' || s === 'denied') stopWatching(WATCH_TEXT[s]);
       else say('fSeeState', WATCH_TEXT[s]);
     },
   });
@@ -299,10 +309,21 @@ function stopWatching(note?: string) {
 const SHARE_TEXT: Record<ShareState, string> = {
   connecting: 'Conectando…',
   waiting: 'Esperando a que escriban el código o abran el enlace…',
+  asking: 'Alguien pidió verte. Elige Permitir o Rechazar.',
   live: 'Te están viendo. Deja esta pantalla abierta.',
   offline: 'Sin conexión con el servidor de enlace. Revisa tu internet.',
   expired: 'El código venció. Toca Compartir ubicación para crear otro.',
+  locked: 'Rechazaste varios intentos. Crea otro código para volver a compartir.',
 };
+
+function showAsk(name: string | null) {
+  $('fAskWho').textContent = name ?? 'No ha iniciado sesión';
+  $('fAskNote').hidden = name === null;
+  $('fAsk').hidden = false;
+  navigator.vibrate?.(200);
+}
+
+const hideAsk = () => ($('fAsk').hidden = true);
 
 async function startSharing() {
   stopSharing();
@@ -321,8 +342,12 @@ async function startSharing() {
     },
     onState: (st) => {
       if (sharer !== s) return;
-      if (st === 'expired') stopSharing(SHARE_TEXT.expired);
+      if (st !== 'asking') hideAsk();
+      if (st === 'expired' || st === 'locked') stopSharing(SHARE_TEXT[st]);
       else say('fShareState', SHARE_TEXT[st]);
+    },
+    onAsk: (name) => {
+      if (sharer === s) showAsk(name);
     },
     onError: (m) => sharer === s && say('fShareState', m),
   });
@@ -332,6 +357,7 @@ async function startSharing() {
 
 /** `note` keeps the card open with a message and no code (the share ended by itself); without it the card closes. */
 function stopSharing(note?: string) {
+  hideAsk();
   sharer?.stop();
   sharer = null;
   shareCode = '';
@@ -361,6 +387,14 @@ export function initFind() {
   $('fShareToggle').onclick = () => (sharer ? stopSharing() : void startSharing());
   $('fSeeToggle').onclick = () => (watcher ? stopWatching() : $('fSeeBox').hidden ? showSeeBox() : stopWatching());
   $('fSeeBtn').onclick = () => void startWatching();
+  $('fAskYes').onclick = () => {
+    hideAsk();
+    sharer?.allow();
+  };
+  $('fAskNo').onclick = () => {
+    hideAsk();
+    sharer?.deny();
+  };
   $('fShareInvite').onclick = () => void sendInvite();
   // Opened from a link the sharer sent: show the code box filled in, and wait for a tap to start the camera.
   const code = codeFromSearch(location.search);

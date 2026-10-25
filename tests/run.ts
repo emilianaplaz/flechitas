@@ -23,7 +23,7 @@ import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransfo
 import { RouteProfile, gridPoint, limitAt, speedLimits, tileElevation, tileOf, tileToLatLon, tileXY, type Tile, type TileSign, type TileWay } from '../src/core/maqueta.ts';
 import { indexSigns, signsAhead } from '../src/signs/ahead.ts';
 import { aim, lensOnScreen, onEdge } from '../src/find/aim.ts';
-import { CODE_TTL_MS, LOST_MS, ViewerSlot, ageLabel, codeFromSearch, findPeerId, parsePos, shareLink } from '../src/find/protocol.ts';
+import { ASK_TTL_MS, ApprovalGate, CODE_TTL_MS, LOST_MS, MAX_DENIALS, ViewerSlot, newSessionId, parseHello, sanitizeName, ageLabel, codeFromSearch, findPeerId, parsePos, shareLink } from '../src/find/protocol.ts';
 import { MAX_PINS, addPin, adoptUnowned, loadPins, onPinChange, removePin, renamePin, setPinOwner, type Pin } from '../src/find/pins.ts';
 import { OUTBOX_KEY, createPinsSync, mergePins, type PinsSync } from '../src/find/pinsSync.ts';
 
@@ -674,6 +674,63 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   check('slot: a silent viewer counts as gone from its last ping', !silent.expired());
   t += 1;
   check('slot: expiry follows from the last ping plus the TTL', silent.expired());
+}
+
+// ---- find: approving the viewer ----
+{
+  check('name: plain text kept', sanitizeName('Ana López') === 'Ana López');
+  check('name: control characters removed', sanitizeName('A\u0000n\u0007a\u007F') === 'Ana');
+  check('name: bidi override removed', sanitizeName('\u202Eevil\u202C') === 'evil');
+  check('name: zero-width and BOM removed', sanitizeName('A\u200Bn\u200Da\uFEFF') === 'Ana');
+  check('name: whitespace collapsed and trimmed', sanitizeName('  Ana \n\t  López  ') === 'Ana López');
+  check('name: cut to 40 characters', sanitizeName('x'.repeat(100)) === 'x'.repeat(40));
+  check('name: only whitespace or invisible is null', sanitizeName(' \u200B\n ') === null && sanitizeName('') === null);
+  check('name: not a string is null', sanitizeName(42) === null && sanitizeName({}) === null && sanitizeName(undefined) === null);
+  check('name: HTML stays plain text', sanitizeName('<img src=x onerror=alert(1)>') === '<img src=x onerror=alert(1)>');
+
+  const sid = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+  check('hello: valid', JSON.stringify(parseHello({ t: 'hello', name: 'Ana', sid })) === JSON.stringify({ name: 'Ana', sid }));
+  check('hello: null name stays null', parseHello({ t: 'hello', name: null, sid })?.name === null);
+  check('hello: sid too short or too long', parseHello({ t: 'hello', name: null, sid: 'abc123' }) === null && parseHello({ t: 'hello', name: null, sid: 'a'.repeat(65) }) === null);
+  check('hello: sid not hex', parseHello({ t: 'hello', name: null, sid: 'g'.repeat(32) }) === null);
+  check('hello: non-string name becomes null', parseHello({ t: 'hello', name: 7, sid })?.name === null);
+  check('hello: extra fields ignored', Object.keys(parseHello({ t: 'hello', name: 'A', sid, admin: true }) ?? {}).join() === 'name,sid');
+  check('hello: wrong type or shape', parseHello({ t: 'ping' }) === null && parseHello(null) === null && parseHello('hello') === null);
+  check('session ids are 32 hex characters and differ', /^[0-9a-f]{32}$/.test(newSessionId()) && newSessionId() !== newSessionId());
+
+  let t = 0;
+  const gate = new ApprovalGate(() => t);
+  check('gate: first hello asks', gate.hello('s1', 'Ana') === 'ask' && gate.asking()?.name === 'Ana');
+  check('gate: a second hello while asking is refused', gate.hello('s2', null) === 'refuse');
+  gate.allow();
+  check('gate: allow ends the asking', gate.asking() === null);
+  check('gate: a second hello while admitted is refused', gate.hello('s2', null) === 'refuse');
+  gate.leave();
+  check('gate: the approved sid redialing is admitted without asking', gate.hello('s1', 'Ana') === 'auto');
+  gate.leave();
+  check('gate: a new sid is asked', gate.hello('s2', null) === 'ask');
+  gate.deny();
+  gate.leave();
+  check('gate: a denied sid is refused', gate.hello('s2', null) === 'refuse' && gate.denials === 1);
+  check('gate: a viewer who leaves unanswered is asked again', gate.hello('s3', null) === 'ask' && (gate.leave(), gate.hello('s3', null) === 'ask'));
+
+  t = 0;
+  const slow = new ApprovalGate(() => t);
+  slow.hello('s1', null);
+  t = ASK_TTL_MS - 1;
+  check('gate: not expired just before the TTL', !slow.askExpired());
+  t = ASK_TTL_MS;
+  check('gate: the ask times out', slow.askExpired());
+  slow.deny();
+  check('gate: no ask pending, nothing to expire', !slow.askExpired());
+
+  const strict = new ApprovalGate(() => 0);
+  for (let i = 0; i < MAX_DENIALS; i++) {
+    check(`gate: not locked after ${i} denials`, !strict.locked());
+    strict.hello(`sid${i}`.padEnd(16, '0'), null);
+    strict.deny();
+  }
+  check('gate: the third denial locks', strict.locked() && strict.hello('fresh0000000000', null) === 'refuse');
 }
 
 // ---- find: saved places ----

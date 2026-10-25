@@ -733,6 +733,24 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
 .fShareHead .muted { font-size: 13px; }
 .fShareHead button { flex: none; min-height: 44px; padding: 8px 14px; }
 .fCodeText { display: block; font-size: 30px; font-weight: 800; letter-spacing: 0.08em; }
+.fAsk {
+  position: absolute;
+  top: 54%;
+  translate: 0 -50%;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  border-radius: 24px;
+}
+.fAsk:not([hidden]) { animation: popIn 0.4s var(--ease-spring) both; }
+.fAsk h2 { margin: 0; font-size: 18px; }
+.fAsk p { margin: 0; }
+.fAskWho { font-size: 22px; font-weight: 800; overflow-wrap: anywhere; }
+.fAskBtns { display: flex; gap: 10px; margin-top: 6px; }
+.fAskBtns button { flex: 1; min-height: 52px; }
 .fState { margin: 0; font-size: 14px; color: var(--muted); min-height: 1.2em; }
 #fSeeCode { padding: 12px 14px; font-size: 22px; font-weight: 800; letter-spacing: 0.08em; border-radius: 14px; border: 2px solid var(--line); background: transparent; }
 .fActions { display: flex; gap: 8px; }
