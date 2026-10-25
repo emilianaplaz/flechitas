@@ -889,15 +889,15 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
     const t = rig((r) => (r.path.startsWith('/auth/v1/token') ? { status: 400, body: { error_code: 'invalid_credentials', msg: 'Invalid login credentials' } } : { status: 500 }));
     const c = t.client();
     const out = await c.signIn({ email: 'ana@example.com', password: 'wrong-password' });
-    check('auth: wrong password gives a Spanish message and stays signed out', !out.ok && out.message === 'Correo o contraseña incorrectos.' && c.state().kind === 'signedOut' && t.store.size === 0);
+    check('auth: wrong password gives a Spanish message and stays signed out', !out.ok && out.message.startsWith('El correo o la contraseña no coinciden') && c.state().kind === 'signedOut' && t.store.size === 0);
   }
   {
     const cases: [number, unknown, string][] = [
-      [422, { error_code: 'user_already_exists', msg: 'User already registered' }, 'Ese correo ya tiene una cuenta'],
-      [422, { error_code: 'weak_password', msg: 'Password should be at least 6 characters' }, 'muy débil'],
+      [422, { error_code: 'user_already_exists', msg: 'User already registered' }, 'Ya hay una cuenta con este correo'],
+      [422, { error_code: 'weak_password', msg: 'Password should be at least 6 characters' }, 'fácil de adivinar'],
       [400, { error_code: 'email_not_confirmed', msg: 'Email not confirmed' }, 'confirmaste tu correo'],
-      [429, { error_code: 'over_request_rate_limit', msg: 'rate limit' }, 'Demasiados intentos'],
-      [500, { msg: 'boom <internal detail>' }, 'No se pudo completar'],
+      [429, { error_code: 'over_request_rate_limit', msg: 'rate limit' }, 'muchos intentos seguidos'],
+      [500, { msg: 'boom <internal detail>' }, 'No pudimos terminar'],
     ];
     for (const [status, body, expect] of cases) {
       const c = rig(() => ({ status, body })).client();
@@ -905,13 +905,15 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
       check(`auth: ${status} maps to a Spanish message (${expect})`, !out.ok && out.message.includes(expect) && !out.message.includes('internal'), out.ok ? '' : out.message);
     }
     const off = await rig(() => 'offline').client().signIn({ email: 'ana@example.com', password: PASSWORD });
-    check('auth: offline gives the network message', !off.ok && off.code === 'network' && off.message.startsWith('No hay conexión'));
+    check('auth: offline gives the network message', !off.ok && off.code === 'network' && off.message.startsWith('No pudimos conectar'));
     const short = rig(() => ({ status: 500 }));
     const out = await short.client().signUp({ email: 'ana@example.com', password: 'short', displayName: '' });
     check('auth: a short password is rejected before any request', !out.ok && out.code === 'passwordTooShort' && short.calls.length === 0);
     const none = createAuthClient({ config: null, fetch: (() => { throw new Error('no network expected'); }) as typeof fetch, storage: { getItem: () => null, setItem() {}, removeItem() {} } });
     const o = await none.signIn({ email: 'ana@example.com', password: PASSWORD });
     check('auth: without server config nothing throws and the user is told', !o.ok && o.code === 'notConfigured' && none.state().kind === 'signedOut');
+    const empty = await rig(() => ({ status: 500 })).client().signIn({ email: ' ', password: '' });
+    check('auth: empty fields say so, not "wrong password"', !empty.ok && empty.code === 'missingFields' && empty.message.startsWith('Escribe tu correo'));
   }
   {
     const live = rig(happy);
@@ -956,6 +958,76 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
       await c.restore();
       check(`auth: corrupted stored session ignored (${junk.slice(0, 14)})`, c.state().kind === 'signedOut' && t.calls.length === 0 && t.store.size === 0);
     }
+  }
+  // ---- password reset, resending the confirmation, and the links in those emails ----
+  {
+    const { parseRedirect } = await import('../src/auth/session.ts');
+    const t = rig(() => ({ status: 200, body: {} }));
+    const c = t.client();
+    const ok = await c.requestPasswordReset(' ana@example.com ');
+    const recover = t.calls.find((x) => x.path.startsWith('/auth/v1/recover'));
+    check('reset: sends the trimmed address to /recover', ok.ok && recover?.body?.email === 'ana@example.com' && recover.method === 'POST');
+    const bad = await c.requestPasswordReset('ana@');
+    check('reset: a malformed address is refused before any request', !bad.ok && bad.code === 'invalidEmail' && t.calls.length === 1);
+    const again = await c.resendConfirmation('ana@example.com');
+    const resend = t.calls.find((x) => x.path.startsWith('/auth/v1/resend'));
+    check('resend: asks for the sign-up email again', again.ok && resend?.body?.type === 'signup' && resend.body.email === 'ana@example.com');
+    const limited = await rig(() => ({ status: 429, body: { error_code: 'over_email_send_rate_limit' } })).client().requestPasswordReset('ana@example.com');
+    check('reset: rate limit gets its own message', !limited.ok && limited.code === 'rateLimited');
+    const offline = await rig(() => 'offline').client().resendConfirmation('ana@example.com');
+    check('resend: offline gets the network message', !offline.ok && offline.code === 'network');
+
+    const paths: string[] = [];
+    const back = createAuthClient({
+      config: { url: 'https://x.supabase.co', key: 'sb_publishable_abc' },
+      fetch: (async (input: RequestInfo | URL) => {
+        paths.push(String(input).replace('https://x.supabase.co', ''));
+        return { status: 200, ok: true, json: async () => ({}) } as Response;
+      }) as typeof fetch,
+      storage: { getItem: () => null, setItem() {}, removeItem() {} },
+      redirectTo: 'https://app.test/',
+    });
+    await back.requestPasswordReset('ana@example.com');
+    check('reset: email links come back to the app', paths.at(-1) === '/auth/v1/recover?redirect_to=https%3A%2F%2Fapp.test%2F');
+
+    const link = parseRedirect('#access_token=at-9&expires_in=3600&refresh_token=rt-9&token_type=bearer&type=recovery');
+    check('link: a recovery fragment is read', link?.kind === 'session' && link.type === 'recovery' && link.accessToken === 'at-9' && link.refreshToken === 'rt-9' && link.expiresIn === 3600);
+    const expired = parseRedirect('#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired');
+    check('link: an expired link is an error', expired?.kind === 'error' && expired.code === 'otp_expired');
+    check('link: an ordinary fragment is not a link', parseRedirect('') === null && parseRedirect('#map') === null && parseRedirect('#access_token=x&refresh_token=y') === null);
+
+    const signedBy = rig((r) =>
+      r.path === '/auth/v1/user' && r.method === 'GET'
+        ? { status: 200, body: userOf('Ana') }
+        : r.path.startsWith('/rest/v1/profiles')
+          ? { status: 200, body: [{ display_name: 'Ana P' }] }
+          : r.path === '/auth/v1/user' && r.method === 'PUT'
+            ? r.body?.password === PASSWORD
+              ? { status: 422, body: { error_code: 'same_password' } }
+              : { status: 200, body: userOf('Ana') }
+            : { status: 500 },
+    );
+    const lc = signedBy.client();
+    const adopted = await lc.adoptRedirect(link!);
+    const s = lc.state();
+    check('link: signs in with the tokens and asks who they belong to', adopted.ok && adopted.type === 'recovery' && s.kind === 'signedIn' && s.session.accessToken === 'at-9' && s.session.user.email === 'ana@example.com');
+    check('link: the who-am-i call carries the link token', signedBy.calls.find((x) => x.path === '/auth/v1/user')?.headers.authorization === 'Bearer at-9');
+    check('link: the session is stored like any sign in', JSON.parse(signedBy.store.get(SESSION_KEY)!).refreshToken === 'rt-9');
+    const same = await lc.updatePassword(PASSWORD);
+    check('new password: the current one is refused with its own message', !same.ok && same.code === 'samePassword');
+    const short = await lc.updatePassword('short');
+    check('new password: too short is refused before any request', !short.ok && short.code === 'passwordTooShort' && !signedBy.calls.some((x) => x.method === 'PUT' && x.body?.password === 'short'));
+    const changed = await lc.updatePassword('a-new-password-1');
+    const put = signedBy.calls.filter((x) => x.method === 'PUT').at(-1);
+    check('new password: PUT /user with the user token', changed.ok && put?.body?.password === 'a-new-password-1' && put.headers.authorization === 'Bearer at-9');
+    check('new password: never written to storage', [...signedBy.store.values()].every((v) => !v.includes('a-new-password-1')));
+
+    const dead = rig(() => ({ status: 401, body: { error_code: 'bad_jwt' } }));
+    const dc = dead.client();
+    const deadOut = await dc.adoptRedirect(link!);
+    check('link: a token the server rejects reads as an expired link', !deadOut.ok && deadOut.code === 'linkExpired' && dc.state().kind === 'signedOut' && dead.store.size === 0);
+    const errOut = await dc.adoptRedirect(expired!);
+    check('link: the error fragment says the link expired', !errOut.ok && errOut.code === 'linkExpired' && errOut.message.includes('venció'));
   }
 }
 
@@ -1212,6 +1284,53 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   const pre = plan({ from: 'drive', to: 'walk', running: false });
   check('before the trip only flags and controls change', same(pre, ['persist', 'syncControls']));
   check('the sensor start precedes the recorded state', toWalk.indexOf('startSensors') < toWalk.indexOf('persist'));
+}
+
+// ---- entry: who gets the welcome, the questions or the map, and which steps are asked ----
+{
+  const { ENTRY_KEY, ONBOARDING_KEY, cleanAnswers, loadEntered, loadOnboarding, saveEntered, saveOnboarding, startScreen, stepsFor } = await import('../src/ui/onboarding.ts');
+  const store = new Map<string, string>();
+  const s = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+  check('entry: first open shows the welcome', startScreen({ entered: null, signedIn: false, onboarded: false }) === 'welcome');
+  check('entry: signed in, not onboarded -> questions', startScreen({ entered: 'account', signedIn: true, onboarded: false }) === 'quiz');
+  check('entry: signed in and onboarded -> map', startScreen({ entered: 'account', signedIn: true, onboarded: true }) === 'app');
+  check('entry: guest and onboarded -> map', startScreen({ entered: 'guest', signedIn: false, onboarded: true }) === 'app');
+  check('entry: guest, not onboarded -> questions', startScreen({ entered: 'guest', signedIn: false, onboarded: false }) === 'quiz');
+  check('entry: account whose session ended -> welcome', startScreen({ entered: 'account', signedIn: false, onboarded: true }) === 'welcome');
+  check('entry: a session from Ajustes counts even without the entry flag', startScreen({ entered: null, signedIn: true, onboarded: true }) === 'app');
+
+  saveEntered(s, 'guest');
+  check('entry: the way in is remembered', loadEntered(s) === 'guest' && store.get(ENTRY_KEY) === 'guest');
+  saveEntered(s, null);
+  check('entry: signing out forgets it', loadEntered(s) === null && !store.has(ENTRY_KEY));
+  store.set(ENTRY_KEY, 'admin');
+  check('entry: an unknown value is ignored', loadEntered(s) === null);
+
+  check('onboarding: nothing saved yet', loadOnboarding(s) === null);
+  const saved = saveOnboarding(s, { use: 'drive', ipad: true, car: 'fortuner' }, 1234);
+  const back = loadOnboarding(s);
+  check('onboarding: answers round-trip', saved.doneAt === 1234 && back?.answers.use === 'drive' && back.answers.ipad === true && back.answers.car === 'fortuner');
+  saveOnboarding(s, { use: 'walk', ipad: true, car: 'other' }, 1);
+  check('onboarding: walking drops the iPad and car answers', JSON.stringify(loadOnboarding(s)?.answers) === '{"use":"walk"}');
+  check('onboarding: no iPad drops the car', JSON.stringify(cleanAnswers({ use: 'drive', ipad: false, car: 'other' })) === '{"use":"drive","ipad":false}');
+  check('onboarding: junk answers are dropped', JSON.stringify(cleanAnswers({ use: 'fly', ipad: 'yes', x: 1 })) === '{}');
+  for (const junk of ['{', '[]', '{"v":2,"answers":{},"doneAt":1}', '{"v":1,"answers":{}}', 'null']) {
+    store.set(ONBOARDING_KEY, junk);
+    check(`onboarding: a broken record reads as not done (${junk})`, loadOnboarding(s) === null);
+  }
+  const blocked = () => {
+    throw new Error('blocked');
+  };
+  const broken = { getItem: blocked, setItem: blocked, removeItem: blocked };
+  check('onboarding: blocked storage never throws', loadOnboarding(broken) === null && loadEntered(broken) === null && saveOnboarding(broken, { use: 'walk' }, 1).answers.use === 'walk');
+
+  const all = new Set(['location', 'camera', 'motion'] as const);
+  check('steps: unanswered counts the longest branch, so the total only shrinks', stepsFor({}, all).join() === 'use,ipad,car,location,camera,motion,link');
+  check('steps: driving with the iPad still unanswered keeps car and link', stepsFor({ use: 'drive' }, all).join() === 'use,ipad,car,location,camera,motion,link');
+  check('steps: walking skips the iPad and the car', stepsFor({ use: 'walk' }, all).join() === 'use,location,camera,motion');
+  check('steps: with an iPad, the car and then the link', stepsFor({ use: 'drive', ipad: true }, all).join() === 'use,ipad,car,location,camera,motion,link');
+  check('steps: no iPad, no car and no link', stepsFor({ use: 'drive', ipad: false }, all).join() === 'use,ipad,location,camera,motion');
+  check('steps: permissions already given are not asked', stepsFor({ use: 'walk' }, new Set(['camera'] as const)).join() === 'use,camera');
 }
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');

@@ -2,15 +2,23 @@
 import { $ } from '../core/ui.ts';
 import { cloudEnabled } from '../hazards/cloud.ts';
 import { createAuthClient, type AuthState } from './session.ts';
+import { MOCK_CONFIG, mockFetch } from './mock.ts';
 
 // src/hazards/cloud.ts keeps its URL and key private, so the same two env vars are read here.
 const url = (import.meta.env?.VITE_SUPABASE_URL as string | undefined)?.replace(/\/$/, '');
 const key = import.meta.env?.VITE_SUPABASE_ANON_KEY as string | undefined;
+// `npm run dev` with ?mockAuth: a fake server in localStorage (src/auth/mock.ts), never the real project.
+const mock = import.meta.env.DEV && new URLSearchParams(location.search).has('mockAuth');
+
+/** Accounts can be used: the server is configured (or mocked in dev). */
+export const authConfigured = mock || Boolean(cloudEnabled && url && key);
 
 export const auth = createAuthClient({
-  config: cloudEnabled && url && key ? { url, key } : null,
-  fetch: (...a) => fetch(...a),
+  config: mock ? MOCK_CONFIG : cloudEnabled && url && key ? { url, key } : null,
+  fetch: mock ? mockFetch() : (...a) => fetch(...a),
   storage: localStorage,
+  // Confirmation and password links come back to this app.
+  redirectTo: location.origin + location.pathname,
 });
 
 type Mode = 'signIn' | 'signUp';
@@ -34,7 +42,7 @@ export function initAccount() {
   };
 
   const render = (s: AuthState) => {
-    const configured = cloudEnabled;
+    const configured = authConfigured;
     $('acctOff').hidden = configured;
     $('acctOut').hidden = s.kind === 'needsConfirmation' || s.kind === 'signedIn';
     $('acctWait').hidden = s.kind !== 'needsConfirmation';

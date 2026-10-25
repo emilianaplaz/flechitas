@@ -27,6 +27,7 @@ import { destZone, getHere, initDestino } from './ui/destino.ts';
 import { initMaqueta, prepareMaqueta } from './ui/maqueta.ts';
 import { initFind } from './find/ui.ts';
 import { go, initShell } from './ui/shell.ts';
+import { isHudRole, setRole } from './core/role.ts';
 import { setDestination } from './setup.ts';
 import { clearSigns, setSigns, signsAheadOf } from './signs/store.ts';
 import { setTravel } from './walk/switch.ts';
@@ -58,23 +59,7 @@ initDriveControls();
 initSetupScreen();
 
 // ---------- roles: the phone runs the app; an iPad can be the windshield HUD ----------
-const ROLE_KEY = 'ar-nav.role';
-const isHudRole = () => {
-  try {
-    return new URLSearchParams(location.search).get('role') === 'hud' || localStorage.getItem(ROLE_KEY) === 'hud';
-  } catch {
-    return false;
-  }
-};
 const hudRole = isHudRole(); // decided once per page load
-const setRole = (role: 'hud' | 'phone') => {
-  try {
-    localStorage.setItem(ROLE_KEY, role);
-  } catch {
-    /* ignore */
-  }
-  location.replace(location.pathname);
-};
 $('beHud').onclick = () => setRole('hud');
 $('hrLeave').onclick = () => setRole('phone');
 $('hrGeom').onclick = () => openHudGeom();
@@ -82,6 +67,7 @@ $('hrGeom').onclick = () => openHudGeom();
 let lostTimer = 0;
 if (hudRole) {
   // iPad: a code screen until the phone starts a drive, then the HUD; back to the code when it ends.
+  $('entry').hidden = true;
   $('setup').hidden = true;
   $('hudRole').hidden = false;
   app.display = 'hud';
@@ -132,6 +118,7 @@ if (hudRole) {
     void connectHud(code);
   };
   setDriveProvider(() => (app.running && app.route ? { route: app.route, arrival: app.arrival } : null));
+  // The first screen (the map) is opened by the entry flow once the user is in: src/boot.ts, src/ui/entry.ts.
 }
 
 /** iPad: the phone started a drive. Position comes from the phone's GPS; this device only draws. */

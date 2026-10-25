@@ -58,5 +58,5 @@ export function initShell() {
     renderLugares();
   }, renderSyncStatus);
   initAccount();
-  go('destino');
+  // The first screen is opened by the entry flow (src/ui/entry.ts): the map, once the user is in.
 }
