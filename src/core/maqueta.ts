@@ -103,18 +103,56 @@ export function gridPoint(tx: number, ty: number, rows: number, cols: number, r:
 
 /** Ground height at p from this tile's grid (bilinear), or null when p is outside the tile. */
 export function tileElevation(t: Tile, p: LatLon): number | null {
-  const [zoom, tx, ty] = t.tile;
-  const { rows, cols, z } = t.elev;
-  const f = tileXY(p, zoom);
-  const u = (f.x - tx) * (cols - 1);
-  const v = (f.y - ty) * (rows - 1);
+  const { u, v } = gridUV(t, p);
+  const { rows, cols } = t.elev;
   if (u < 0 || v < 0 || u > cols - 1 || v > rows - 1) return null;
+  return bilinear(t, u, v);
+}
+
+/** Position of p in a tile's elevation grid, in cells: (0, 0) is its north-west corner. */
+function gridUV(t: Tile, p: LatLon): { u: number; v: number } {
+  const [zoom, tx, ty] = t.tile;
+  const f = tileXY(p, zoom);
+  return { u: (f.x - tx) * (t.elev.cols - 1), v: (f.y - ty) * (t.elev.rows - 1) };
+}
+
+/** Bilinear height at grid position (u, v), clamped to the grid. */
+function bilinear(t: Tile, u: number, v: number): number {
+  const { rows, cols, z } = t.elev;
+  u = Math.min(cols - 1, Math.max(0, u));
+  v = Math.min(rows - 1, Math.max(0, v));
   const c0 = Math.min(cols - 2, Math.floor(u));
   const r0 = Math.min(rows - 2, Math.floor(v));
   const a = u - c0;
   const b = v - r0;
   const at = (r: number, c: number) => z[r * cols + c];
   return (at(r0, c0) * (1 - a) + at(r0, c0 + 1) * a) * (1 - b) + (at(r0 + 1, c0) * (1 - a) + at(r0 + 1, c0 + 1) * a) * b;
+}
+
+const SEAM_BLEND = 1; // grid cells (~50 m) on each side of a tile edge where neighbouring tiles are blended
+
+/** Weight of a tile at grid coordinate u (0..max inside it): 1 inside, 0.5 on its edge, 0 SEAM_BLEND cells past it. */
+const seamWeight = (u: number, max: number) =>
+  Math.min(1, Math.max(0, (u + SEAM_BLEND) / (2 * SEAM_BLEND))) * Math.min(1, Math.max(0, (max + SEAM_BLEND - u) / (2 * SEAM_BLEND)));
+
+/**
+ * Ground height at p from a set of tiles, continuous across their edges. Each tile's grid is smoothed
+ * on its own when it's built, so two neighbours can disagree by metres along the edge they share; near
+ * an edge both are blended. Null farther than SEAM_BLEND cells from every tile.
+ */
+export function elevationIn(tiles: Tile[]): (p: LatLon) => number | null {
+  return (p) => {
+    let sum = 0;
+    let weight = 0;
+    for (const t of tiles) {
+      const { u, v } = gridUV(t, p);
+      const w = seamWeight(u, t.elev.cols - 1) * seamWeight(v, t.elev.rows - 1);
+      if (w <= 0) continue;
+      sum += w * bilinear(t, u, v);
+      weight += w;
+    }
+    return weight ? sum / weight : null;
+  };
 }
 
 // ---- along the route ----
@@ -203,6 +241,7 @@ export interface RouteMaqueta {
   profile: RouteProfile | null;
   limits: Uint8Array;
   signs: TileSign[];
+  tiles: Tile[]; // the tiles the route passes through, for the 3D street in Simulación
 }
 
 /** Speed limit in km/h at `d` metres along the route, or null where the maqueta doesn't know it. */
@@ -372,13 +411,7 @@ async function tilesFor(poly: Polyline): Promise<Tile[]> {
 export async function loadRouteMaqueta(poly: Polyline): Promise<RouteMaqueta | null> {
   const tiles = await tilesFor(poly);
   if (!tiles.length) return null;
-  const elevationAt = (p: LatLon) => {
-    for (const t of tiles) {
-      const e = tileElevation(t, p);
-      if (e != null) return e;
-    }
-    return null;
-  };
+  const elevationAt = elevationIn(tiles);
   // A way crossing a tile edge is in both tiles; keep one copy.
   const ways = new Map<string, TileWay>();
   const signs = new Map<string, TileSign>();
@@ -390,5 +423,6 @@ export async function loadRouteMaqueta(poly: Polyline): Promise<RouteMaqueta | n
     profile: RouteProfile.build(poly, elevationAt),
     limits: speedLimits(poly, [...ways.values()]),
     signs: [...signs.values()],
+    tiles,
   };
 }

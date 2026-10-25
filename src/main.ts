@@ -347,6 +347,8 @@ function frame(now: number) {
     elevAlong: maqueta?.profile?.at ?? null,
     signs: signsAheadOf(nav.along),
     arrival: app.arrival ? { p: { lat: app.arrival.lat, lon: app.arrival.lon }, outline: app.arrival.outline, height: app.arrival.height } : null,
+    // Simulación: the street in 3D from the maqueta wherever there is one, instead of the camera.
+    scenery: app.mode === 'sim' ? (maqueta?.tiles ?? null) : null,
   });
   renderHud({
     route,

@@ -171,6 +171,7 @@ function placeCamera() {
   camera.up.set(0, 1, 0);
   camera.lookAt(target);
   camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(); // groundAt and toScreen need the new pose before the next render
 }
 
 function toScreen(p: LatLon, y = 0): { x: number; y: number } {
@@ -210,9 +211,16 @@ function drawLabels() {
   });
 }
 
+let paintedAz = NaN;
+
 function render() {
   frameReq = 0;
   if (!renderer || $('scrMaqueta').hidden) return;
+  if (az !== paintedAz) {
+    paintedAz = az; // face shading depends on which side faces the camera
+    items.forEach(paint);
+    $('mqNorth').style.transform = `rotate(${THREE.MathUtils.radToDeg(az)}deg)`;
+  }
   const w = innerWidth;
   const h = innerHeight;
   const size = renderer.getSize(new THREE.Vector2());
@@ -284,22 +292,62 @@ function pick(clientX: number, clientY: number) {
   if (hit) select(hit.object.userData.item as Item);
 }
 
-// ---------- gestures: drag to pan, pinch or wheel to zoom, tap to select ----------
+// ---------- gestures: like a maps app ----------
+// One finger or the mouse drags the ground. Two fingers pinch, twist and drag at once, anchored where
+// they are. A Mac trackpad pinches and twists too (Safari); in other browsers a sideways two-finger
+// swipe turns it. With the mouse: Ctrl/⌘/⌥/⇧ + drag, or the right button, turns it.
+
+const ROTATE_PER_PX = 0.005; // rad per pixel of a turning drag (~0.3°) or sideways swipe
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const ray = new THREE.Raycaster();
+
+/** The point on the ground (y = 0) under a screen position, for the camera as it is now. */
+function groundAt(x: number, y: number): THREE.Vector3 {
+  ray.setFromCamera(new THREE.Vector2((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1), camera);
+  return ray.ray.intersectPlane(groundPlane, new THREE.Vector3()) ?? target.clone();
+}
+
+/**
+ * Turns by `dAz` and zooms by `k` (metres per pixel × k), keeping the ground that was under (x, y)
+ * under (nx, ny): the content follows the fingers, the cursor or the trackpad.
+ */
+function transformAt(x: number, y: number, dAz: number, k: number, nx = x, ny = y) {
+  placeCamera();
+  const before = groundAt(x, y);
+  az += dAz;
+  scale = Math.min(3, Math.max(0.05, scale * k));
+  placeCamera();
+  target.add(before.sub(groundAt(nx, ny)));
+  redraw();
+}
+
+/** Middle of the free area, where the button turns and the compass pivots. */
+const viewCenter = () => ({ x: innerWidth / 2, y: freeCenter(innerHeight) });
+
+let spin = 0;
+/** Turns smoothly to `to` (radians) around the middle of the view. */
+function turnTo(to: number) {
+  cancelAnimationFrame(spin);
+  const from = az;
+  const t0 = performance.now();
+  const step = (now: number) => {
+    const t = Math.min(1, (now - t0) / 350);
+    const e = 1 - (1 - t) ** 3;
+    const c = viewCenter();
+    transformAt(c.x, c.y, from + (to - from) * e - az, 1);
+    if (t < 1) spin = requestAnimationFrame(step);
+  };
+  spin = requestAnimationFrame(step);
+}
 
 function bindGestures(el: HTMLElement) {
   const pts = new Map<number, { x: number; y: number }>();
   let downAt = { x: 0, y: 0, t: 0 };
   let moved = 0;
-  let pinch = 0;
-  const pan = (dx: number, dy: number) => {
-    const right = new THREE.Vector3(Math.cos(az), 0, -Math.sin(az));
-    const fwd = new THREE.Vector3(-Math.sin(az), 0, -Math.cos(az)); // away from the camera, on the ground
-    target.addScaledVector(right, -dx * scale).addScaledVector(fwd, (dy * scale) / Math.sin(ELEV));
-    redraw();
-  };
-  const zoom = (k: number) => {
-    scale = Math.min(3, Math.max(0.05, scale * k));
-    redraw();
+  let turning = false; // this drag turns the view instead of moving it
+  const pair = () => {
+    const [a, b] = [...pts.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y), ang: Math.atan2(b.y - a.y, b.x - a.x) };
   };
   el.addEventListener('pointerdown', (e) => {
     try {
@@ -307,48 +355,75 @@ function bindGestures(el: HTMLElement) {
     } catch {
       /* synthetic or already released pointer */
     }
+    cancelAnimationFrame(spin);
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pts.size === 1) {
       downAt = { x: e.clientX, y: e.clientY, t: performance.now() };
       moved = 0;
-    }
-    if (pts.size === 2) {
-      const [a, b] = [...pts.values()];
-      pinch = Math.hypot(a.x - b.x, a.y - b.y);
+      turning = e.button === 2 || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey;
     }
   });
   el.addEventListener('pointermove', (e) => {
     const p = pts.get(e.pointerId);
     if (!p) return;
-    const dx = e.clientX - p.x;
-    const dy = e.clientY - p.y;
-    p.x = e.clientX;
-    p.y = e.clientY;
     if (pts.size === 1) {
+      const dx = e.clientX - p.x;
+      const dy = e.clientY - p.y;
       moved += Math.abs(dx) + Math.abs(dy);
-      pan(dx, dy);
+      if (turning) {
+        const c = viewCenter();
+        transformAt(c.x, c.y, -dx * ROTATE_PER_PX, 1);
+      } else transformAt(p.x, p.y, 0, 1, e.clientX, e.clientY);
+      p.x = e.clientX;
+      p.y = e.clientY;
     } else if (pts.size === 2) {
       moved = 99;
-      const [a, b] = [...pts.values()];
-      const d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (pinch) zoom(pinch / d);
-      pinch = d;
+      const a = pair();
+      p.x = e.clientX;
+      p.y = e.clientY;
+      const b = pair();
+      // Twisting the fingers clockwise turns the ground clockwise with them.
+      let dAng = b.ang - a.ang;
+      if (dAng > Math.PI) dAng -= 2 * Math.PI;
+      if (dAng < -Math.PI) dAng += 2 * Math.PI;
+      transformAt(a.x, a.y, dAng, b.d > 0 ? a.d / b.d : 1, b.x, b.y);
     }
   });
   const up = (e: PointerEvent) => {
-    if (!pts.delete(e.pointerId)) return;
-    pinch = 0;
+    pts.delete(e.pointerId);
   };
   // A tap (no drag) selects: the browser's click covers mouse and touch alike.
   el.addEventListener('click', (e) => {
     if (moved < 8 && performance.now() - downAt.t < 600) pick(e.clientX, e.clientY);
   });
+  el.addEventListener('contextmenu', (e) => e.preventDefault()); // the right button turns the view
   el.addEventListener('pointerup', up);
   el.addEventListener('pointercancel', up);
   el.addEventListener('wheel', (e) => {
     e.preventDefault();
-    zoom(Math.exp(e.deltaY * 0.0015));
+    cancelAnimationFrame(spin);
+    const px = e.deltaMode === 1 ? 16 : 1; // lines → pixels
+    if (e.ctrlKey) transformAt(e.clientX, e.clientY, 0, Math.exp(e.deltaY * px * 0.01)); // trackpad pinch
+    else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) transformAt(e.clientX, e.clientY, e.deltaX * px * ROTATE_PER_PX * 0.5, 1); // sideways swipe, or ⇧ + wheel
+    else transformAt(e.clientX, e.clientY, 0, Math.exp(e.deltaY * px * 0.0015));
   }, { passive: false });
+  // Safari on a Mac trackpad: pinch and twist arrive as gesture events (iOS sends them too, along
+  // with the touches the pointer events above already handle, so those are skipped).
+  let last = { scale: 1, rotation: 0 };
+  type Gesture = Event & { scale: number; rotation: number; clientX: number; clientY: number };
+  el.addEventListener('gesturestart', (e) => {
+    e.preventDefault();
+    cancelAnimationFrame(spin);
+    last = { scale: 1, rotation: 0 };
+  });
+  el.addEventListener('gesturechange', (ev) => {
+    ev.preventDefault();
+    if (pts.size > 1) return;
+    const e = ev as Gesture;
+    transformAt(e.clientX, e.clientY, THREE.MathUtils.degToRad(e.rotation - last.rotation), e.scale > 0 ? last.scale / e.scale : 1);
+    last = { scale: e.scale, rotation: e.rotation };
+  });
+  el.addEventListener('gestureend', (e) => e.preventDefault());
 }
 
 // ---------- public ----------
@@ -378,12 +453,14 @@ export async function prepareMaqueta(zone: Zone, dest: LatLon) {
   items.forEach((i) => (i.letter = null));
   byDist.slice(0, 5).forEach((it, k) => (it.letter = LETTERS[k]));
   const inside = items.find((i) => insideOutline(i.b.outline, dest));
-  items.forEach(paint);
+  paintedAz = NaN;
   select(inside ?? byDist[0] ?? null);
   const at = selected ? local(selected.center) : d;
   target.set(at.x, 0, at.z);
   scale = Math.min(scale, 0.35);
-  setText('mqZone', 'Zona demo · toca un edificio');
+  // How to turn it, for the way this device is driven.
+  const touch = matchMedia('(pointer: coarse)').matches;
+  setText('mqZone', touch ? 'Toca un edificio · gira con dos dedos' : 'Toca un edificio · Ctrl + arrastrar para girar');
 }
 
 /** Call after the screen becomes visible (and on resize) so the canvas fits it. */
@@ -391,12 +468,10 @@ export const showMaqueta = () => redraw();
 
 export function initMaqueta(confirm: (c: MaquetaChoice) => void) {
   onConfirm = confirm;
-  if (import.meta.env.DEV) (window as unknown as { __mq: unknown }).__mq = { items: () => items, camera, pick, toScreen };
-  $('mqRotate').onclick = () => {
-    az += Math.PI / 2;
-    items.forEach(paint);
-    redraw();
-  };
+  if (import.meta.env.DEV) (window as unknown as { __mq: unknown }).__mq = { items: () => items, camera, pick, toScreen, groundAt, transformAt, az: () => az };
+  $('mqRotate').onclick = () => turnTo(az + Math.PI / 2);
+  // The compass needle points north; tapping it turns north back up (the shortest way round).
+  $('mqCompass').onclick = () => turnTo(az - Math.atan2(Math.sin(az), Math.cos(az)));
   $('mqGo').onclick = () => {
     if (!selected || !entrances[entIdx]) return toast('Toca un edificio primero');
     const en = entrances[entIdx];

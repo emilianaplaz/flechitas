@@ -1,6 +1,7 @@
 // Destino: the real 2D map seen from above (MapLibre + OpenFreeMap vector tiles, drawn in the app's
 // palette). Shows where you are, the demo zone of the maqueta, hazards and speed bumps, the chosen
-// destination and a preview of the route. Tapping the map picks the destination.
+// destination and a preview of the route. Tapping the map picks the destination, or the origin right
+// after tapping the Desde field.
 // MapLibre (~800 KB) is loaded only when this screen first opens.
 import type { FilterSpecification, GeoJSONSource, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 import { bearing, type LatLon } from '../core/geo.ts';
@@ -10,7 +11,7 @@ import { fetchRoute, formatDistance, type Route } from '../core/route.ts';
 import { app } from '../core/state.ts';
 import { $, setText, toast } from '../core/ui.ts';
 import { allHazards, loadHazards } from '../hazards/ui.ts';
-import { onDest, setDestination } from '../setup.ts';
+import { onDest, setDestination, useSimulation } from '../setup.ts';
 
 type Theme = 'dark' | 'light';
 const PALETTE = {
@@ -31,6 +32,9 @@ let zones: Zone[] = [];
 let here: LatLon | null = null; // this phone's position, when the GPS gives it
 let hereMarker: Marker | null = null;
 let destMarker: Marker | null = null;
+let fromMarker: Marker | null = null;
+let pickFrom = false; // the Desde field was tapped last: the next tap on the map places the origin
+let pickHintShown = false;
 let preview: Route | null = null;
 let previewSeq = 0;
 const empty = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] });
@@ -204,14 +208,43 @@ function watchHere() {
   );
 }
 
-/** Where a drive would start: the typed origin in a simulation, else this phone's GPS. */
+/** Where a drive would start: the chosen origin in a simulation, else this phone's GPS. */
 async function origin(): Promise<LatLon | null> {
-  return app.mode === 'sim' && simFrom ? simFrom : here;
+  return app.mode === 'sim' && app.from ? app.from : here;
 }
-let simFrom: LatLon | null = null;
 export function setSimOrigin(p: LatLon | null) {
-  simFrom = p;
+  app.from = p;
   void syncDest();
+}
+
+/** Origin picked on the map (tap or dragged pin): the drive becomes a simulation from that exact point. */
+async function placeOrigin(p: LatLon) {
+  pickFrom = false;
+  const from = $<HTMLInputElement>('from');
+  from.value = 'Punto en el mapa';
+  app.from = p;
+  useSimulation();
+  void syncDest();
+  const name = await placeName(p);
+  if (app.from === p) from.value = name;
+}
+
+/** The origin pin, shown while a simulation starts somewhere other than here. Drag it to move the origin. */
+function syncFromMarker() {
+  if (!map || !ml) return;
+  const p = app.mode === 'sim' ? app.from : null;
+  if (!p) {
+    fromMarker?.remove();
+    return;
+  }
+  if (!fromMarker) {
+    fromMarker = new ml.Marker({ element: pin('mapFrom'), draggable: true });
+    fromMarker.on('dragend', () => {
+      const ll = fromMarker!.getLngLat();
+      void placeOrigin({ lat: ll.lat, lon: ll.lng });
+    });
+  }
+  fromMarker.setLngLat([p.lon, p.lat]).addTo(map);
 }
 
 /** Destination changed (typed, pasted, shared or tapped): pin, zone, route preview, bottom card. */
@@ -219,6 +252,7 @@ async function syncDest() {
   const d = app.dest;
   const zone = destZone();
   setText('startLabel', zone && !app.arrival ? 'Elegir punto exacto' : 'Conducir');
+  syncFromMarker();
   if (!d) {
     destMarker?.remove();
     destMarker = null;
@@ -329,6 +363,7 @@ export function showDestinoMap(): Promise<void> {
     });
     map.on('click', async (e) => {
       const p = { lat: e.lngLat.lat, lon: e.lngLat.lng };
+      if (pickFrom) return placeOrigin(p);
       setDestination({ point: p, label: 'Punto en el mapa' });
       setDestination({ point: p, label: await placeName(p) }, true);
     });
@@ -345,13 +380,24 @@ export function initDestino() {
   onDest(() => void syncDest());
   // Simulation from a typed origin: the preview starts there too.
   const from = $<HTMLInputElement>('from');
+  from.addEventListener('focus', () => {
+    pickFrom = true;
+    if (!pickHintShown) toast('Escribe el origen o toca el mapa para ponerlo ahí', 3500);
+    pickHintShown = true;
+  });
+  $('dest').addEventListener('focus', () => (pickFrom = false));
   from.addEventListener('change', async () => {
+    pickFrom = false;
     const raw = from.value.trim();
     if (!raw) return setSimOrigin(null);
+    app.from = null; // until the new text is found, so a drive started meanwhile looks it up itself
     try {
-      setSimOrigin((await resolveDestination(raw)).point);
-    } catch {
+      const p = (await resolveDestination(raw)).point;
+      if (from.value.trim() === raw) setSimOrigin(p); // not replaced by a pin meanwhile
+    } catch (e) {
+      if (from.value.trim() !== raw) return;
       setSimOrigin(null);
+      toast(`No encontré el origen: ${(e as Error).message}`, 4000);
     }
   });
   document.querySelectorAll<HTMLInputElement>('input[name=mode]').forEach((r) => r.addEventListener('change', () => void syncDest()));
