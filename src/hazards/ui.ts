@@ -8,11 +8,13 @@ import { $, toast } from '../core/ui.ts';
 import { hazardsAhead, indexOnRoute, type RouteHazard } from './ahead.ts';
 import { BumpWatcher, type BumpEvent } from './bump.ts';
 import { cloudEnabled, flush } from './cloud.ts';
+import { MockMotion } from './mockMotion.ts';
 import { HAZARD_LABEL, HazardStore, type HazardType } from './store.ts';
 
 const hazards = new HazardStore();
 let onRoute: RouteHazard[] = [];
 let watcher: BumpWatcher | null = null;
+let mock: MockMotion | null = null;
 let trail: { t: number; p: LatLon }[] = [];
 let syncTimer = 0;
 const CONFIRM_MS = 8000;
@@ -62,6 +64,8 @@ export async function loadHazards() {
 
 /** Keep a few seconds of positions: a tap on "Hueco" comes after the hit, so the point belongs behind us. */
 export function trackPosition(now: number, p: LatLon) {
+  startMockMotion();
+  if (app.route) mock?.update(app.route.poly, p, app.source?.current(now)?.speed ?? 0);
   if (trail.length && trail[trail.length - 1].p === p) return;
   trail.push({ t: now, p });
   while (trail.length > 1 && now - trail[1].t > 4000) trail.shift();
@@ -75,13 +79,21 @@ function positionAgo(ms: number): LatLon | null {
 }
 
 /** A detected hit is saved unconfirmed (half weight). The hole button lets the driver confirm it without stopping. */
-function onBump(e: BumpEvent) {
+function onBump(e: BumpEvent, simulated = false) {
   // The event ends after the hit; the hazard sits about half its length (plus the quiet wait) behind us.
   const here = positionAgo(e.durationMs / 2 + 120) ?? app.source?.current(performance.now())?.p;
   if (!here) return;
-  const h = hazards.add(e.type, here, { heading: Math.round(app.yaw), source: 'detected' });
+  const extra = { heading: Math.round(app.yaw) };
+  const h = simulated ? hazards.addSimulated(e.type, here, extra) : hazards.add(e.type, here, { ...extra, source: 'detected' });
   reindexHazards();
   offerConfirm(h.id);
+}
+
+/** Simulación and Repetición have no real road under the sensor, so they get the mock instead. Started here because main only starts the real watcher on a GPS drive. */
+function startMockMotion() {
+  if (mock || app.mode === 'gps' || !app.running || !$<HTMLInputElement>('detectBumps').checked) return;
+  mock = new MockMotion((e) => onBump(e, true));
+  toast('Modo de prueba: los baches y policías son simulados y no se guardan.');
 }
 
 /** Call inside the tap handler: iOS only shows the motion permission prompt there. */
@@ -93,6 +105,8 @@ export async function startBumpWatcher() {
 export function stopBumpWatcher() {
   watcher?.stop();
   watcher = null;
+  mock?.stop();
+  mock = null;
 }
 
 /** Begin uploading queued reports in the background. */
@@ -108,6 +122,7 @@ export function stopHazards() {
   void flush({ force: true });
   trail = [];
   hazards.osm = [];
+  hazards.clearSimulated();
   hideConfirm();
 }
 

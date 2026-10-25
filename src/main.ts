@@ -238,7 +238,7 @@ $('start').onclick = async () => {
     // First awaits in the handler: iOS only shows the sensor permission prompts inside the tap.
     // Bump detection is optional: without motion permission the drive still starts, just without it.
     let bumpWarning = '';
-    if ($<HTMLInputElement>('detectBumps').checked && app.mode !== 'replay') {
+    if ($<HTMLInputElement>('detectBumps').checked && app.mode === 'gps') {
       try {
         await startBumpWatcher();
       } catch (e) {
