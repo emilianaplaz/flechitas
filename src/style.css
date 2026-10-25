@@ -1038,3 +1038,248 @@ button.primary { min-height: 52px; border-radius: 14px; font-size: 16px; font-we
 @media (max-width: 400px) { .travelSeg button { padding: 0 8px; gap: 4px; } }
 /* With the iPad chip showing there is no room for the words at 360 px: icons only, the aria-labels keep the names. */
 @media (max-width: 400px) { .driveChips:has(#chipHud:not([hidden])) .travelSeg .lbl { display: none; } .driveChips:has(#chipHud:not([hidden])) .travelSeg button { min-width: 44px; justify-content: center; } }
+
+/* ==========================================================================
+   Entrada: bienvenida con el logo, cuenta y preguntas (src/ui/entry.ts).
+   Dark only, like the rest of the app. Type 14 / 16 / 19 / 32 / 56; weights 500 (text), 700 (labels,
+   buttons), 800 (titles); radii 16 (fields, buttons, messages) and 24 (option cards). The logo's line
+   (thick route, miter joints, ring nodes, one yellow hole) runs through the progress and the drawings.
+   ========================================================================== */
+.entry {
+  --enField: #6e737c; /* field and secondary-button edges: 4:1 on the graphite ground */
+  --enErr: #ff7a6e; /* errors: red, so the brand yellow stays the hole */
+  --enOk: #22e07a;
+  --enCtx: #3a3d43; /* context lines in drawings and the route still to go */
+  position: fixed;
+  inset: 0;
+  z-index: 45; /* above the app's toasts (40): app messages never cover the entry */
+  background: var(--bg);
+  color: var(--text);
+  transition: opacity 0.24s var(--ease);
+}
+.entry.out { opacity: 0; pointer-events: none; }
+.entry ::selection { background: color-mix(in srgb, var(--pri) 45%, transparent); }
+.entry h1 { margin: 0; font-size: 32px; font-weight: 800; line-height: 1.12; letter-spacing: -0.02em; text-wrap: balance; overflow-wrap: anywhere; hyphens: auto; }
+.entry h1:focus { outline: none; }
+#dcTitle:focus { outline: none; } /* focus target when the map opens after the entry */
+#toast { pointer-events: none; }
+
+.enScreen {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  padding: max(16px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) calc(max(24px, env(safe-area-inset-bottom)) + var(--kb, 0px)) max(20px, env(safe-area-inset-left));
+}
+.enScreen:not([hidden]):not(.enWelcome) { animation: enIn 0.26s var(--ease) both; }
+.entry[data-dir='back'] .enScreen:not([hidden]):not(.enWelcome) { animation: enFade 0.18s var(--ease) both; }
+@keyframes enIn { from { opacity: 0.3; translate: 0 12px; } }
+@keyframes enFade { from { opacity: 0.3; } }
+.enTop { flex: none; display: flex; align-items: center; gap: 14px; width: min(440px, 100%); min-height: 48px; margin: 0 auto 8px; }
+.enTop .roundBtn { width: 48px; height: 48px; box-shadow: none; }
+.enBody { flex: 1 0 auto; width: min(440px, 100%); margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.enHead { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: clamp(8px, 6vh, 56px); }
+.enLead { margin: 0; font-size: 16px; font-weight: 500; line-height: 1.45; color: var(--muted); text-wrap: pretty; }
+.enAddr { color: var(--text); font-weight: 700; overflow-wrap: anywhere; }
+.enMini { width: 56px; height: 50px; margin-bottom: 4px; }
+.enNote { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.45; color: var(--muted); }
+/* the main button stays in the thumb zone; messages grow into the space above it */
+.enFoot { display: flex; flex-direction: column; gap: 10px; margin-top: auto; padding-top: 20px; }
+
+/* fields: filled like Destino's, with an edge that reads and a solid focus ring */
+.enField { display: flex; flex-direction: column; gap: 6px; }
+.enField label { font-size: 14px; font-weight: 700; color: var(--muted); }
+.entry .enField input {
+  flex: none;
+  width: 100%;
+  height: 56px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1px solid var(--enField);
+  background: var(--surf);
+  color: var(--text);
+  caret-color: var(--pri);
+  font-size: 16px;
+  font-weight: 700;
+  outline: none;
+  box-shadow: none;
+  transition: border-color 0.2s var(--ease);
+}
+.entry .enField input:focus { border-color: var(--link); background: var(--surf); box-shadow: none; outline: 2px solid var(--link); outline-offset: 2px; }
+.entry .enField input[aria-invalid='true'] { border-color: var(--enErr); }
+.entry .enField input[readonly] { opacity: 0.7; }
+.entry .enField input:-webkit-autofill { -webkit-box-shadow: 0 0 0 40px var(--surf) inset; -webkit-text-fill-color: var(--text); }
+.enPass { position: relative; }
+.entry .enPass input { padding-right: 60px; }
+.enEye { position: absolute; top: 4px; right: 4px; width: 48px; height: 48px; padding: 0; display: grid; place-items: center; border-radius: 12px; color: var(--muted); }
+.enEye:focus-visible { outline-offset: -3px; }
+.enEye[aria-pressed='true'] { color: var(--link); }
+.enEye .eyeSlash { display: none; }
+.enEye[aria-pressed='true'] .eyeSlash { display: inline; }
+.enErr { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--enErr); }
+.enErr:empty { display: none; }
+.enHint { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.4; color: var(--muted); }
+.enLen { display: flex; align-items: center; gap: 6px; transition: color 0.2s var(--ease); }
+.enLen::before {
+  content: '';
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5 L10 17.5 L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5 L10 17.5 L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  visibility: hidden;
+}
+.enLen.ok { color: var(--enOk); }
+.enLen.ok::before { visibility: visible; }
+.enField:has(.enErr:not(:empty)) .enLen { display: none; }
+
+/* messages in a screen */
+.enMsg { padding: 12px 14px; border-radius: 16px; font-size: 16px; font-weight: 500; line-height: 1.4; color: var(--enErr); background: color-mix(in srgb, var(--enErr) 12%, transparent); border: 1px solid color-mix(in srgb, var(--enErr) 45%, transparent); }
+.enMsg:empty { display: none; }
+.enMsg.info { color: var(--text); background: var(--sel); border-color: transparent; }
+.enAct { display: block; min-height: 44px; margin: 6px 0 -8px; padding: 10px 0; color: var(--link); font-size: 16px; font-weight: 700; text-align: left; text-decoration: underline; text-underline-offset: 3px; border-radius: 8px; }
+
+/* buttons: flat, the blue alone carries the main action */
+.entry button.primary { flex: none; min-height: 54px; border-radius: 16px; font-size: 16px; font-weight: 700; background-image: none; box-shadow: none; }
+.entry button[aria-disabled='true'] { opacity: 0.6; cursor: default; }
+.entry button[aria-busy='true'] { opacity: 1; cursor: progress; }
+.entry button[aria-busy='true']::before { content: ''; flex: none; width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid currentColor; border-right-color: transparent; animation: enSpin 0.8s linear infinite; }
+.entry button[aria-disabled='true']:active { scale: 1; }
+@keyframes enSpin { to { rotate: 1turn; } }
+.entry .enBtn { width: 100%; min-height: 54px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; font-weight: 700; border: 1px solid var(--enField); border-radius: 16px; }
+.enNum { display: inline-block; min-width: 4.2em; text-align: start; font-variant-numeric: tabular-nums; color: var(--muted); }
+.enNum:empty { display: none; }
+.enText { align-self: center; min-height: 48px; padding: 12px 14px; color: var(--link); font-size: 16px; font-weight: 700; }
+.enSmall { min-height: 44px; font-size: 14px; color: var(--muted); }
+.enForgot { align-self: flex-end; margin: -10px 0 -6px; padding: 12px 0; }
+.enSwitch { margin: 0; text-align: center; font-size: 16px; font-weight: 500; color: var(--muted); }
+.enLink { min-height: 48px; padding: 12px 4px; color: var(--link); font-size: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+@media (hover: hover) {
+  .entry button.primary:not([aria-disabled='true']):hover { filter: none; background-color: color-mix(in srgb, var(--pri) 86%, #000); }
+  .entry button.primary[aria-disabled='true']:hover { filter: none; }
+  .enText:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .entry .enBtn:not([aria-disabled='true']):hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+  .entry .enBtn[aria-disabled='true']:hover { background: none; }
+}
+
+/* 7 · bienvenida: the logo draws itself while the app loads */
+.enWelcome { align-items: center; }
+.enHudRow { position: absolute; top: max(8px, env(safe-area-inset-top)); left: 0; right: 0; display: flex; justify-content: center; padding: 0 56px; }
+.enHero { flex: 1 0 auto; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding-top: 44px; text-align: center; }
+.enLogo { width: 200px; height: 200px; overflow: visible; margin-bottom: -4px; }
+.entry .enWord { font-size: 56px; letter-spacing: -2px; line-height: 1; }
+.enWord span { color: var(--pri); }
+.enTag { margin: 0; font-size: 16px; font-weight: 500; color: var(--muted); }
+.enStatus { margin: 0; min-height: 1.4em; font-size: 16px; font-weight: 500; color: var(--muted); }
+.enStatus:empty { min-height: 0; }
+.enSlow { margin: 0; font-size: 14px; font-weight: 500; color: var(--muted); display: none; }
+.enSlow a { display: inline-block; padding: 10px 4px; color: var(--link); font-weight: 700; }
+.enWelcome[data-loading] .enSlow { display: block; visibility: hidden; animation: enSlow 0s linear 8s forwards; } /* only CSS: shows even if the app never loads */
+@keyframes enSlow { to { visibility: visible; } }
+.enActions { flex: none; width: min(440px, 100%); display: flex; flex-direction: column; gap: 10px; }
+.enWelcome[data-loading] :is(.enWord, .enTag, .enActions, .enHudRow) { visibility: hidden; }
+.enWelcome:not([data-loading]):not([data-seen]) .enWord { animation: enIn 0.3s var(--ease) both; }
+.enWelcome:not([data-loading]):not([data-seen]) .enTag { animation: enIn 0.3s var(--ease) 0.05s both; }
+.enWelcome:not([data-loading]):not([data-seen]) :is(.enActions, .enHudRow) { animation: enIn 0.3s var(--ease) 0.1s both; }
+
+.lgD1, .lgD2 { stroke: var(--pri); stroke-dasharray: 100; animation: lgDraw 0.42s cubic-bezier(0.55, 0, 0.3, 1) both; }
+.lgD1 { animation-delay: 0.1s; }
+.lgD2 { animation-delay: 0.62s; }
+.lgN1, .lgN2 { stroke: var(--pri); }
+.lgHole { fill: var(--haz); }
+.lgRip { stroke: var(--haz); opacity: 0; }
+.lgN1, .lgN2, .lgHole, .lgRip { transform-box: fill-box; transform-origin: center; }
+.lgN1 { animation: lgPop 0.28s var(--ease) both; }
+.lgHole { animation: lgPop 0.3s var(--ease) 0.48s both; }
+.lgRip { animation: lgRip 0.8s ease-out 0.52s both; } /* the hole's pulse: the one flourish */
+.lgN2 { animation: lgPop 0.28s var(--ease) 0.98s both; }
+.enWelcome[data-drawn] .enLogo * { animation: none; }
+@keyframes lgDraw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes lgPop { from { transform: scale(0.6); opacity: 0; } }
+@keyframes lgRip { from { opacity: 0.9; transform: scale(0.6); } to { opacity: 0; transform: scale(3.4); } }
+
+/* 9 · preguntas: progress drawn as a route, one ring per step */
+.enRoute { flex: 1; min-width: 0; display: flex; align-items: center; }
+.enRoute .s { flex: 1; height: 4px; background: var(--enCtx); transition: background-color 0.3s var(--ease); }
+.enRoute .s.done { background: var(--pri); }
+.enRoute .n { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--enCtx); transition: border-color 0.3s var(--ease), scale 0.3s var(--ease); }
+.enRoute .n.done, .enRoute .n.cur { border-color: var(--pri); }
+.enRoute .n.cur { scale: 1.35; }
+.enCount { flex: none; min-width: 3.6em; text-align: right; font-size: 14px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+#enStep > * { animation: enStep 0.22s var(--ease) both; }
+.entry[data-dir='back'] #enStep > * { animation-name: enFade; animation-duration: 0.16s; }
+@keyframes enStep { from { opacity: 0; translate: 0 8px; } }
+#enStep .enHead { margin-top: 0; }
+
+/* drawings, in the logo's stroke */
+.enArt { flex: 1 1 140px; min-height: 120px; max-height: 240px; display: flex; align-items: center; justify-content: center; }
+.enArt svg { width: min(100%, 300px); height: 100%; max-height: 200px; overflow: visible; }
+.ar-ctx { fill: none; stroke: var(--enCtx); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.ar-frame { stroke-width: 4; stroke-linecap: butt; stroke-linejoin: miter; }
+.ar-code { stroke: var(--muted); stroke-width: 4; stroke-linecap: butt; }
+.ar-dash { stroke-dasharray: 6 6; stroke-linecap: butt; }
+.ar-route { fill: none; stroke: var(--pri); stroke-width: 7; stroke-linecap: butt; stroke-linejoin: miter; }
+.ar-thin { stroke-width: 5; }
+.ar-node { fill: none; stroke: var(--pri); stroke-width: 5; }
+.ar-hole { fill: var(--haz); stroke: none; }
+
+.enOpts { display: flex; flex-direction: column; gap: 12px; }
+.enOpt {
+  width: 100%;
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 24px;
+  border: 1px solid var(--enCtx);
+  background: var(--surf);
+  color: var(--text);
+  text-align: left;
+  transition: border-color 0.2s var(--ease), background-color 0.2s var(--ease), scale 0.15s var(--ease);
+}
+.entry .enOpt:active { scale: 0.98; }
+.enOpt[aria-pressed='true'] { border-color: var(--pri); background: var(--sel); }
+@media (hover: hover) { .enOpt:not([aria-pressed='true']):hover { border-color: var(--enField); } }
+.enOpt .ico { flex: none; width: 48px; height: 48px; display: grid; place-items: center; border-radius: 16px; background: var(--sel); color: var(--link); }
+.enOpt[aria-pressed='true'] .ico { background: var(--pri); color: var(--onpri); }
+.enOpt .txt { flex: 1; min-width: 0; }
+.enOpt b { display: block; font-size: 19px; font-weight: 800; line-height: 1.2; }
+.enOpt small { display: block; margin-top: 3px; font-size: 14px; font-weight: 500; line-height: 1.35; color: var(--muted); }
+.enOpt .chev { flex: none; color: var(--muted); }
+.enWhy { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.enWhy li { display: flex; gap: 12px; align-items: flex-start; font-size: 16px; font-weight: 500; line-height: 1.4; }
+.enWhy svg { flex: none; margin-top: 1px; color: var(--enOk); }
+/* steps to follow: numbered ring nodes, like the route */
+.enSteps { list-style: none; margin: 0; padding: 0; counter-reset: en; display: flex; flex-direction: column; gap: 12px; }
+.enSteps li { counter-increment: en; display: flex; gap: 12px; align-items: flex-start; font-size: 16px; font-weight: 500; line-height: 1.4; }
+.enSteps li::before { content: counter(en); flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; border: 3px solid var(--pri); font-size: 13px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+
+/* phone held sideways: logo beside the buttons, forms in two columns, no drawings */
+@media (orientation: landscape) and (max-height: 540px) {
+  .entry h1 { font-size: 26px; }
+  .enWelcome { flex-direction: row; justify-content: center; gap: 40px; }
+  .enHero { flex: 0 1 auto; gap: 8px; padding-top: 0; }
+  .enLogo { width: 120px; height: 120px; }
+  .entry .enWord { font-size: 44px; }
+  .enActions { width: min(360px, 48%); }
+  .enHead { margin-top: 0; }
+  .enMini { display: none; }
+  .enArt { display: none; }
+  .enBody, .enTop { width: min(720px, 100%); }
+  form.enBody { display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; row-gap: 14px; align-content: start; }
+  form.enBody > * { grid-column: 2; }
+  form.enBody > .enHead { grid-column: 1; grid-row: 1 / span 12; align-self: start; }
+  form.enBody > .enFoot { margin-top: 0; padding-top: 4px; }
+  .enOpts { flex-direction: row; flex-wrap: wrap; }
+  .enOpt { flex: 1 1 220px; align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* everything appears at once, already drawn; the spinner still turns, slowly, so a wait never looks frozen */
+  .entry :is(.enLogo *, .enWord, .enTag, .enActions, .enHudRow, .enScreen, #enStep > *) { animation-delay: 0s !important; }
+  .entry button[aria-busy='true']::before { animation: enSpin 1.6s linear infinite !important; }
+}
