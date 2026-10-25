@@ -683,5 +683,139 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   check('scenery: no tiles, nothing to draw', !sc.set(null) && !sc.covers(at));
 }
 
+// ---- accounts: sign up, sign in, refresh, sign out against a fake Supabase Auth ----
+{
+  const { createAuthClient, SESSION_KEY } = await import('../src/auth/session.ts');
+  type Req = { method: string; path: string; body: Record<string, unknown> | null; headers: Record<string, string> };
+  type Handler = (r: Req) => { status: number; body?: unknown } | 'offline';
+  const PASSWORD = 'correct-horse-9';
+  const userOf = (meta?: string) => ({ id: 'u-1', email: 'ana@example.com', ...(meta ? { user_metadata: { display_name: meta } } : {}) });
+  const tokens = (n: number, expiresIn = 3600, meta = 'Ana') => ({ status: 200, body: { access_token: `at-${n}`, refresh_token: `rt-${n}`, expires_in: expiresIn, user: userOf(meta) } });
+  const rig = (handler: Handler, store = new Map<string, string>(), t0 = 1_000_000) => {
+    const calls: Req[] = [];
+    let clock = t0;
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input).replace('https://x.supabase.co', '');
+      const req: Req = { method: init?.method ?? 'GET', path: u, body: init?.body ? JSON.parse(String(init.body)) : null, headers: (init?.headers ?? {}) as Record<string, string> };
+      calls.push(req);
+      const r = handler(req);
+      if (r === 'offline') throw new TypeError('Failed to fetch');
+      return { status: r.status, ok: r.status >= 200 && r.status < 300, json: async () => r.body ?? {} } as Response;
+    }) as typeof fetch;
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+    const client = () => createAuthClient({ config: { url: 'https://x.supabase.co', key: 'sb_publishable_abc' }, fetch: fakeFetch, storage, now: () => clock });
+    return { calls, store, client, advance: (ms: number) => (clock += ms) };
+  };
+  const happy: Handler = (r) => (r.path.startsWith('/rest/v1/profiles') ? { status: 200, body: [{ display_name: 'Ana P' }] } : r.path.startsWith('/auth/v1/logout') ? { status: 204 } : tokens(1));
+
+  {
+    const t = rig(happy);
+    const c = t.client();
+    const out = await c.signUp({ email: ' ana@example.com ', password: PASSWORD, displayName: 'Ana' });
+    const s = c.state();
+    check('auth: sign up with a session signs in and stores it', out.ok && s.kind === 'signedIn' && JSON.parse(t.store.get(SESSION_KEY)!).accessToken === 'at-1');
+    const signup = t.calls.find((x) => x.path === '/auth/v1/signup')!;
+    check('auth: sign up sends the display name and trims the email', JSON.stringify(signup.body?.data) === '{"display_name":"Ana"}' && signup.body?.email === 'ana@example.com');
+    check('auth: publishable key goes in apikey only', signup.headers.apikey === 'sb_publishable_abc' && !('authorization' in signup.headers));
+    const profile = t.calls.find((x) => x.path.startsWith('/rest/v1/profiles'))!;
+    check('auth: profile read uses the user token', profile.headers.authorization === 'Bearer at-1' && profile.path.includes('id=eq.u-1'));
+    check('auth: the profile name wins over sign-in metadata', s.kind === 'signedIn' && s.session.user.displayName === 'Ana P');
+    check('auth: password is never written to storage', [...t.store.values()].every((v) => !v.includes(PASSWORD)));
+  }
+  {
+    const t = rig((r) => (r.path === '/auth/v1/signup' ? { status: 200, body: userOf() } : { status: 500 }));
+    const c = t.client();
+    const out = await c.signUp({ email: 'ana@example.com', password: PASSWORD, displayName: 'Ana' });
+    const s = c.state();
+    check('auth: sign up without a session needs confirmation', out.ok && s.kind === 'needsConfirmation' && s.email === 'ana@example.com' && t.store.size === 0);
+    c.dismissConfirmation();
+    check('auth: dismissing the confirmation returns to signed out', c.state().kind === 'signedOut');
+  }
+  {
+    const t = rig((r) => (r.path.startsWith('/rest/v1/profiles') ? { status: 404 } : tokens(1, 3600, 'Ana')));
+    const c = t.client();
+    await c.signIn({ email: 'ana@example.com', password: PASSWORD });
+    const grant = t.calls.find((x) => x.path === '/auth/v1/token?grant_type=password');
+    check('auth: sign in hits the password grant', !!grant && grant.body?.password === PASSWORD);
+    check('auth: name falls back to sign-in metadata when the profile read fails', c.state().kind === 'signedIn' && (c.state() as { session: { user: { displayName: string } } }).session.user.displayName === 'Ana');
+    const fresh = rig(() => ({ status: 500 }), t.store).client();
+    await fresh.restore();
+    check('auth: a fresh client restores the stored session', fresh.state().kind === 'signedIn');
+    check('auth: no password anywhere in storage after sign in', [...t.store.values()].every((v) => !v.includes(PASSWORD)));
+  }
+  {
+    const t = rig((r) => (r.path.startsWith('/auth/v1/token') ? { status: 400, body: { error_code: 'invalid_credentials', msg: 'Invalid login credentials' } } : { status: 500 }));
+    const c = t.client();
+    const out = await c.signIn({ email: 'ana@example.com', password: 'wrong-password' });
+    check('auth: wrong password gives a Spanish message and stays signed out', !out.ok && out.message === 'Correo o contraseña incorrectos.' && c.state().kind === 'signedOut' && t.store.size === 0);
+  }
+  {
+    const cases: [number, unknown, string][] = [
+      [422, { error_code: 'user_already_exists', msg: 'User already registered' }, 'Ese correo ya tiene una cuenta'],
+      [422, { error_code: 'weak_password', msg: 'Password should be at least 6 characters' }, 'muy débil'],
+      [400, { error_code: 'email_not_confirmed', msg: 'Email not confirmed' }, 'confirmaste tu correo'],
+      [429, { error_code: 'over_request_rate_limit', msg: 'rate limit' }, 'Demasiados intentos'],
+      [500, { msg: 'boom <internal detail>' }, 'No se pudo completar'],
+    ];
+    for (const [status, body, expect] of cases) {
+      const c = rig(() => ({ status, body })).client();
+      const out = await c.signIn({ email: 'ana@example.com', password: PASSWORD });
+      check(`auth: ${status} maps to a Spanish message (${expect})`, !out.ok && out.message.includes(expect) && !out.message.includes('internal'), out.ok ? '' : out.message);
+    }
+    const off = await rig(() => 'offline').client().signIn({ email: 'ana@example.com', password: PASSWORD });
+    check('auth: offline gives the network message', !off.ok && off.code === 'network' && off.message.startsWith('No hay conexión'));
+    const short = rig(() => ({ status: 500 }));
+    const out = await short.client().signUp({ email: 'ana@example.com', password: 'short', displayName: '' });
+    check('auth: a short password is rejected before any request', !out.ok && out.code === 'passwordTooShort' && short.calls.length === 0);
+    const none = createAuthClient({ config: null, fetch: (() => { throw new Error('no network expected'); }) as typeof fetch, storage: { getItem: () => null, setItem() {}, removeItem() {} } });
+    const o = await none.signIn({ email: 'ana@example.com', password: PASSWORD });
+    check('auth: without server config nothing throws and the user is told', !o.ok && o.code === 'notConfigured' && none.state().kind === 'signedOut');
+  }
+  {
+    const live = rig(happy);
+    await live.client().signIn({ email: 'ana@example.com', password: PASSWORD });
+    const stored = live.store.get(SESSION_KEY)!;
+    const refreshCalls = (t: ReturnType<typeof rig>) => t.calls.filter((x) => x.path === '/auth/v1/token?grant_type=refresh_token').length;
+
+    const far = rig(happy, new Map([[SESSION_KEY, stored]]), 1_000_000);
+    const farClient = far.client();
+    await farClient.restore();
+    const startup = refreshCalls(far);
+    await farClient.ensureFresh();
+    check('auth: startup refreshes once, then not while far from expiry', startup === 1 && refreshCalls(far) === 1);
+    far.advance(3600_000 - 30_000);
+    await farClient.ensureFresh();
+    check('auth: refresh is called when expiry is under 60 s away', refreshCalls(far) === 2);
+    const rotated = JSON.parse(far.store.get(SESSION_KEY)!);
+    check('auth: refreshed tokens are stored and the name is kept', rotated.refreshToken === 'rt-1' && rotated.user.displayName === 'Ana P');
+
+    for (const status of [400, 401]) {
+      const t = rig((r) => (r.path.includes('refresh_token') ? { status, body: { error_code: 'refresh_token_not_found' } } : { status: 500 }), new Map([[SESSION_KEY, stored]]));
+      const c = t.client();
+      await c.restore();
+      check(`auth: refresh failing with ${status} signs out and clears storage`, c.state().kind === 'signedOut' && t.store.size === 0);
+    }
+    const flaky = rig(() => 'offline', new Map([[SESSION_KEY, stored]]));
+    const fc = flaky.client();
+    await fc.restore();
+    check('auth: refresh failing offline keeps the session', fc.state().kind === 'signedIn' && flaky.store.has(SESSION_KEY));
+
+    const out = rig((r) => (r.path.startsWith('/auth/v1/logout') ? 'offline' : { status: 500 }), new Map([[SESSION_KEY, stored]]));
+    const oc = out.client();
+    await oc.restore();
+    await oc.signOut();
+    check('auth: sign out clears storage even if the logout call fails', oc.state().kind === 'signedOut' && out.store.size === 0 && out.calls.some((x) => x.path === '/auth/v1/logout'));
+    check('auth: logout sends the access token', out.calls.find((x) => x.path === '/auth/v1/logout')?.headers.authorization?.startsWith('Bearer ') === true);
+  }
+  {
+    for (const junk of ['{not json', '{"accessToken":1}', 'null', '[]', JSON.stringify({ accessToken: 'a', refreshToken: 'r', expiresAt: 'soon', user: {} })]) {
+      const t = rig(() => ({ status: 500 }), new Map([[SESSION_KEY, junk]]));
+      const c = t.client();
+      await c.restore();
+      check(`auth: corrupted stored session ignored (${junk.slice(0, 14)})`, c.state().kind === 'signedOut' && t.calls.length === 0 && t.store.size === 0);
+    }
+  }
+}
+
 console.log(failed ? `\n${failed} failed` : '\nall passed');
 process.exit(failed ? 1 : 0);
