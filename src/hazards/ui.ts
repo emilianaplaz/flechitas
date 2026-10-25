@@ -15,6 +15,27 @@ let onRoute: RouteHazard[] = [];
 let watcher: BumpWatcher | null = null;
 let trail: { t: number; p: LatLon }[] = [];
 let syncTimer = 0;
+const CONFIRM_MS = 8000;
+let confirmTarget: string | null = null;
+let confirmTimer = 0;
+
+function hideConfirm() {
+  clearTimeout(confirmTimer);
+  confirmTarget = null;
+  $('confirmHole').hidden = true;
+}
+
+/** Shows the hole button for the newest detection. A newer one retargets it and restarts the countdown ring. */
+function offerConfirm(id: string) {
+  const btn = $('confirmHole');
+  confirmTarget = id;
+  clearTimeout(confirmTimer);
+  confirmTimer = window.setTimeout(hideConfirm, CONFIRM_MS);
+  btn.style.setProperty('--confirm-ms', `${CONFIRM_MS}ms`);
+  btn.hidden = true;
+  void btn.offsetWidth; // reflow so the entrance and the ring animation restart
+  btn.hidden = false;
+}
 
 /** Recompute which hazards lie on the current route. Call after the route or the store changes. */
 export function reindexHazards() {
@@ -53,15 +74,14 @@ function positionAgo(ms: number): LatLon | null {
   return found;
 }
 
-/** Nobody answers a prompt while driving: a hit that clears the detector's thresholds is saved as is. */
+/** A detected hit is saved unconfirmed (half weight). The hole button lets the driver confirm it without stopping. */
 function onBump(e: BumpEvent) {
   // The event ends after the hit; the hazard sits about half its length (plus the quiet wait) behind us.
   const here = positionAgo(e.durationMs / 2 + 120) ?? app.source?.current(performance.now())?.p;
   if (!here) return;
-  hazards.add(e.type, here, { heading: Math.round(app.yaw), source: 'detected' });
+  const h = hazards.add(e.type, here, { heading: Math.round(app.yaw), source: 'detected' });
   reindexHazards();
-  navigator.vibrate?.(40);
-  toast(`${HAZARD_LABEL[e.type]} guardado`);
+  offerConfirm(h.id);
 }
 
 /** Call inside the tap handler: iOS only shows the motion permission prompt there. */
@@ -88,6 +108,7 @@ export function stopHazards() {
   void flush({ force: true });
   trail = [];
   hazards.osm = [];
+  hideConfirm();
 }
 
 export function initHazardUi() {
@@ -102,6 +123,14 @@ export function initHazardUi() {
       navigator.vibrate?.(60);
     }),
   );
+  $('confirmHole').onclick = () => {
+    if (confirmTarget && hazards.confirm(confirmTarget)) {
+      reindexHazards();
+      navigator.vibrate?.(40);
+      toast('Hueco confirmado');
+    }
+    hideConfirm();
+  };
   $('undoReport').onclick = () => {
     const h = hazards.undoLast();
     reindexHazards();
