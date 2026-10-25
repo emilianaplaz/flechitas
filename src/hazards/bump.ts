@@ -1,6 +1,8 @@
 // Detects potholes and speed bumps from the phone's accelerometer.
-// Heuristic, tuned by reasoning rather than field data. Nobody confirms a hit, so a jolt is reported only when
-// it is hard AND its shape is unmistakably one or the other; anything in between is dropped.
+// Heuristic, tuned by reasoning rather than field data. Every plausible hit is reported with a best-guess type
+// and saved unconfirmed (half weight). Clustering by place and weight sorts out wrong guesses, and the driver can
+// confirm a hole with the button. Two shapes are plausible: a hard jolt, or at slow speed a gentle, longer
+// lift-then-descend that looks like a speed bump. Everything else (road noise, footsteps, rough asphalt) is ignored.
 import type { HazardType } from './store.ts';
 
 export interface BumpEvent {
@@ -10,14 +12,20 @@ export interface BumpEvent {
   speed: number; // m/s when the jolt began
 }
 
-const START = 3.5; // m/s²: vertical jolt that opens an event (rough asphalt stays below this)
+const START = 2.0; // m/s²: vertical movement that opens an event; the shape and peak tests below filter it
 const QUIET = 1.5; // below this the event is over once it stays there for QUIET_MS
 const QUIET_MS = 120;
 const MAX_EVENT_MS = 600;
+const MAX_EVENT_SLOW_MS = 1500; // a bump crossed slowly takes longer
 const MIN_PEAK = 5.5; // m/s²: the hardest lobe must reach this, so mild movement is never reported
 const MIN_COUNTER = 2.5; // m/s²: a bump needs a real descent after the lift
 const SHORT_MS = 250; // a pothole is over in less than this; a speed bump (front then rear axle) lasts longer
-const MIN_SPEED = 4; // m/s (~14 km/h): rules out footsteps and a phone being handled
+const MIN_SPEED = 4; // m/s (~14 km/h): hard jolts below this are footsteps or a phone being handled
+const MIN_SLOW_SPEED = 2.5; // m/s: the soft speed-bump path needs at least this
+const SLOW_SPEED = 7; // m/s (~25 km/h): above this a speed bump would jolt hard, so a soft lobe is just road
+const SOFT_PEAK = 2.0; // m/s²: smallest lobe of the soft path
+const SOFT_MIN_MS = 300; // lift plus descent of a bump crossed slowly
+const SOFT_COUNTER = 1.2; // m/s²: the descent after the lift
 const REFRACTORY_MS = 3000;
 const GRAVITY_TAU_MS = 1000;
 
@@ -53,18 +61,23 @@ export class BumpDetector {
     e.up = Math.max(e.up, v);
     e.down = Math.max(e.down, -v);
     if (mag >= QUIET) e.lastLoud = tMs;
-    if (tMs - e.lastLoud < QUIET_MS && tMs - e.t0 < MAX_EVENT_MS) return null;
+    const maxMs = e.speed < SLOW_SPEED ? MAX_EVENT_SLOW_MS : MAX_EVENT_MS;
+    if (tMs - e.lastLoud < QUIET_MS && tMs - e.t0 < maxMs) return null;
 
     this.open = null;
     const peak = Math.max(e.up, e.down);
     const dur = e.lastLoud - e.t0;
-    if (peak < MIN_PEAK || e.speed < MIN_SPEED || tMs - this.lastEventT < REFRACTORY_MS) return null;
-    // A pothole drops the phone first and then slams up, all within a quarter second.
-    // A speed bump lifts it first, comes back down, and lasts longer. Mixed shapes are not reported.
+    if (tMs - this.lastEventT < REFRACTORY_MS) return null;
     let type: BumpEvent['type'];
-    if (e.sign < 0 && dur < SHORT_MS && e.up >= MIN_PEAK && e.up > e.down) type = 'hueco';
-    else if (e.sign > 0 && dur >= SHORT_MS && e.down >= MIN_COUNTER) type = 'policia';
-    else return null;
+    if (peak >= MIN_PEAK && e.speed >= MIN_SPEED) {
+      // A pothole drops the phone first and then slams up, within a quarter second.
+      // A speed bump lifts it first, comes back down, and lasts longer. A mixed shape gets the nearer guess.
+      if (e.sign < 0 && dur < SHORT_MS && e.up >= MIN_PEAK && e.up > e.down) type = 'hueco';
+      else if (e.sign > 0 && dur >= SHORT_MS && e.down >= MIN_COUNTER) type = 'policia';
+      else type = dur < SHORT_MS ? 'hueco' : 'policia';
+    } else if (e.speed >= MIN_SLOW_SPEED && e.speed < SLOW_SPEED && e.sign > 0 && dur >= SOFT_MIN_MS && e.down >= SOFT_COUNTER && peak >= SOFT_PEAK) {
+      type = 'policia';
+    } else return null;
     this.lastEventT = tMs;
     return { type, peak, durationMs: dur, speed: e.speed };
   }
