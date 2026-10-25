@@ -949,6 +949,7 @@ button.primary { min-height: 52px; border-radius: 14px; font-size: 16px; font-we
 .placeRow .ghost { padding: 0 18px; height: 40px; flex: none; }
 .placeRow .fX { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; }
 .placesEmpty { margin-top: 8px; }
+.placesSync { margin: 12px 0 0; font-size: 13px; }
 .placeDist { color: var(--text); font-weight: 700; }
 .placeInput { height: 38px; font-size: 16px; font-weight: 700; }
 .placeRow .fX { font-size: 16px; }

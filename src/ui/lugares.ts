@@ -4,8 +4,10 @@ import { haversine } from '../core/geo.ts';
 import { formatDistance } from '../core/route.ts';
 import { $, toast } from '../core/ui.ts';
 import { loadPins, removePin, renamePin } from '../find/pins.ts';
+import { cloudEnabled } from '../hazards/cloud.ts';
 import { setDestination } from '../setup.ts';
 import { getHere, refreshSavedPins } from './destino.ts';
+import { syncStatus } from './syncPins.ts';
 
 const button = (cls: string, text: string, attrs: Record<string, string>) => {
   const b = document.createElement('button');
@@ -16,7 +18,21 @@ const button = (cls: string, text: string, attrs: Record<string, string>) => {
   return b;
 };
 
+const SYNC_TEXT = {
+  signedOut: 'Entra en Cuenta para guardar tus lugares en la nube.',
+  synced: 'Sincronizado con tu cuenta.',
+  syncing: 'Sincronizando…',
+} as const;
+
+export function renderSyncStatus() {
+  const s = syncStatus();
+  const line = $('placesSync');
+  line.hidden = !cloudEnabled || s === 'off';
+  line.textContent = s === 'off' ? '' : SYNC_TEXT[s];
+}
+
 export function renderLugares() {
+  renderSyncStatus();
   const pins = loadPins();
   const list = $('placesList');
   list.hidden = pins.length === 0;

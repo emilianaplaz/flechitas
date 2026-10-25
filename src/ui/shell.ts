@@ -4,8 +4,9 @@ import { $ } from '../core/ui.ts';
 import { getCalib, onCalibChange, setCalibValue } from '../render/calibDock.ts';
 import type { Calib } from '../render/calib.ts';
 import { initAccount } from '../auth/ui.ts';
-import { showDestinoMap } from './destino.ts';
-import { initDestShortcut, initLugares, renderLugares } from './lugares.ts';
+import { refreshSavedPins, showDestinoMap } from './destino.ts';
+import { initDestShortcut, initLugares, renderLugares, renderSyncStatus } from './lugares.ts';
+import { initPinsSync } from './syncPins.ts';
 import { showMaqueta } from './maqueta.ts';
 
 export type Screen = 'destino' | 'maqueta' | 'dispositivos';
@@ -52,6 +53,10 @@ export function initShell() {
   onCalibChange(renderCalib);
   initLugares(() => go('destino'));
   initDestShortcut();
+  initPinsSync(() => {
+    refreshSavedPins();
+    renderLugares();
+  }, renderSyncStatus);
   initAccount();
   go('destino');
 }
