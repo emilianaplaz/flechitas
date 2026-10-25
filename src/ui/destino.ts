@@ -11,6 +11,7 @@ import { fetchRoute, formatDistance, type Route } from '../core/route.ts';
 import { app } from '../core/state.ts';
 import { $, setText, toast } from '../core/ui.ts';
 import { allHazards, loadHazards } from '../hazards/ui.ts';
+import { addPin, loadPins } from '../find/pins.ts';
 import { onDest, setDestination, useSimulation } from '../setup.ts';
 
 type Theme = 'dark' | 'light';
@@ -303,6 +304,57 @@ async function syncDest() {
   }
 }
 
+/** Saved places ("Guardar este lugar") as pins on the map; tapping one makes it the destination. */
+const savedMarkers = new Map<string, Marker>();
+export function refreshSavedPins() {
+  if (!map || !ml) return;
+  const pins = loadPins();
+  for (const [id, m] of savedMarkers) {
+    if (pins.some((x) => x.id === id)) continue;
+    m.remove();
+    savedMarkers.delete(id);
+  }
+  for (const x of pins) {
+    const known = savedMarkers.get(x.id);
+    if (known) {
+      known.getElement().dataset.label = x.label; // renamed in Ajustes
+      continue;
+    }
+    const el = pin('mapSaved');
+    el.dataset.label = x.label;
+    el.addEventListener('click', (e) => {
+      e.stopPropagation(); // not a map tap: the destination is this exact place
+      setDestination({ point: x.p, label: x.label });
+    });
+    savedMarkers.set(x.id, new ml.Marker({ element: el }).setLngLat([x.p.lon, x.p.lat]).addTo(map));
+  }
+}
+
+async function savePlace() {
+  let spot = here;
+  let note = '';
+  if (!spot) {
+    try {
+      const p = await new Promise<GeolocationPosition>((ok, no) => navigator.geolocation.getCurrentPosition(ok, no, { maximumAge: 60000, timeout: 8000 }));
+      setHere(p.coords);
+      spot = here;
+    } catch (e) {
+      if ((e as GeolocationPositionError).code === 1) {
+        return toast('El navegador bloqueó tu ubicación. Toca el candado junto a la dirección y permite "Ubicación".', 6000);
+      }
+      // No GPS (a laptop, say): the pin goes where the map is centered.
+      const c = map?.getCenter();
+      if (!c) return toast('Todavía no tengo tu ubicación');
+      spot = { lat: c.lat, lon: c.lng };
+      note = ' (sin GPS: en el centro del mapa)';
+    }
+  }
+  if (!spot) return;
+  const saved = addPin(spot, null);
+  refreshSavedPins();
+  toast(`${saved.label} guardado${note}`, note ? 5000 : 2600);
+}
+
 /** Name for a tapped point (street and number), or its coordinates. */
 async function placeName(p: LatLon): Promise<string> {
   try {
@@ -379,6 +431,7 @@ export function showDestinoMap(): Promise<void> {
     });
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
     watchHere();
+    refreshSavedPins();
     void loadZones();
     void loadHazards().then(refreshHazards).catch(() => {});
     if (app.dest) void syncDest();
@@ -411,15 +464,9 @@ export function initDestino() {
     }
   });
   document.querySelectorAll<HTMLInputElement>('input[name=mode]').forEach((r) => r.addEventListener('change', () => void syncDest()));
+  $('savePlace').onclick = () => void savePlace();
   $('recenter').onclick = () => {
     if (here) map?.easeTo({ center: [here.lon, here.lat], zoom: 16 });
     else toast('Todavía no tengo tu ubicación');
   };
-  const layer = (btn: string, key: 'holes' | 'bumps') =>
-    $(btn).addEventListener('click', () => {
-      visible[key] = $(btn).getAttribute('aria-pressed') === 'true';
-      map?.setLayoutProperty(key, 'visibility', visible[key] ? 'visible' : 'none');
-    });
-  layer('layerHoles', 'holes');
-  layer('layerBumps', 'bumps');
 }

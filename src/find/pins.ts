@@ -38,6 +38,11 @@ export function addPin(p: LatLon, acc: number | null, now = Date.now()): Pin {
   return pin;
 }
 
+export function renamePin(id: string, label: string) {
+  const name = label.trim().slice(0, 40);
+  if (name) save(loadPins().map((x) => (x.id === id ? { ...x, label: name } : x)));
+}
+
 export function removePin(id: string) {
   save(loadPins().filter((x) => x.id !== id));
 }

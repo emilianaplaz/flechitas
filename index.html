@@ -32,11 +32,12 @@
               <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" class="icoDest" /><circle cx="9" cy="9" r="2.5" class="icoDestDot" /></svg>
               <label for="dest" class="vh">A dónde vas</label>
               <input id="dest" class="accent" type="text" autocomplete="off" placeholder="¿A dónde vas?" />
+              <button id="placesBtn" class="iconBtn" type="button" aria-label="Lugares guardados" aria-haspopup="listbox" aria-expanded="false">
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 L14.6 9 L20.5 9.7 L16.1 13.8 L17.3 19.7 L12 16.8 L6.7 19.7 L7.9 13.8 L3.5 9.7 L9.4 9 Z" fill="none" stroke-width="2.2" stroke-linejoin="round" /></svg>
+              </button>
             </div>
           </div>
-          <button id="paste" class="iconBtn" type="button" aria-label="Pegar un enlace de Google Maps o Waze">
-            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4" width="12" height="17" rx="2.5" fill="none" stroke-width="2" /><path d="M9 4 V3 H15 V4 M9 10 H15 M9 14 H13" fill="none" stroke-width="2" stroke-linecap="round" /></svg>
-          </button>
+          <div id="destPlaces" class="placeMenu surface" role="listbox" aria-label="Lugares guardados" hidden></div>
         </div>
         <div class="modeRow">
           <div class="seg" role="group" aria-label="Cómo vas">
@@ -49,13 +50,14 @@
               Manejar
             </button>
           </div>
-          <button id="recenter" class="roundBtn" type="button" aria-label="Centrar en mi ubicación">
-            <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="4" fill="none" stroke-width="2.2" /><path d="M11 1 V5 M11 17 V21 M1 11 H5 M17 11 H21" stroke-width="2.2" stroke-linecap="round" /></svg>
-          </button>
-        </div>
-        <div class="layerChips" role="group" aria-label="Capas del mapa">
-          <button id="layerHoles" class="layerChip haz" type="button" aria-pressed="true"><span class="dot" aria-hidden="true"></span>Huecos</button>
-          <button id="layerBumps" class="layerChip bump" type="button" aria-pressed="true"><span class="bar" aria-hidden="true"></span>Policías acostados</button>
+          <div class="mapBtns">
+            <button id="savePlace" class="roundBtn" type="button" aria-label="Guardar este lugar" title="Guardar este lugar">
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21 C12 21 5 14.8 5 9.5 A7 7 0 0 1 19 9.5 C19 14.8 12 21 12 21 Z M12 6.8 V12.2 M9.3 9.5 H14.7" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+            <button id="recenter" class="roundBtn" type="button" aria-label="Centrar en mi ubicación">
+              <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="4" fill="none" stroke-width="2.2" /><path d="M11 1 V5 M11 17 V21 M1 11 H5 M17 11 H21" stroke-width="2.2" stroke-linecap="round" /></svg>
+            </button>
+          </div>
         </div>
         <div class="destCard surface">
           <div class="dcText">
@@ -106,10 +108,22 @@
             <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </button>
           <div class="phText">
-            <h1>Dispositivos</h1>
-            <span class="muted">Vincula el iPad y calibra la cámara</span>
+            <h1>Ajustes</h1>
+            <span class="muted">Dispositivos y lugares guardados</span>
           </div>
         </header>
+
+        <div class="seg setTabs" role="tablist" aria-label="Secciones de ajustes">
+          <button id="tabDev" type="button" role="tab" aria-pressed="true">Dispositivos</button>
+          <button id="tabPlaces" type="button" role="tab" aria-pressed="false">Lugares guardados</button>
+        </div>
+
+        <div id="panPlaces" hidden>
+          <div id="placesList" class="listCard surface"></div>
+          <p id="placesEmpty" class="sub placesEmpty">Aún no guardaste ningún lugar. En el mapa, toca el botón del marcador para guardar donde estás.</p>
+        </div>
+
+        <div id="panDev">
 
         <div class="listCard surface">
           <div class="devRow">
@@ -185,6 +199,7 @@
           </div>
           <button id="beHud" class="ghost wide" type="button">Usar esta pantalla como HUD del parabrisas</button>
         </details>
+        </div>
       </div>
 
       <nav class="bottomNav" aria-label="Navegación principal">

@@ -890,3 +890,77 @@ button.primary { min-height: 52px; border-radius: 14px; font-size: 16px; font-we
   .bottomNav { left: 50%; right: auto; width: 520px; margin-left: -260px; bottom: 14px; border-radius: 30px; border-bottom: 1px solid var(--line); padding: 0 16px; }
   .page { padding-left: max(16px, calc((100vw - 640px) / 2)); padding-right: max(16px, calc((100vw - 640px) / 2)); }
 }
+
+/* ---------- map: save-this-spot button and saved places ---------- */
+.mapBtns { display: flex; gap: 10px; }
+.mapSaved {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--glass);
+  border: 3px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--glass), 0 0 16px color-mix(in srgb, var(--glass) 60%, transparent);
+  cursor: pointer;
+  animation: popIn 0.5s var(--ease-spring) both;
+}
+.mapSaved::after {
+  content: attr(data-label);
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  translate: -50% 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---------- Ajustes: tabs and saved places ---------- */
+.setTabs { align-self: flex-start; margin-bottom: 18px; width: fit-content; }
+.setTabs button { padding: 9px 16px; }
+.placeRow .devText { gap: 2px; }
+.placeRow .ghost { padding: 0 18px; height: 40px; flex: none; }
+.placeRow .fX { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; }
+.placesEmpty { margin-top: 8px; }
+.placeDist { color: var(--text); font-weight: 700; }
+.placeInput { height: 38px; font-size: 16px; font-weight: 700; }
+.placeRow .fX { font-size: 16px; }
+
+/* ---------- "¿A dónde vas?" saved-places shortcut ---------- */
+.searchCard { z-index: 3; }
+.placeMenu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 8px;
+  padding: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: 20px;
+  background-color: var(--panel);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  backdrop-filter: blur(22px) saturate(1.4);
+  animation: dropIn 0.3s var(--ease) both;
+}
+.placeMenu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  text-align: left;
+  font-weight: 700;
+}
+.placeMenu button::before { content: ''; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--glass); box-shadow: 0 0 10px var(--glass); }
+.pmName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmDist { flex: none; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (hover: hover) { .placeMenu button:hover { background: color-mix(in srgb, var(--text) 8%, transparent); } }
+#placesBtn { color: var(--muted); transition: color 0.25s var(--ease), background-color 0.25s var(--ease); }
+#placesBtn[aria-expanded='true'] { color: var(--link); background: var(--sel); }
