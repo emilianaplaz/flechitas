@@ -2,7 +2,7 @@
 import { app } from '../core/state.ts';
 import { $, toast } from '../core/ui.ts';
 import { DriveRecorder } from './recorder.ts';
-import { RouteSim, TrackReplay } from './sources.ts';
+import { RouteSim, TrackReplay, VideoRouteSource } from './sources.ts';
 
 export const recorder = new DriveRecorder();
 
@@ -27,7 +27,7 @@ export function initDriveControls() {
     if (source instanceof RouteSim) {
       source.paused = !source.paused;
       $('simPause').textContent = source.paused ? 'Seguir' : 'Pausar';
-    } else if (source instanceof TrackReplay) {
+    } else if (source instanceof TrackReplay || source instanceof VideoRouteSource) {
       if (video.paused) void video.play();
       else video.pause();
       $('simPause').textContent = video.paused ? 'Seguir' : 'Pausar';
@@ -36,6 +36,6 @@ export function initDriveControls() {
   $('simSpeed').addEventListener('input', () => {
     const v = +$<HTMLInputElement>('simSpeed').value;
     $('simSpeedVal').textContent = `${v} km/h`;
-    if (app.source instanceof RouteSim) app.source.speedKmh = v;
+    if (app.source instanceof RouteSim || app.source instanceof VideoRouteSource) app.source.speedKmh = v;
   });
 }

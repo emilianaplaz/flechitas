@@ -213,12 +213,13 @@
         <div class="modes" role="radiogroup" aria-label="Modo">
           <label><input type="radio" name="mode" value="gps" checked /> <b>Real</b><small>GPS y cámara</small></label>
           <label><input type="radio" name="mode" value="sim" /> <b>Simulación</b><small>Recorre la ruta sin moverte</small></label>
-          <label><input type="radio" name="mode" value="replay" /> <b>Repetición</b><small>Video y recorrido grabados</small></label>
+          <label><input type="radio" name="mode" value="replay" /> <b>Repetición</b><small>Video, con o sin recorrido grabado</small></label>
         </div>
         <div id="fromField" hidden></div>
         <div id="replayFields" hidden>
           <label class="field"><span>Video del recorrido</span><input id="replayVideo" type="file" accept="video/*" /></label>
-          <label class="field"><span>Recorrido GPS (.json)</span><input id="replayTrack" type="file" accept="application/json,.json" /></label>
+          <label class="field"><span>Recorrido GPS (.json), opcional</span><input id="replayTrack" type="file" accept="application/json,.json" /></label>
+          <p class="sub muted">Sin recorrido, el carro avanza por la ruta que elegiste al ritmo del video y de la velocidad del control.</p>
         </div>
 
         <h2 class="secTitle">OPCIONES</h2>

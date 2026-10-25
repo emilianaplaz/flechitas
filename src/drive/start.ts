@@ -6,7 +6,7 @@ import { app } from '../core/state.ts';
 import { $, setupMsg, toast } from '../core/ui.ts';
 import type { Fix, Source } from '../core/types.ts';
 import { recorder } from './controls.ts';
-import { GpsSource, RouteSim, TrackReplay, parseTrack, type Track } from './sources.ts';
+import { GpsSource, RouteSim, TrackReplay, VideoRouteSource, parseTrack, type Track } from './sources.ts';
 
 const video = () => $<HTMLVideoElement>('video');
 
@@ -31,6 +31,21 @@ function currentPosition(): Promise<LatLon> {
       { enableHighAccuracy: true, timeout: 10000 },
     ),
   );
+}
+
+/** The point picked on the map or already found for the typed text; else look the text up, else here. */
+async function routeOrigin(): Promise<LatLon> {
+  const fromRaw = $<HTMLInputElement>('from').value.trim();
+  return app.from ?? (fromRaw ? (await resolveDestination(fromRaw)).point : await currentPosition());
+}
+
+async function playVideoFile(vf: File) {
+  const v = video();
+  v.srcObject = null;
+  v.src = URL.createObjectURL(vf);
+  v.loop = false;
+  await v.play();
+  return v;
 }
 
 function waitForFix(src: Source, timeoutMs = 30000): Promise<Fix> {
@@ -66,10 +81,7 @@ export async function startSource(setRoute: (r: Route) => void) {
     setRoute(await fetchRoute(fix.p, dest.point));
   } else if (mode === 'sim') {
     if (!dest) throw new Error('Elige un destino primero');
-    const fromRaw = $<HTMLInputElement>('from').value.trim();
-    // The point picked on the map or already found for the typed text; else look the text up, else here.
-    const from = app.from ?? (fromRaw ? (await resolveDestination(fromRaw)).point : await currentPosition());
-    setRoute(await fetchRoute(from, dest.point));
+    setRoute(await fetchRoute(await routeOrigin(), dest.point));
     if (display !== 'hud') await startCamera(false);
     app.source = new RouteSim(app.route!.poly);
     $('simBar').hidden = false;
@@ -77,23 +89,25 @@ export async function startSource(setRoute: (r: Route) => void) {
   } else {
     const vf = $<HTMLInputElement>('replayVideo').files?.[0];
     const tf = $<HTMLInputElement>('replayTrack').files?.[0];
-    if (!vf || !tf) throw new Error('Elige el video y el archivo de recorrido');
-    const track: Track = parseTrack(await readJsonFile(tf));
-    const first = track.points[0];
-    const last = track.points[track.points.length - 1];
-    const target = dest?.point ?? { lat: last.lat, lon: last.lon };
-    try {
-      setRoute(await fetchRoute({ lat: first.lat, lon: first.lon }, target));
-    } catch {
-      setRoute(routeFromTrack(track.points.map((p) => ({ lat: p.lat, lon: p.lon }))));
-      toast('Sin servidor de rutas: uso el recorrido grabado como ruta');
+    if (!vf) throw new Error('Elige el video del recorrido');
+    if (tf) {
+      const track: Track = parseTrack(await readJsonFile(tf));
+      const first = track.points[0];
+      const last = track.points[track.points.length - 1];
+      const target = dest?.point ?? { lat: last.lat, lon: last.lon };
+      try {
+        setRoute(await fetchRoute({ lat: first.lat, lon: first.lon }, target));
+      } catch {
+        setRoute(routeFromTrack(track.points.map((p) => ({ lat: p.lat, lon: p.lon }))));
+        toast('Sin servidor de rutas: uso el recorrido grabado como ruta');
+      }
+      app.source = new TrackReplay(track, await playVideoFile(vf));
+    } else {
+      if (!dest) throw new Error('Elige un destino primero');
+      setRoute(await fetchRoute(await routeOrigin(), dest.point));
+      app.source = new VideoRouteSource(app.route!.poly, await playVideoFile(vf));
+      $('simBar').hidden = false;
     }
-    const v = video();
-    v.srcObject = null;
-    v.src = URL.createObjectURL(vf);
-    v.loop = false;
-    await v.play();
-    app.source = new TrackReplay(track, v);
     $('simPause').hidden = false;
   }
   app.source.start();

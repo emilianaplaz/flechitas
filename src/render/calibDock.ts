@@ -2,13 +2,15 @@
 // (plus video/GPS sync when replaying). Calibration is stored per screen layout.
 import { app } from '../core/state.ts';
 import { $, toast } from '../core/ui.ts';
-import { TrackReplay } from '../drive/sources.ts';
+import { TrackReplay, VideoRouteSource } from '../drive/sources.ts';
 import { remotePhone, remoteTilt } from '../remote/hudLink.ts';
 import { OrientationSensor } from '../walk/orientation.ts';
 import { sensorsActive } from '../walk/view.ts';
 import { TiltWindow, loadLensHfov, loadManual, loadMountRoll, saveManual, saveMountRoll, visibleVfov } from './autocalib.ts';
 import { CALIB_RANGES, currentLayout, defaultsFor, loadCalib, saveCalib, type Calib } from './calib.ts';
 import { ar } from './scene.ts';
+
+const syncSource = () => (app.source instanceof TrackReplay || app.source instanceof VideoRouteSource ? app.source : null);
 
 type DockKey = keyof Calib | 'sync';
 const SYNC_RANGE = { min: -5, max: 5, step: 0.1, label: 'Sincronía video/GPS', unit: 's' };
@@ -38,7 +40,7 @@ function dockRange(key: DockKey) {
   return key === 'sync' ? SYNC_RANGE : CALIB_RANGES[key];
 }
 function dockValue(key: DockKey): number {
-  if (key === 'sync') return app.source instanceof TrackReplay ? app.source.syncOffset : 0;
+  if (key === 'sync') return syncSource()?.syncOffset ?? 0;
   return calib[key];
 }
 function setDockValue(key: DockKey, raw: number) {
@@ -46,7 +48,8 @@ function setDockValue(key: DockKey, raw: number) {
   const v = Math.round(Math.min(r.max, Math.max(r.min, raw)) / r.step) * r.step;
   const clean = +v.toFixed(2);
   if (key === 'sync') {
-    if (app.source instanceof TrackReplay) app.source.syncOffset = clean;
+    const src = syncSource();
+    if (src) src.syncOffset = clean;
   } else {
     calib = { ...calib, [key]: clean };
     saveCalib(calib, layout, app.display);
