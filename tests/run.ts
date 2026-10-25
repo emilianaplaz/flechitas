@@ -20,6 +20,7 @@ import { DEFAULT_LENS_HFOV, TiltWindow, steadyMean, visibleVfov } from '../src/r
 import { decodeRoute, encodeRoute, formatCode, hudPeerId, newHudCode, normalizeCode } from '../src/remote/protocol.ts';
 import { interfaceAngle, physicalAngle, uprightPlan } from '../src/remote/orient.ts';
 import { VideoRouteSource } from '../src/drive/sources.ts';
+import { switchPlan, type SwitchAction } from '../src/walk/switchPlan.ts';
 import { Vector3, Vector4 } from 'three';
 import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransform, placementAdvice, reflectMatrix, virtualImage, worldToCss } from '../src/render/optics.ts';
 import { RouteProfile, gridPoint, limitAt, speedLimits, tileElevation, tileOf, tileToLatLon, tileXY, type Tile, type TileSign, type TileWay } from '../src/core/maqueta.ts';
@@ -1192,6 +1193,25 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   c2.currentTime = 250 / (35 / 3.6);
   const turn = v2.current(2);
   check('video route: heading follows the route past the corner', near(turn.heading ?? -1, 0, 1), String(turn.heading));
+}
+
+// ---- walk / drive switch ----
+{
+  const base = { detectBumps: true, display: 'camera' as const, running: true };
+  const plan = (o: Partial<Parameters<typeof switchPlan>[0]> & { from: 'drive' | 'walk'; to: 'drive' | 'walk' }) => switchPlan({ mode: 'gps', ...base, ...o });
+  const same = (a: SwitchAction[], b: SwitchAction[]) => a.join() === b.join();
+  const toWalk: SwitchAction[] = ['startSensors', 'stopAutoTilt', 'stopBumpWatcher', 'showAlign', 'persist', 'syncControls', 'toast:walk'];
+  check('GPS drive to walk: sensors on, tilt and bump watcher off, align shown', same(plan({ from: 'drive', to: 'walk' }), toWalk));
+  check('GPS walk to drive with bumps: sensors off, tilt and watcher back', same(plan({ from: 'walk', to: 'drive' }), ['stopSensors', 'startAutoTilt', 'startBumpWatcher', 'hideAlign', 'persist', 'syncControls', 'toast:drive']));
+  check('GPS walk to drive without bumps: no watcher', same(plan({ from: 'walk', to: 'drive', detectBumps: false }), ['stopSensors', 'startAutoTilt', 'hideAlign', 'persist', 'syncControls', 'toast:drive']));
+  check('Simulación walk to drive never starts the real watcher', !plan({ from: 'walk', to: 'drive', mode: 'sim' }).includes('startBumpWatcher'));
+  check('Simulación drive to walk still switches sensors', plan({ from: 'drive', to: 'walk', mode: 'sim' }).includes('startSensors'));
+  check('Repetición has no in-trip switch', plan({ from: 'drive', to: 'walk', mode: 'replay' }).length === 0);
+  check('HUD display has no in-trip switch', plan({ from: 'drive', to: 'walk', display: 'hud' }).length === 0);
+  check('same target in a trip does nothing', plan({ from: 'walk', to: 'walk' }).length === 0 && plan({ from: 'drive', to: 'drive' }).length === 0);
+  const pre = plan({ from: 'drive', to: 'walk', running: false });
+  check('before the trip only flags and controls change', same(pre, ['persist', 'syncControls']));
+  check('the sensor start precedes the recorded state', toWalk.indexOf('startSensors') < toWalk.indexOf('persist'));
 }
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');
