@@ -1,6 +1,6 @@
 // The 3D overlay drawn on top of the camera feed: a guide ribbon on the road, floating chevrons,
-// a standing arrow plus roadside chevron signs at the next turn, a destination pin with a light
-// beam, markers on reported hazards and the maqueta's road signs. With a maqueta elevation profile
+// a standing arrow plus roadside chevron signs at the next turn, a destination pin over a glow on the
+// ground, markers on reported hazards and the maqueta's road signs. With a maqueta elevation profile
 // everything follows the road's slope; without one the road is flat.
 import * as THREE from 'three';
 import { angleDiff, bearingAt, pointAt, toDeg, toLocal, toRad, type LatLon, type Polyline } from '../core/geo.ts';
@@ -19,20 +19,41 @@ const GUIDE = 0x00e676;
 const GUIDE_SIDE = 0x00753c; // sides and bevels of guide objects, so their volume reads
 const DEST = 0x22e07a;
 const HAZARD = 0xff3b30;
+const BUMP_AMBER = 0xffb020; // speed bumps: their rings and label, apart from the red of a pothole
+const BUMP_WIDE = 3.6; // m across the road
+const BUMP_R = 0.6; // m: half its length along the road
+const BUMP_H = 0.2; // m tall: a little more than a real one, so it reads from the driver's seat
 const RIBBON_STEP = 2; // m between ribbon samples
-const RIBBON_LEN = 160; // m of road ahead to draw
-const RIBBON_LEN_HUD = 110; // shorter range in HUD mode to cut reflection clutter
-const MAX_SAMPLES = Math.ceil(RIBBON_LEN / RIBBON_STEP) + 2;
-const CHEVRON_EVERY = 8;
-const MAX_CHEVRONS = Math.ceil(RIBBON_LEN / CHEVRON_EVERY);
-// Chevrons lie almost flat close by and lean back further away, where a flat shape would vanish at the grazing angle.
-const CHEVRON_TILT_NEAR = toRad(8);
-const CHEVRON_TILT_FAR = toRad(40);
+const RIBBON_LEN = 90; // m of road ahead to draw over the camera: one lane-wide band that ends in a ring
+const RIBBON_LEN_HUD = 110; // the windshield HUD reaches a little further
+const MAX_SAMPLES = Math.ceil(Math.max(RIBBON_LEN, RIBBON_LEN_HUD) / RIBBON_STEP) + 2;
+// The band: cyan over the camera, uniform, fading only at its far end. Green in the HUD, for the glass.
+const BAND_RGB = [0.3, 0.82, 1] as const;
+const BAND_ALPHA = 0.5;
+const BAND_RGB_HUD = [0, 0.9, 0.46] as const;
+const BAND_ALPHA_HUD = 0.92;
+const BAND_FADE = 8; // m at the far end where band and chevrons fade out
+// Chevrons painted on the band, at fixed spots so they scroll as you drive.
+const CHEVRON_EVERY = 5;
+const MAX_CHEVRONS = Math.ceil(Math.max(RIBBON_LEN, RIBBON_LEN_HUD) / CHEVRON_EVERY);
+const CHEVRON_WIDTH = 0.82; // share of the band's width
+const CHEVRON_LONG = 2.4; // stretch along the road: painted marks are long, so they read in perspective
+const CHEVRON = 0x8ff0ff;
+const CHEVRON_HUD = 0x7dffb8;
 // Where the road turns away from the driver's view, a flat chevron is seen edge-on and seems to point
-// somewhere else. Between these angles off the view it stands up, facing the driver, tip toward the turn.
-const CHEVRON_SIDE_FROM = 20;
-const CHEVRON_SIDE_FULL = 65;
-const CHEVRON_STAND = toRad(78);
+// somewhere else: between these angles off the view it fades out, and the turn arrow shows the way.
+const CHEVRON_SIDE_FROM = 18;
+const CHEVRON_SIDE_GONE = 32;
+const CORNER_SMOOTH = 5; // m each side of a point over which the band's direction is averaged: rounded corners
+const END_RING = 0.6; // radius of the ring at the band's end, as a share of the band's width
+// Where the route itself ends inside the band: band and chevrons turn to the destination's green, the
+// band stops sharp and a chequered finish line crosses it.
+const FINISH_TINT = 40; // m before the end over which band and chevrons turn green
+const FINISH_GAP = 4; // m before the finish line with no chevron, so it reads on its own
+const FINISH_LONG = 3; // m along the road: long enough to read from afar
+const FINISH_RISE = 0.3; // m: the finish line is a raised block, so it stands out of the road
+const FINISH_GREEN = 0x5cf59a;
+const FINISH_BAND = [0.2, 0.9, 0.5] as const;
 const TURN_SHOW = 300; // m before a turn where its arrow appears
 const ARRIVE_SHOW = 500;
 const GATE_SHOW = 200; // m before a turn where the roadside chevron signs appear
@@ -62,45 +83,126 @@ export interface FrameInput {
   /** Ground height in metres at a distance along the route (maqueta). Absent: flat road, as before. */
   elevAlong?: ((d: number) => number) | null;
   signs?: SignView[];
-  /** Exact arrival point picked in the maqueta (an entrance) and its building: pin there, outline lit. */
-  arrival?: { p: LatLon; outline?: [number, number][]; height?: number } | null;
+  /** Exact arrival point picked in the maqueta (an entrance): the destination marker stands there. */
+  arrival?: { p: LatLon } | null;
+  /** Name shown on the destination card ("Edif. A · Frente al edificio", or the destination's). */
+  destLabel?: string | null;
   /** Maqueta tiles to draw as the 3D street behind the overlay where the car is inside them (Simulación). Not in the HUD. */
   scenery?: Tile[] | null;
 }
 
-const OUTLINE_SHOW = 300; // m of route left when the destination building lights up
-const OUTLINE_CORE = 0.3; // m: width of the bright edge
-const OUTLINE_GLOW = 1.1; // m: width of the soft halo around it
+const AURA_R = 3.2; // m: radius of the glow on the ground at the destination, at scale 1
+const CARD_W = 6.4; // m: destination card, at scale 1
+const CARD_H = 1.7;
 
-/** Glowing edges of a building (no fill): ground ring, roof ring and the corners, around `anchor`. */
-function buildingOutline(anchor: LatLon, outline: [number, number][], height: number): THREE.Group {
-  const g = new THREE.Group();
-  const core = new THREE.MeshBasicMaterial({ color: DEST, transparent: true, opacity: 0.95, depthWrite: false });
-  const glow = new THREE.MeshBasicMaterial({ color: DEST, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending });
-  const box = new THREE.BoxGeometry(1, 1, 1);
-  const edge = (a: THREE.Vector3, b: THREE.Vector3) => {
-    const len = a.distanceTo(b);
-    if (len < 0.2) return;
-    for (const [mat, w] of [[glow, OUTLINE_GLOW], [core, OUTLINE_CORE]] as const) {
-      const m = new THREE.Mesh(box, mat);
-      m.scale.set(w, w, len + w);
-      m.position.copy(a).add(b).multiplyScalar(0.5);
-      m.lookAt(b);
-      g.add(m);
+/** Finish line: three rows of squares, white and the destination's green. */
+function finishTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 96;
+  const g = c.getContext('2d')!;
+  for (let col = 0; col < 8; col++) {
+    for (let row = 0; row < 3; row++) {
+      g.fillStyle = (col + row) % 2 ? '#22e07a' : '#ffffff';
+      g.fillRect(col * 32, row * 32, 32, 32);
     }
-  };
-  const pts = outline.map(([lat, lon]) => {
-    const l = toLocal(anchor, { lat, lon });
-    return new THREE.Vector3(l.x, 0, l.z);
-  });
-  for (let i = 0; i < pts.length - 1; i++) {
-    const a = pts[i];
-    const b = pts[i + 1];
-    edge(a.clone().setY(0.15), b.clone().setY(0.15));
-    edge(a.clone().setY(height), b.clone().setY(height));
-    edge(a.clone().setY(0), a.clone().setY(height));
   }
-  return g;
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Speed bump paint: yellow and black blocks across the road (v runs across it on the bump). */
+function bumpTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 16;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  for (let k = 0; k < 8; k++) {
+    g.fillStyle = k % 2 ? '#1b1d20' : '#ffc61a';
+    g.fillRect(0, k * 32, 16, 32);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** A speed bump lying across the road: half a cylinder along x, flattened, its ends closed. */
+function bumpGeometry(): THREE.BufferGeometry {
+  return new THREE.CylinderGeometry(BUMP_R, BUMP_R, BUMP_WIDE, 32, 1, false, -Math.PI / 2, Math.PI)
+    .rotateX(-Math.PI / 2) // the half on +z now bulges up, axis along the road
+    .rotateY(Math.PI / 2) // axis across the road
+    .scale(1, BUMP_H / BUMP_R, 1);
+}
+
+/** Soft round glow: opaque white in the middle, transparent at the edge (tinted by the material). */
+function glowTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+
+/** A finish flag, drawn in `color` inside a box of side `size` at (x, y). */
+function drawFlag(g: CanvasRenderingContext2D, x: number, y: number, size: number, color: string) {
+  const u = size / 10;
+  g.fillStyle = color;
+  g.beginPath();
+  g.roundRect(x + 2 * u, y + 1 * u, 1.1 * u, 8.2 * u, 0.5 * u); // pole
+  g.fill();
+  g.beginPath(); // waving cloth
+  g.moveTo(x + 3 * u, y + 1.4 * u);
+  g.quadraticCurveTo(x + 5.5 * u, y + 0.4 * u, x + 8.4 * u, y + 1.8 * u);
+  g.lineTo(x + 8.4 * u, y + 5.6 * u);
+  g.quadraticCurveTo(x + 5.5 * u, y + 4.2 * u, x + 3 * u, y + 5.2 * u);
+  g.closePath();
+  g.fill();
+}
+
+/** Face of the pin: white disc with the flag in the destination colour. */
+function pinFaceTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#fff';
+  g.beginPath();
+  g.arc(64, 64, 62, 0, 2 * Math.PI);
+  g.fill();
+  drawFlag(g, 30, 28, 72, '#13a85a');
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Destination card: dark glass with a green edge, the flag in a green disc, the name and how far it is. */
+function drawDestCard(c: HTMLCanvasElement, name: string, sub: string) {
+  const g = c.getContext('2d')!;
+  g.clearRect(0, 0, c.width, c.height);
+  g.fillStyle = 'rgba(6, 24, 34, 0.9)';
+  g.strokeStyle = '#22e07a';
+  g.lineWidth = 6;
+  g.beginPath();
+  g.roundRect(6, 6, c.width - 12, c.height - 12, 40);
+  g.fill();
+  g.stroke();
+  g.fillStyle = '#22e07a';
+  g.beginPath();
+  g.arc(100, c.height / 2, 58, 0, 2 * Math.PI);
+  g.fill();
+  drawFlag(g, 62, c.height / 2 - 38, 76, '#fff');
+  g.textBaseline = 'middle';
+  g.fillStyle = '#fff';
+  g.font = 'bold 60px system-ui, sans-serif';
+  g.fillText(name, 186, c.height / 2 - 30, c.width - 220);
+  g.fillStyle = '#7dffb8';
+  g.font = '600 46px system-ui, sans-serif';
+  g.fillText(sub, 186, c.height / 2 + 38, c.width - 220);
 }
 
 function arrowShape(): THREE.Shape {
@@ -135,15 +237,15 @@ function uturnShape(): THREE.Shape {
   return s;
 }
 
-function chevronShape(): THREE.Shape {
-  // Pointing up (+y), 1.8 m wide.
+/** Road-paint chevron pointing up (+y): 2 m wide, 1.2 m long, thick arms. */
+function roadChevronShape(): THREE.Shape {
   const s = new THREE.Shape();
-  s.moveTo(-0.9, -0.3);
+  s.moveTo(-1, -0.2);
   s.lineTo(0, 0.5);
-  s.lineTo(0.9, -0.3);
-  s.lineTo(0.9, -0.75);
-  s.lineTo(0, 0.05);
-  s.lineTo(-0.9, -0.75);
+  s.lineTo(1, -0.2);
+  s.lineTo(1, -0.7);
+  s.lineTo(0, 0);
+  s.lineTo(-1, -0.7);
   s.closePath();
   return s;
 }
@@ -276,10 +378,7 @@ function labelTexture(text: string, bg: string): THREE.CanvasTexture {
 interface Chevron {
   group: THREE.Group;
   body: THREE.Mesh;
-  shadow: THREE.Mesh;
-  mat: THREE.MeshPhongMaterial;
-  sideMat: THREE.MeshPhongMaterial;
-  shadowMat: THREE.MeshBasicMaterial;
+  mat: THREE.MeshBasicMaterial;
 }
 
 interface GateSign {
@@ -303,6 +402,9 @@ export class ArScene {
   private ribbonCol = new Float32Array(MAX_SAMPLES * 2 * 4);
   private ribbon: THREE.Mesh;
   private chevrons: Chevron[] = [];
+  private endRing: THREE.Mesh;
+  private finish: THREE.Mesh; // at the route's end: the raised chequered line
+  private tint = new THREE.Color();
 
   // The next maneuver. Its bearings are worked out once, when it becomes the next step.
   private step: Step | null = null;
@@ -320,13 +422,17 @@ export class ArScene {
   private gate = new THREE.Group(); // roadside chevron signs across the far side of the junction
   private gateSigns: GateSign[] = [];
 
+  // Destination, at the entrance itself: a glow on the ground, rings, a floating pin with a flag and,
+  // over the camera, a card with its name and distance.
   private dest = new THREE.Group();
   private pin = new THREE.Group();
-  private beam: THREE.Mesh;
   private destPulse: THREE.Group;
-  private outline: THREE.Group | null = null; // destination building, lit near arrival
-  private outlineKey = '';
-  private outlineAnchor: LatLon | null = null;
+  private aura: THREE.Mesh;
+  private pinShadow: THREE.Mesh;
+  private card: THREE.Sprite;
+  private cardCanvas = document.createElement('canvas');
+  private cardText = '';
+  private cardProbe = new THREE.Vector3();
 
   private signMarkers = new SignMarkers();
   private scenery = new Scenery();
@@ -335,7 +441,8 @@ export class ArScene {
   private elevBase = 0;
   private heightAt = (d: number) => (this.elevAlong ? this.elevAlong(d) - this.elevBase : 0);
 
-  private hazardPool: { group: THREE.Group; label: THREE.Sprite; pulse: THREE.Group; type: HazardType | null }[] = [];
+  // Hazards: a traffic cone for a pothole or a checkpoint; a speed bump is drawn as the bump itself.
+  private hazardPool: { group: THREE.Group; cone: THREE.Group; bump: THREE.Mesh; label: THREE.Sprite; pulse: THREE.Group; bumpPulse: THREE.Group; type: HazardType | null }[] = [];
   private labelMats = new Map<HazardType, THREE.SpriteMaterial>();
 
   constructor(canvas: HTMLCanvasElement) {
@@ -370,24 +477,36 @@ export class ArScene {
     this.ribbon.frustumCulled = false;
     this.world.add(this.ribbon);
 
-    // Chevrons floating just above the road, tip toward -z (forward), each with a shadow. Centred, so
-    // they turn and stand up in place (see updateRibbon).
-    const chevGeo = solid(chevronShape(), 0.06, 0.03).rotateX(-Math.PI / 2).translate(0, 0, 0.125);
-    const shadowGeo = new THREE.ShapeGeometry(chevronShape()).rotateX(-Math.PI / 2).translate(0, 0, 0.125);
+    // Chevrons painted on the band, tip toward -z (forward), drawn over it. Centred, so they turn and
+    // stand up in place where the road goes sideways (see updateRibbon).
+    const chevGeo = new THREE.ShapeGeometry(roadChevronShape()).rotateX(-Math.PI / 2).translate(0, 0, -0.15);
     for (let i = 0; i < MAX_CHEVRONS; i++) {
-      const mat = lit(0xffffff, 0.35, { transparent: true, depthWrite: false });
-      mat.emissive.set(0x9fffc8);
-      const sideMat = lit(GUIDE, 0.4, { transparent: true, depthWrite: false });
-      const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, depthWrite: false, side: THREE.DoubleSide });
-      const shadow = new THREE.Mesh(shadowGeo, shadowMat);
-      shadow.position.y = 0.03;
-      const body = new THREE.Mesh(chevGeo, [mat, sideMat]);
+      const mat = new THREE.MeshBasicMaterial({ color: CHEVRON, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+      const body = new THREE.Mesh(chevGeo, mat);
+      body.renderOrder = 1;
       const group = new THREE.Group();
-      group.add(shadow, body);
+      group.add(body);
       group.visible = false;
       this.world.add(group);
-      this.chevrons.push({ group, body, shadow, mat, sideMat, shadowMat });
+      this.chevrons.push({ group, body, mat });
     }
+    // Ring on the road where the band ends.
+    this.endRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.72, 1, 48).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: CHEVRON, transparent: true, opacity: 1, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.endRing.renderOrder = 1;
+    this.endRing.visible = false;
+    this.world.add(this.endRing);
+    // Where the route ends: a chequered block raised off the road across the band, lit so its top and
+    // front read apart.
+    const checks = finishTexture();
+    this.finish = new THREE.Mesh(
+      new THREE.BoxGeometry(1, FINISH_RISE, FINISH_LONG).translate(0, FINISH_RISE / 2, 0),
+      new THREE.MeshPhongMaterial({ map: checks, emissive: 0xffffff, emissiveMap: checks, emissiveIntensity: 0.45, shininess: 40 }),
+    );
+    this.finish.visible = false;
+    this.world.add(this.finish);
 
     // Turn arrows: one per kind, a bright face over darker bevelled sides, with a dark outline.
     const face = lit(GUIDE, 0.45);
@@ -435,35 +554,42 @@ export class ArScene {
     this.gate.visible = false;
     this.world.add(this.gate);
 
-    // Destination: a spinning pin with a white dot, a light beam you can spot from far away, rings on the road.
-    const pinMat = lit(DEST, 0.4);
-    // The dot is a flattened lens on each face, so it stays flush when the pin turns side-on.
-    const lensGeo = new THREE.SphereGeometry(0.3, 24, 12).scale(1, 1, 0.35);
-    const lensMat = lit(0xffffff, 0.5);
-    this.pin.add(new THREE.Mesh(pinGeometry(), pinMat));
-    for (const z of [-0.6, 0.6]) {
-      const lens = new THREE.Mesh(lensGeo, lensMat);
-      lens.position.set(0, 0.5, z);
-      this.pin.add(lens);
+    // Destination pin: a glossy green teardrop with a white face showing a flag, front and back.
+    this.pin.add(new THREE.Mesh(pinGeometry(), lit(DEST, 0.35, { shininess: 120, specular: 0x88ffcc })));
+    const faceGeo = new THREE.CircleGeometry(0.46, 40);
+    const faceMat = new THREE.MeshBasicMaterial({ map: pinFaceTexture() });
+    for (const z of [0.68, -0.68]) { // just outside the head (radius 0.65), so the face is flat and whole
+      const face = new THREE.Mesh(faceGeo, faceMat);
+      face.position.set(0, 0.5, z);
+      if (z < 0) face.rotation.y = Math.PI;
+      this.pin.add(face);
     }
-    const beamGeo = new THREE.CylinderGeometry(0.5, 0.5, 40, 20, 8, true).translate(0, 20, 0);
-    const beamPos = beamGeo.attributes.position;
-    const beamCol = new Float32Array(beamPos.count * 4);
-    const destRgb = new THREE.Color(DEST);
-    for (let i = 0; i < beamPos.count; i++) {
-      beamCol.set([destRgb.r, destRgb.g, destRgb.b, 0.5 * (1 - beamPos.getY(i) / 40) ** 1.5], i * 4);
-    }
-    beamGeo.setAttribute('color', new THREE.BufferAttribute(beamCol, 4));
-    this.beam = new THREE.Mesh(
-      beamGeo,
-      new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+    const glow = glowTexture();
+    this.aura = new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: DEST, map: glow, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
     );
+    this.aura.position.y = 0.04;
+    this.pinShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.6, 1.6).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x000000, map: glow, transparent: true, opacity: 0.35, depthWrite: false }),
+    );
+    this.pinShadow.position.y = 0.05;
+    this.cardCanvas.width = 1024;
+    this.cardCanvas.height = 272;
+    const cardTex = new THREE.CanvasTexture(this.cardCanvas);
+    cardTex.colorSpace = THREE.SRGBColorSpace;
+    this.card = new THREE.Sprite(new THREE.SpriteMaterial({ map: cardTex, depthTest: false, transparent: true }));
+    this.card.renderOrder = 2;
     this.destPulse = pulseRings(DEST, 2);
-    this.dest.add(this.pin, this.beam, this.destPulse);
+    this.dest.add(this.aura, this.pinShadow, this.destPulse, this.pin, this.card);
     this.dest.visible = false;
     this.world.add(this.dest, this.signMarkers.group);
 
-    // Hazard markers: a traffic cone with a white band, a pulsing ring and a label.
+    // Hazard markers: a traffic cone with a white band (or a striped bump), a pulsing ring and a label.
+    const bumpGeo = bumpGeometry();
+    const bumpMap = bumpTexture();
+    const bumpMat = new THREE.MeshPhongMaterial({ map: bumpMap, emissive: 0xffffff, emissiveMap: bumpMap, emissiveIntensity: 0.3, shininess: 30 });
     const red = lit(HAZARD, 0.35);
     const white = lit(0xffffff, 0.4);
     const coneGeo = new THREE.ConeGeometry(0.4, 1.0, 24);
@@ -478,21 +604,26 @@ export class ArScene {
       band.position.y = 0.555;
       const base = new THREE.Mesh(baseGeo, baseMat);
       base.position.y = 0.03;
+      const cone = new THREE.Group();
+      cone.add(c, band, base);
+      const bump = new THREE.Mesh(bumpGeo, bumpMat);
       const pulse = pulseRings(HAZARD, 1.5);
+      const bumpPulse = pulseRings(BUMP_AMBER, 2.2);
       const label = new THREE.Sprite();
       label.position.y = 2.1;
       label.scale.set(3.2, 0.8, 1);
-      group.add(c, band, base, pulse, label);
+      group.add(cone, bump, pulse, bumpPulse, label);
       group.visible = false;
       this.world.add(group);
-      this.hazardPool.push({ group, label, pulse, type: null });
+      this.hazardPool.push({ group, cone, bump, label, pulse, bumpPulse, type: null });
     }
   }
 
   private labelMat(type: HazardType): THREE.SpriteMaterial {
     let m = this.labelMats.get(type);
     if (!m) {
-      m = new THREE.SpriteMaterial({ map: labelTexture(HAZARD_LABEL[type], 'rgba(220,30,30,0.92)'), depthTest: false });
+      const bg = type === 'policia' ? 'rgba(214,128,0,0.94)' : 'rgba(220,30,30,0.92)';
+      m = new THREE.SpriteMaterial({ map: labelTexture(HAZARD_LABEL[type], bg), depthTest: false });
       this.labelMats.set(type, m);
     }
     return m;
@@ -526,11 +657,10 @@ export class ArScene {
     for (const slot of this.hazardPool) slot.label.visible = !this.optics;
 
     const now = performance.now() / 1000;
-    this.updateRibbon(f, now);
+    this.updateRibbon(f);
     this.updateTurn(f, now);
     this.updateHazards(f, now);
     this.signMarkers.update(f.poly ? (f.signs ?? []) : [], f.origin, f.along, this.heightAt);
-    this.updateOutline(f);
     // Opaque where the car is inside the maqueta: it covers the camera picture. Elsewhere, as before.
     const scenery = this.scenery.set(f.scenery ?? null) && !this.optics && f.display !== 'hud' && !!f.poly && this.scenery.covers(f.origin);
     if (scenery) {
@@ -593,20 +723,33 @@ export class ArScene {
     return THREE.MathUtils.clamp((MIN_SCREEN * screen) / height, 1, max);
   }
 
-  private updateRibbon(f: FrameInput, now: number) {
+  private updateRibbon(f: FrameInput) {
     const { poly, degraded, display } = f;
     let count = 0;
     let chevI = 0;
     const isHud = display === 'hud';
     const activeLen = isHud ? RIBBON_LEN_HUD : RIBBON_LEN;
+    const [r, g, bl] = isHud ? BAND_RGB_HUD : BAND_RGB;
+    const bandAlpha = isHud ? BAND_ALPHA_HUD : BAND_ALPHA;
+    const paint = isHud ? CHEVRON_HUD : CHEVRON;
+    let last: { x: number; y: number; z: number } | null = null;
+    let end = 0;
+    let finishes = false; // the route ends inside the band
 
     if (poly && !degraded) {
-      const end = Math.min(poly.length, f.along + activeLen);
+      end = Math.min(poly.length, f.along + activeLen);
+      finishes = end >= poly.length - 0.01;
       const half = f.calib.ribbonWidth / 2;
       const start = f.calib.ribbonStart;
-      for (let d = f.along + start; d <= end && count < MAX_SAMPLES; d += RIBBON_STEP) {
+      // Every RIBBON_STEP, plus a last sample exactly at the end so the band stops where the route does.
+      for (let k = 0, d = f.along + start; count < MAX_SAMPLES; k++, d = f.along + start + k * RIBBON_STEP) {
+        if (d > end) {
+          if (!finishes || d - RIBBON_STEP >= end - 0.01) break;
+          d = end;
+        }
         const c = toLocal(f.origin, pointAt(poly, d).p);
-        const b = toRad(bearingAt(poly, d, 4));
+        // Direction averaged around d, so a sharp corner becomes a curve and the band doesn't fold over itself.
+        const b = toRad(bearingAt(poly, Math.max(0, d - CORNER_SMOOTH), 2 * CORNER_SMOOTH));
         const tx = Math.sin(b);
         const tz = -Math.cos(b);
         const nx = tz; // left-hand normal
@@ -615,48 +758,55 @@ export class ArScene {
         const y = this.heightAt(d) + 0.02;
         this.ribbonPos.set([c.x + nx * half, y, c.z + nz * half, c.x - nx * half, y, c.z - nz * half], o);
         const ahead = d - f.along;
-        // In HUD mode, higher opacity and saturated green for windshield reflection
-        const alpha = isHud
-          ? Math.min(1, (ahead - start) / 4) * Math.min(1, (end - d) / 16 + 0.25) * 0.92
-          : Math.min(1, (ahead - start) / 6) * Math.min(1, (end - d) / 25 + 0.15) * 0.45;
-        const ci = count * 8;
-        if (isHud) {
-          this.ribbonCol.set([0, 0.9, 0.46, alpha, 0, 0.9, 0.46, alpha], ci);
-        } else {
-          this.ribbonCol.set([0, 0.9, 1, alpha, 0, 0.9, 1, alpha], ci);
-        }
+        const toEnd = poly.length - d;
+        // Uniform from under the bonnet, fading only at the far end; sharp at the route's end.
+        const fade = finishes ? 1 : clamp01((end - d) / BAND_FADE);
+        const alpha = fade * bandAlpha;
+        // Over the camera the band turns green as the end of the route nears (the HUD's is green already).
+        const near = finishes && !isHud ? clamp01(1 - toEnd / FINISH_TINT) : 0;
+        const [cr, cg, cb] = [r + (FINISH_BAND[0] - r) * near, g + (FINISH_BAND[1] - g) * near, bl + (FINISH_BAND[2] - bl) * near];
+        this.ribbonCol.set([cr, cg, cb, alpha, cr, cg, cb, alpha], count * 8);
         count++;
+        last = { x: c.x, y, z: c.z };
 
         // Chevrons at fixed spots along the road so they scroll naturally as you drive.
-        if (Math.floor(d / CHEVRON_EVERY) !== Math.floor((d - RIBBON_STEP) / CHEVRON_EVERY) && chevI < MAX_CHEVRONS && ahead > 6) {
+        const chevronHere = Math.floor(d / CHEVRON_EVERY) !== Math.floor((d - RIBBON_STEP) / CHEVRON_EVERY);
+        if (chevronHere && chevI < MAX_CHEVRONS && ahead > start + 1 && !(finishes && toEnd < FINISH_GAP)) {
           const ch = this.chevrons[chevI++];
           ch.group.visible = true;
-          ch.group.position.set(c.x, y - 0.02, c.z);
-          // Turned to the view; the chevron then points `off` degrees off it, on the road.
-          ch.group.rotation.y = -toRad(f.yaw);
-          const off = angleDiff(f.yaw, toDeg(b));
-          const side = THREE.MathUtils.smoothstep(Math.abs(off), CHEVRON_SIDE_FROM, CHEVRON_SIDE_FULL);
-          // Leans back toward the driver (about the view's horizontal axis) so it doesn't vanish at the
-          // grazing angle; sideways it stands up and its tip points left or right on the screen.
-          const lean = THREE.MathUtils.lerp(CHEVRON_TILT_NEAR, CHEVRON_TILT_FAR, clamp01((ahead - 10) / 50));
-          const tilt = THREE.MathUtils.lerp(lean, CHEVRON_STAND, side);
-          ch.body.rotation.set(tilt, -toRad(off), 0); // Euler XYZ: turned on the road first, then tilted
-          ch.body.position.y = 0.12 + 0.65 * Math.sin(tilt); // its lower edge stays off the road
-          ch.shadow.rotation.y = -toRad(off);
-          // Soft as they come into view, so the nearest ones never cover the road.
-          const fade = isHud
-            ? Math.max(0, 1.0 - ahead / activeLen)
-            : clamp01((ahead - 6) / 18) * Math.max(0, 0.95 - ahead / RIBBON_LEN);
-          ch.mat.opacity = fade;
-          ch.sideMat.opacity = fade;
-          ch.shadowMat.opacity = 0.3 * fade * (1 - side);
-          // A glow that runs forward along the road, faster than the car, to show the way to go.
-          const wave = Math.max(0, Math.sin(2 * Math.PI * (d / 48 - now * 0.9))) ** 3;
-          ch.mat.emissiveIntensity = 0.35 + 0.65 * wave;
+          ch.group.position.set(c.x, y, c.z);
+          // Painted flat on the band, along the road.
+          ch.group.rotation.y = -b;
+          ch.body.scale.set((f.calib.ribbonWidth * CHEVRON_WIDTH) / 2, 1, CHEVRON_LONG);
+          ch.body.position.y = 0.02;
+          const off = Math.abs(angleDiff(f.yaw, toDeg(b)));
+          const sideways = THREE.MathUtils.smoothstep(off, CHEVRON_SIDE_FROM, CHEVRON_SIDE_GONE);
+          // Nearing the end of the route they turn to the destination's green (white in the green HUD).
+          const tint = finishes ? clamp01(1 - toEnd / FINISH_TINT) : 0;
+          ch.mat.color.set(paint).lerp(this.tint.set(isHud ? 0xffffff : FINISH_GREEN), tint);
+          ch.mat.opacity = 0.9 * fade * (1 - sideways);
+          ch.group.visible = sideways < 1;
         }
       }
     }
     for (; chevI < MAX_CHEVRONS; chevI++) this.chevrons[chevI].group.visible = false;
+    // The ring marks where the band ends; at the destination the pin does instead.
+    const ring = this.endRing;
+    ring.visible = !!last && !!poly && count > 4 && end < poly.length - 1;
+    if (ring.visible && last) {
+      ring.position.set(last.x, last.y + 0.01, last.z);
+      ring.scale.setScalar(f.calib.ribbonWidth * END_RING);
+      (ring.material as THREE.MeshBasicMaterial).color.set(paint);
+    }
+    // The finish line, across the band at the route's end.
+    this.finish.visible = finishes && !!poly && count > 1;
+    if (this.finish.visible && poly) {
+      const at = Math.max(0, poly.length - FINISH_LONG / 2);
+      const c = toLocal(f.origin, pointAt(poly, at).p);
+      this.finish.position.set(c.x, this.heightAt(at), c.z);
+      this.finish.rotation.y = -toRad(bearingAt(poly, Math.max(0, poly.length - 2 * CORNER_SMOOTH), 2 * CORNER_SMOOTH));
+      this.finish.scale.x = f.calib.ribbonWidth;
+    }
     this.ribbonGeo.setDrawRange(0, Math.max(0, count - 1) * 6);
     this.ribbonGeo.attributes.position.needsUpdate = true;
     this.ribbonGeo.attributes.color.needsUpdate = true;
@@ -695,17 +845,7 @@ export class ArScene {
     const s = this.readableScale(d, ARROW_H, 5);
 
     if (arrive) {
-      this.dest.position.set(c.x, y, c.z);
-      const ps = Math.max(1.5, s);
-      this.pin.position.y = 1.3 * ps + 1.0 + 0.25 * ps * Math.sin(now * 2.2);
-      this.pin.rotation.y = now * 1.2;
-      this.pin.scale.setScalar(Math.max(0.001, ps * pop));
-      // The beam is for spotting the destination from afar; up close the pin is enough.
-      const beamWidth = THREE.MathUtils.clamp(d / 100, 1, 4);
-      this.beam.scale.set(beamWidth, 1, beamWidth);
-      (this.beam.material as THREE.MeshBasicMaterial).opacity = 0.25 + 0.75 * clamp01((d - 30) / 120);
-      this.destPulse.scale.setScalar(Math.max(1, s * 0.6));
-      animatePulse(this.destPulse, now);
+      this.updateDest(f, c, y, d, s, pop, now);
       return;
     }
 
@@ -734,29 +874,49 @@ export class ArScene {
     }
   }
 
-  /** The destination building's edges, lit once the route has less than OUTLINE_SHOW m left. */
-  private updateOutline(f: FrameInput) {
-    const a = f.arrival;
-    const key = a?.outline ? `${a.outline.length}:${a.outline[0]}:${a.height}` : '';
-    if (key !== this.outlineKey) {
-      this.outlineKey = key;
-      if (this.outline) {
-        this.world.remove(this.outline);
-        this.outline.traverse((o) => (o as THREE.Mesh).geometry?.dispose?.());
-      }
-      this.outline = null;
-      if (a?.outline && a.outline.length > 2) {
-        this.outlineAnchor = { lat: a.outline[0][0], lon: a.outline[0][1] };
-        this.outline = buildingOutline(this.outlineAnchor, a.outline, a.height ?? 9);
-        this.world.add(this.outline);
-      }
+  /** The destination marker at the entrance, `d` metres of route away. */
+  private updateDest(f: FrameInput, c: { x: number; z: number }, y: number, d: number, s: number, pop: number, now: number) {
+    this.dest.position.set(c.x, y, c.z);
+    const ps = Math.max(1.5, s);
+    // The pin floats over the entrance, facing the driver, swaying a little; its shadow breathes with it.
+    const bob = Math.sin(now * 2.2);
+    const pinY = 1.3 * ps + 0.8 + 0.2 * ps * bob;
+    this.pin.position.y = pinY;
+    this.pin.rotation.y = -toRad(f.yaw) + 0.25 * Math.sin(now * 1.3);
+    this.pin.scale.setScalar(Math.max(0.001, ps * pop));
+    this.pinShadow.scale.setScalar(ps * (0.9 - 0.12 * bob));
+    // The glow marks the spot on the ground; it breathes slowly.
+    const glow = Math.max(1, s * 0.6);
+    this.aura.scale.setScalar(AURA_R * glow * (0.95 + 0.05 * Math.sin(now * 1.6)));
+    (this.aura.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.2 * Math.sin(now * 1.6);
+    this.destPulse.scale.setScalar(glow);
+    animatePulse(this.destPulse, now);
+    // The card is a sprite, which doesn't mirror with the reflected world: not in the windshield HUD.
+    this.card.visible = !this.optics;
+    if (!this.card.visible) return;
+    const step = d < 100 ? 5 : 10;
+    const sub = d < 8 ? 'Llegaste' : `Llegada · ${Math.round(Math.max(0, d) / step) * step} m`;
+    const text = `${f.destLabel || 'Destino'}|${sub}`;
+    if (text !== this.cardText) {
+      this.cardText = text;
+      drawDestCard(this.cardCanvas, f.destLabel || 'Destino', sub);
+      (this.card.material as THREE.SpriteMaterial).map!.needsUpdate = true;
     }
-    if (!this.outline || !this.outlineAnchor) return;
-    const left = f.poly ? f.poly.length - f.along : Infinity;
-    this.outline.visible = left < OUTLINE_SHOW && left > -30;
-    if (!this.outline.visible || !f.poly) return;
-    const c = toLocal(f.origin, this.outlineAnchor);
-    this.outline.position.set(c.x, this.heightAt(f.poly.length), c.z);
+    const cs = this.readableScale(d, CARD_H, 14) * pop;
+    this.card.scale.set(CARD_W * cs, CARD_H * cs, 1);
+    // Over the pin; up close, where that would be above the top of the picture, beside the pin's head
+    // instead, on the side of the screen with more room.
+    const h = CARD_H * cs;
+    const top = f.calib.height + Math.hypot(c.x, c.z) * Math.tan(toRad(this.camera.fov / 2 - f.calib.pitch)) * 0.9 - y;
+    const above = pinY + 1.2 * ps + 0.5 + h / 2;
+    if (above + h / 2 <= top) {
+      this.card.center.set(0.5, 0.5);
+      this.card.position.y = above;
+    } else {
+      const onRight = this.cardProbe.set(c.x, y, c.z).project(this.camera).x > 0;
+      this.card.center.set(onRight ? 1.08 : -0.08, 0.5);
+      this.card.position.y = Math.min(pinY + 0.5 * ps, top - h / 2);
+    }
   }
 
   /** The signs stand across the road past the turn point, facing the driver's approach, chevrons toward the turn. */
@@ -782,12 +942,19 @@ export class ArScene {
     for (const h of f.hazards) {
       if (i >= this.hazardPool.length) break;
       const slot = this.hazardPool[i++];
-      const c = toLocal(f.origin, h.p);
+      const isBump = h.type === 'policia';
+      // A bump lies across our lane, on the route line where it was reported; a cone stands where it was.
+      const at = isBump && f.poly ? pointAt(f.poly, h.along).p : h.p;
+      const c = toLocal(f.origin, at);
       slot.group.position.set(c.x, this.heightAt(h.along), c.z);
+      slot.group.rotation.y = isBump && f.poly ? -toRad(bearingAt(f.poly, Math.max(0, h.along - CORNER_SMOOTH), 2 * CORNER_SMOOTH)) : 0;
       slot.group.visible = true;
-      animatePulse(slot.pulse, now + i * 0.3);
+      animatePulse(isBump ? slot.bumpPulse : slot.pulse, now + i * 0.3);
       if (slot.type !== h.type) {
         slot.label.material = this.labelMat(h.type);
+        slot.cone.visible = slot.pulse.visible = !isBump;
+        slot.bump.visible = slot.bumpPulse.visible = isBump;
+        slot.label.position.y = isBump ? 1.4 : 2.1;
         slot.type = h.type;
       }
     }
