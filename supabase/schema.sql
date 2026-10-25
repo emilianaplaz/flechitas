@@ -1,4 +1,4 @@
--- Run once in the Supabase dashboard: SQL Editor > New query > paste > Run.
+-- Run in the Supabase dashboard: SQL Editor > New query > paste > Run. Safe to run again: every statement is idempotent.
 
 create table if not exists hazards (
   id uuid primary key default gen_random_uuid(),
@@ -34,6 +34,9 @@ create table if not exists detections (
 alter table hazards enable row level security;
 alter table detections enable row level security;
 
+drop policy if exists "anyone reads hazards" on hazards;
+drop policy if exists "anyone adds hazards" on hazards;
+drop policy if exists "anyone adds detections" on detections;
 create policy "anyone reads hazards" on hazards for select to anon using (true);
 create policy "anyone adds hazards" on hazards for insert to anon with check (true);
 create policy "anyone adds detections" on detections for insert to anon with check (true);
