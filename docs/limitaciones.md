@@ -69,6 +69,6 @@ Lo que decían [SETUP.md](../SETUP.md), [TODO.md](../TODO.md), [MAQUETA.md](../M
 | TODO | Agrupación a 12 m huecos y 15 m policías | 15 m para huecos y policías (mismo grupo), 12 m alcabalas. |
 | SETUP | Encontrar: botón +, *Guardar este lugar* en la cámara, lista con ✕ | Encontrar es una pestaña solo para compartir ubicación; guardar es en el mapa y la lista en Ajustes. |
 | SETUP | Zona de la maqueta: Av. San Juan Bosco | Las 11 zonas de Chacao (MAQUETA.md). |
-| SETUP | `npm test`: geometría y enlaces | 327 comprobaciones de casi todos los módulos puros. |
+| SETUP | `npm test`: geometría y enlaces | 357 comprobaciones de casi todos los módulos puros. |
 | MAQUETA | Edificios de San Juan Bosco sin nombre | 10 edificios de OSM tienen nombre (ninguno en el tramo de prueba). |
 | PLAN-HUD-AR | Enlace por Supabase Realtime, `src/render/shaders.ts`, `src/sync/` | WebRTC/PeerJS; esos archivos no existen (su nota de estado ya lo aclara). |

@@ -1,7 +1,8 @@
 # MapZ / Vía AR — Especificación del producto
 
-Estado: **v0.3 (25 oct 2026)**, reescrita contra el código de `cambios-juando` (a292172). Reemplaza la
-v0.2 en inglés. El detalle técnico de cada parte está en [docs/](docs/README.md).
+Estado: **v0.3 (25 oct 2026)**, reescrita contra el código de `cambios-juando` (a292172) y actualizada
+con lo que las sesiones paralelas fueron integrando ([docs/trabajo-en-paralelo.md](docs/trabajo-en-paralelo.md)).
+Reemplaza la v0.2 en inglés. El detalle técnico de cada parte está en [docs/](docs/README.md).
 
 Leyenda: ✅ hecho · 🟡 parcial · ⏳ planeado · ❌ retirado o quitado.
 
@@ -58,7 +59,7 @@ inicial Venezuela: interfaz en español, peligros locales (*huecos*, *policías 
 
 | Pantalla | Qué hace | Estado |
 |---|---|---|
-| **Mapa (Destino)** | Mapa real (MapLibre + OpenFreeMap, cargado al abrir). *Desde* (vacío = mi ubicación; otro origen escrito o puesto en el mapa pasa a Simulación), *¿A dónde vas?* (búsqueda, enlace, toque en el mapa con nombre por geocodificación inversa), ☆ lugares guardados, Caminar/Manejar, *Guardar este lugar*, recentrar, vista previa de la ruta con minutos y km, zonas de la maqueta como marco azul punteado, huecos y policías acostados. Con destino en una zona, el botón dice **Elegir punto exacto**. | ✅ |
+| **Mapa (Destino)** | Mapa real (MapLibre + OpenFreeMap, cargado al abrir). *Desde* (vacío = mi ubicación; otro origen escrito o puesto en el mapa pasa a Simulación), *¿A dónde vas?* (búsqueda, enlace, toque en el mapa con nombre por geocodificación inversa), ☆ lugares guardados, Caminar/Manejar, *Guardar este lugar*, recentrar, vista previa de la ruta con minutos y km, la cobertura de la maqueta (sus teselas teñidas, con un borde azul punteado por fuera), huecos y policías acostados. Con destino en una zona, el botón dice **Elegir punto exacto**. | ✅ |
 | Capas del mapa | Encender y apagar huecos / policías acostados | ⏳ (se dibujan siempre) |
 | **Maqueta** | Vista isométrica 3D de la zona; letras A–E en los edificios cercanos al destino; tocar uno, elegir entrada (o *Frente al edificio*); gestos de app de mapas (arrastrar, pellizcar, girar con dos dedos o trackpad, Ctrl/⌘/⌥/⇧ + arrastrar), girar 90°, brújula. **Confirmar punto y conducir**. | ✅ |
 | **Conducir** | AR sobre la cámara. Chip *iPad conectado*, tarjeta de maniobra, velocidad y límite, botón de confirmar hueco, ● grabar, ⌖ alinear (con Caminar), tarjeta ETA (min · *Llegada: hh:mm* · lugar · km) con *Pausar* (sim/repetición) y *Terminar*. Horizontal y vertical. | ✅ |
@@ -199,7 +200,7 @@ TURN públicos que PeerJS trae por defecto. Mismo Wi-Fi o hotspot del iPhone.
 | M8 | Entrada calculada *Frente al edificio* cuando no hay entradas | ✅ |
 | M9 | Ruta y marcador de destino en la entrada exacta, también en el iPad | ✅ (la tarjeta no se ve con la óptica del HUD) |
 | M10 | Calle 3D en Simulación | ✅ |
-| M11 | Zonas: `san-juan-bosco` y `altamira-sur` | ✅ · Chacao completo ⏳ en curso |
+| M11 | Zonas: la parte de Chacao con calles, 28 teselas en 11 zonas ([MAQUETA.md](MAQUETA.md#zonas-de-chacao)); donde dos zonas se solapan gana la más chica | ✅ · bordes del municipio con poco adentro ⏳ |
 | M12 | Nombres, alturas y entradas medidos | ⏳ |
 | M13 | Aspecto real de los edificios | ⏳ experimento hecho ([experiments/fachadas/RESULTADOS.md](experiments/fachadas/RESULTADOS.md)): recomienda fachadas procedurales y alturas de datos abiertos; techos satelitales sujetos a la licencia no comercial |
 
@@ -290,12 +291,12 @@ TURN públicos que PeerJS trae por defecto. Mismo Wi-Fi o hotspot del iPhone.
 | R0 | Prueba de campo teléfono + iPad (antes: cámara remota) | ⏳ |
 | Q1 | Maqueta fase 1 (San Juan Bosco) | ✅ |
 | Q2 | Maqueta: zona Altamira sur | ✅ |
-| Q3 | Maqueta: todo Chacao | ⏳ en curso |
+| Q3 | Maqueta: todo Chacao | ✅ 28 teselas, 11 zonas, `npm run maqueta:check` · faltan bordes |
 | Q4 | Edificios, pantalla Maqueta, punto exacto, calle 3D en Simulación | ✅ |
 
 ## 17. Pruebas
 
-- `npm test` ([tests/run.ts](tests/run.ts)): 327 comprobaciones de la lógica pura (geometría, enlaces,
+- `npm test` ([tests/run.ts](tests/run.ts)): 357 comprobaciones de la lógica pura (geometría, enlaces,
   rutas, orientación, detector, agrupación, cola, calibración automática, protocolo del iPad, óptica,
   maqueta, edificios, Encontrar, lugares, cuentas). Detalle en [docs/desarrollo.md](docs/desarrollo.md#3-tests).
 - Faltan tests de `drive/navigation`, `hazards/ahead` y `walk/view`.

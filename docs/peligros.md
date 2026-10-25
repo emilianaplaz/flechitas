@@ -106,9 +106,9 @@ adelante, más el más cercano entre 0 y 150 m (`nearest`, hoy sin uso en la int
 - **AR y HUD**: cono rojo para huecos (y alcabalas), la joroba a rayas amarillas y negras cruzando el
   carril para policías acostados, anillos pulsantes, etiqueta de texto (oculta con la óptica del HUD).
   Ver [render-ar.md](render-ar.md#7-peligros-updatehazards).
-- **Mapa**: círculos amarillos para huecos y barras rosadas para policías acostados (los de OSM de todas
-  las zonas y los reportados), cada barra girada para cruzar la calle (el sentido de la señal o el de la
-  vía más cercana).
+- **Mapa**: círculos amarillos para huecos y barras rosadas para policías acostados (los reportados, y
+  los de OSM de las teselas a la vista, que se cargan al acercarse desde zoom 14,5), cada barra girada
+  para cruzar la calle (el sentido de la señal o el de la vía más cercana).
 
 ## 8. Pendiente
 

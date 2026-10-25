@@ -6,13 +6,13 @@ El trabajo de esta ronda se dividió en seis sesiones, cada una en su rama de wo
 `cambios-juando` (a292172), que se integran en `cambios-juando`. Esta documentación describe el código
 de `cambios-juando`; lo que cada sesión cambie se refleja aquí cuando se integra.
 
-Estado de la última actualización de estos docs (25 oct): integrada la sesión 5 (fachadas); las otras
-cuatro seguían en curso, con cambios sin commit en sus ramas.
+Estado de la última actualización de estos docs (25 oct): integradas la sesión 2 (maqueta de Chacao) y
+la 5 (fachadas); las sesiones 1, 3 y 4 seguían en curso, con cambios sin commit en sus ramas.
 
 | # | Sesión | Qué hace | Informe | Estado |
 |---|---|---|---|---|
 | 1 | Login y onboarding | Pantallas de bienvenida, entrada a la cuenta y permisos al estilo de una app (sobre las cuentas de [cuentas-supabase.md](cuentas-supabase.md)). | — | En curso, sin integrar |
-| 2 | Maqueta de todo Chacao | Teselas para todo el municipio Chacao, chequeos de calidad del script. Hoy hay dos zonas ([maqueta.md](maqueta.md#2-zonas-construidas-hoy)). | — | En curso, sin integrar |
+| 2 | Maqueta de todo Chacao | La parte de Chacao con calles: 28 teselas en 11 zonas, revisión `npm run maqueta:check`, cobertura en Destino, pantalla Maqueta en una sola malla para barrios enteros, perfil sin escalones entre teselas ([maqueta.md](maqueta.md#2-zonas-construidas-hoy)). Faltan bordes del municipio. | [MAQUETA.md → Zonas de Chacao](../MAQUETA.md#zonas-de-chacao) | **Integrada** (d4dc9cf, d7dbdc7) |
 | 3 | Pruebas de manejo y calibración | Pruebas de manejo y de calibración del HUD; ajustes a la guía y a la calibración automática. | `docs/pruebas-manejo.md` (al integrarse) | En curso, sin integrar |
 | 4 | Pulitura del flujo | Bugs e incongruencias del flujo de la app. | `docs/pulitura.md` (al integrarse) | En curso, sin integrar |
 | 5 | Fachadas reales (experimento) | Comparó seis formas de darle aspecto real a los edificios de la maqueta en una página aparte (`npm run fachadas`), con licencias y costos. | [experiments/fachadas/RESULTADOS.md](../experiments/fachadas/RESULTADOS.md), [LICENCIAS.md](../experiments/fachadas/LICENCIAS.md) | **Integrada** (c2227fd) |
@@ -44,4 +44,5 @@ Lo que la documentación ya marca como pendiente y que estas sesiones podrían c
 - La prueba en carro del HUD con medidas reales ([optica-hud.md](optica-hud.md#10-límites-conocidos)) y de
   la calibración automática ([calibracion.md](calibracion.md#5-límites)) → sesión 3.
 - Los defectos de [limitaciones.md](limitaciones.md#2-defectos-y-restos-encontrados-en-el-código) → sesión 4.
-- Las zonas de la maqueta → sesión 2.
+- Las alturas reales de los edificios y el aspecto de la pantalla Maqueta (recomendación del experimento
+  de fachadas), sobre las teselas de Chacao.

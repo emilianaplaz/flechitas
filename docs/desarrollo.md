@@ -44,7 +44,7 @@ Dependencias: `three` 0.170, `maplibre-gl` 4.7, `peerjs` 1.5. Desarrollo: `types
 ## 3. Tests
 
 `npm test` corre [tests/run.ts](../tests/run.ts) con Node (sin navegador, sin framework): una función
-`check(nombre, ok)` y un `localStorage` en memoria. Hoy pasan **327 comprobaciones**. Secciones:
+`check(nombre, ok)` y un `localStorage` en memoria. Hoy pasan **357 comprobaciones**. Secciones:
 
 | Sección | Qué cubre |
 |---|---|
