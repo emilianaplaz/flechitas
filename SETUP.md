@@ -58,22 +58,12 @@ Then fine-tune the rest by hand:
 
 ## Hazards
 
-Three ways to get a hazard on the map:
+Two ways to get a hazard on the map:
 
 1. **Tap** **⚠ Hueco** or **Policía acostado**. The point is placed about 1.5 s behind you, since you tap after hitting it.
 2. **Automatic detection.** With **Detectar huecos y policías acostados** ticked, the accelerometer notices a jolt above ~14 km/h and asks "¿Qué fue eso?" with a guess selected. Pick Hueco, Policía acostado, or Nada. Needs the phone mounted firmly; on iPhone, accept the motion permission. In Simulación you can shake the phone to test it.
-3. **Demo data you write by hand.** Add entries to `public/hazards.json`:
 
-```json
-[
-  { "id": "demo1", "type": "hueco", "lat": 10.4812, "lon": -66.9021, "createdAt": "2026-10-24T00:00:00Z", "heading": 80 },
-  { "id": "demo2", "type": "policia", "lat": 10.4820, "lon": -66.9005, "createdAt": "2026-10-24T00:00:00Z" }
-]
-```
-
-`type` is `hueco`, `policia` or `alcabala`. `heading` (degrees from north, optional) is the travel direction; without it the hazard shows in both directions. Hazards more than 20 m from the route are ignored.
-
-Reports made with taps or detection stay on that phone. To share them, ⚙ → **Exportar reportes**, then save the file as `public/hazards.json` and deploy.
+Reports upload to the shared database automatically (below) and are also kept on the phone. Hazards more than 20 m from the route are ignored.
 
 ## Shared hazard database (Supabase)
 

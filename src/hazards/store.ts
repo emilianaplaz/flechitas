@@ -1,7 +1,8 @@
 // Road hazards (huecos, policías acostados…). Each one is just a GPS point.
-// Seeds come from /hazards.json; reports made on this phone are kept in localStorage.
+// Reports made on this phone are kept in localStorage and uploaded to Supabase.
 import type { LatLon } from '../core/geo.ts';
 import { cancel, enqueue, fetchShared } from './cloud.ts';
+import { clusterHazards } from './cluster.ts';
 
 export type HazardType = 'hueco' | 'policia' | 'alcabala';
 
@@ -11,6 +12,8 @@ export interface Hazard extends LatLon {
   createdAt: string;
   heading?: number; // travel direction when reported; hazards in the other direction are ignored
   source?: 'tap' | 'detected' | 'osm'; // osm: speed bumps from the maqueta tiles, never uploaded
+  confirmations?: number; // reports merged into this hazard (set by clusterHazards)
+  lastSeen?: string; // newest report merged into it
 }
 
 export const HAZARD_LABEL: Record<HazardType, string> = {
@@ -38,29 +41,19 @@ function saveLocal(list: Hazard[]) {
 }
 
 export class HazardStore {
-  seeds: Hazard[] = [];
   shared: Hazard[] = [];
   local: Hazard[] = loadLocal();
   osm: Hazard[] = []; // speed bumps from the maqueta tiles of the current route
-
-  async loadSeeds() {
-    try {
-      const res = await fetch('/hazards.json', { cache: 'no-store' });
-      if (res.ok) this.seeds = (await res.json()) as Hazard[];
-    } catch {
-      /* no seed file — fine */
-    }
-  }
 
   async loadShared() {
     this.shared = await fetchShared();
   }
 
-  /** Seeds, everyone's reports and this phone's own, one entry per id (a report we uploaded comes back from the database). */
+  /** Everyone's reports and this phone's own, one entry per id (a report we uploaded comes back from the database), then merged by place and expired. */
   all(): Hazard[] {
     const byId = new Map<string, Hazard>();
-    for (const h of [...this.osm, ...this.seeds, ...this.shared, ...this.local]) byId.set(h.id, h);
-    return [...byId.values()];
+    for (const h of [...this.osm, ...this.shared, ...this.local]) byId.set(h.id, h);
+    return clusterHazards([...byId.values()]);
   }
 
   add(type: HazardType, p: LatLon, extra: { heading?: number; source?: Hazard['source'] } = {}): Hazard {
@@ -88,10 +81,5 @@ export class HazardStore {
   clearLocal() {
     this.local = [];
     saveLocal(this.local);
-  }
-
-  /** Everything people reported, ready to paste into public/hazards.json (OSM bumps come back from the maqueta). */
-  exportJson(): string {
-    return JSON.stringify(this.all().filter((h) => h.source !== 'osm'), null, 2);
   }
 }

@@ -33,13 +33,13 @@
 ## Hazards (`hazards/`)
 
 - [x] Tap-to-report huecos, policías acostados and alcabalas
-- [x] Accelerometer bump detection with a "¿Qué fue eso?" confirmation
+- [x] Accelerometer bump detection, saved automatically (no confirmation prompt): hard jolts only, hueco and policía told apart by shape
 - [x] Undo last report and export to file
 - [x] Shared Supabase database with an offline upload queue and undo window
 - [ ] Camera detection of huecos and policías acostados. Decide where it runs (live in the browser is heavy; post-processing a recorded drive is easier), find or record training data, and send detections through the same confirmation. Combined with an accelerometer jolt within about 2 s it is much more reliable
 - [ ] Tune the bump detector thresholds (`hazards/bump.ts`) on a real drive; expect false positives on rough roads
-- [ ] Merge reports within ~15 m and the same travel direction into one hazard, and use `confirmations` and `last_seen` (the app doesn't read or write them yet). The anon key can't update rows, so this needs a serverless function or an RPC
-- [ ] Expire hazards that haven't been seen for a while
+- [x] Merge reports (12 m huecos, 15 m bumps, same direction) into one hazard at read time, with `confirmations` and expiry (huecos 90 days, bumps 1 year, OSM never) in `hazards/cluster.ts`
+- [x] Expire hazards that haven't been seen for a while
 - [ ] Load only hazards near the route instead of the latest 5000 rows
 - [x] Import speed bumps from OpenStreetMap (`traffic_calming=bump|hump|table`) through the maqueta tiles, where there are tiles
 

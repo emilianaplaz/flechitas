@@ -10,6 +10,7 @@ const mem = new Map<string, string>();
 } as Storage;
 import { cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
 import { BumpDetector } from '../src/hazards/bump.ts';
+import { clusterHazards } from '../src/hazards/cluster.ts';
 import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
 import { defaultsFor, loadCalib, loadFlip, saveCalib, saveFlip } from '../src/render/calib.ts';
@@ -136,23 +137,55 @@ function drive(profile: (t: number) => number, speed = 10, seconds = 3): ReturnT
 }
 const events = (r: ReturnType<typeof drive>) => r.filter((e) => e !== null);
 const pulse = (t: number, at: number, len: number, amp: number) => (t >= at && t < at + len ? amp : 0);
-let ev = events(drive((t) => pulse(t, 1000, 60, -3.5) + pulse(t, 1060, 60, 7)));
+const hole = (at = 1000) => (t: number) => pulse(t, at, 60, -4) + pulse(t, at + 60, 60, 8);
+const speedBump = (t: number) => pulse(t, 1000, 150, 4) + pulse(t, 1150, 150, -4) + pulse(t, 1300, 80, 6);
+let ev = events(drive(hole()));
 check('pothole: drop then hard hit', ev.length === 1 && ev[0]!.type === 'hueco', JSON.stringify(ev));
-ev = events(drive((t) => pulse(t, 1000, 100, 3.2) + pulse(t, 1100, 100, -3.2) + pulse(t, 1200, 60, 5)));
-check('speed bump: rise first', ev.length === 1 && ev[0]!.type === 'policia', JSON.stringify(ev));
+ev = events(drive(speedBump));
+check('speed bump: lift first, longer', ev.length === 1 && ev[0]!.type === 'policia', JSON.stringify(ev));
 check('road noise is ignored', events(drive((t) => 1.2 * Math.sin(t / 40))).length === 0);
-check('too slow (walking) is ignored', events(drive((t) => pulse(t, 1000, 60, -3.5) + pulse(t, 1060, 60, 7), 1.4)).length === 0);
+check('rough asphalt (peaks ~4) is ignored', events(drive((t) => pulse(t, 1000, 60, -3.6) + pulse(t, 1060, 60, 4.2))).length === 0);
+check('too slow (walking) is ignored', events(drive(hole(), 1.4)).length === 0);
 check('weak bump below threshold is ignored', events(drive((t) => pulse(t, 1000, 100, 3))).length === 0);
-ev = events(drive((t) => pulse(t, 1000, 60, -3.5) + pulse(t, 1060, 60, 7) + pulse(t, 1700, 60, -3.5) + pulse(t, 1760, 60, 7), 10, 4));
+check('short lift-first jolt is neither, not reported', events(drive((t) => pulse(t, 1000, 60, 4) + pulse(t, 1060, 60, -3) + pulse(t, 1120, 60, 6))).length === 0);
+check('long drop-first jolt is neither, not reported', events(drive((t) => pulse(t, 1000, 150, -4) + pulse(t, 1150, 150, 4) + pulse(t, 1300, 80, 8))).length === 0);
+ev = events(drive((t) => hole(1000)(t) + hole(1700)(t), 10, 4));
 check('two hits within 3 s count once', ev.length === 1, String(ev.length));
 const flipped = new BumpDetector();
 let flippedEv: unknown[] = [];
 for (let t = 0; t <= 3000; t += 16) {
-  const a = -(9.81 + pulse(t, 1000, 60, -3.5) + pulse(t, 1060, 60, 7)); // iOS reports the opposite sign
+  const a = -(9.81 + hole()(t)); // iOS reports the opposite sign
   const e = flipped.feed(t, 0, 0, a, 10);
   if (e) flippedEv.push(e);
 }
 check('same result with inverted sign convention (iOS)', flippedEv.length === 1 && (flippedEv[0] as { type: string }).type === 'hueco', JSON.stringify(flippedEv));
+
+// ---- merging reports of the same hazard ----
+{
+  const H = (id: string, type: 'hueco' | 'policia', dLat: number, createdAt: string, extra: Record<string, unknown> = {}) => ({ id, type, lat: 10.5 + dLat, lon: -66.9, createdAt, ...extra });
+  const now = Date.parse('2026-10-24T00:00:00Z');
+  const day = (n: number) => new Date(now - n * 86_400_000).toISOString();
+  let m = clusterHazards([H('a', 'hueco', 0, day(3)), H('b', 'hueco', 0.00005, day(2)), H('c', 'hueco', 0.0001, day(1))], now); // ~5.5 m apart
+  check('three nearby huecos become one with 3 confirmations', m.length === 1 && m[0]!.confirmations === 3, JSON.stringify(m));
+  m = clusterHazards([H('a', 'hueco', 0, day(1)), H('b', 'hueco', 0.0003, day(1))], now); // ~33 m
+  check('far apart stay separate', m.length === 2);
+  m = clusterHazards([H('a', 'hueco', 0, day(1)), H('b', 'policia', 0, day(1))], now);
+  check('different types never merge', m.length === 2);
+  m = clusterHazards([H('a', 'policia', 0, day(1), { heading: 0 }), H('b', 'policia', 0, day(1), { heading: 180 })], now);
+  check('opposite directions stay separate', m.length === 2);
+  m = clusterHazards([H('a', 'policia', 0, day(1), { heading: 10 }), H('b', 'policia', 0.00003, day(1))], now);
+  check('a report without heading merges with one that has it', m.length === 1 && m[0]!.heading === 10);
+  m = clusterHazards([H('a', 'hueco', 0, day(100))], now);
+  check('hueco expires after 90 days unseen', m.length === 0);
+  m = clusterHazards([H('a', 'hueco', 0, day(100)), H('b', 'hueco', 0.00003, day(5))], now);
+  check('a fresh report keeps an old hueco alive', m.length === 1 && m[0]!.confirmations === 2);
+  m = clusterHazards([H('a', 'policia', 0, day(200))], now);
+  check('bump still valid after 200 days', m.length === 1);
+  m = clusterHazards([H('a', 'policia', 0, day(400))], now);
+  check('bump expires after a year unseen', m.length === 0);
+  m = clusterHazards([H('osm1', 'policia', 0, '', { source: 'osm' }), H('r', 'policia', 0.00005, day(400))], now);
+  check('mapped bump never expires, keeps its exact point and absorbs reports', m.length === 1 && m[0]!.id === 'osm1' && m[0]!.lat === 10.5 && m[0]!.confirmations === 2, JSON.stringify(m));
+}
 
 // ---- upload queue ----
 await (async () => {
