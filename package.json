@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "test": "node --experimental-strip-types tests/run.ts",
-    "maqueta": "node --experimental-strip-types scripts/maqueta/build.ts"
+    "maqueta": "node --experimental-strip-types scripts/maqueta/build.ts",
+    "maqueta:check": "node --experimental-strip-types scripts/maqueta/check.ts"
   },
   "dependencies": {
     "maplibre-gl": "^4.7.1",

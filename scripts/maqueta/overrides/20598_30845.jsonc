@@ -1,0 +1,9 @@
+// Huellas de Microsoft que una calle con nombre atraviesa (npm run maqueta:check): duplicados corridos de
+// un edificio de OSM o manchas que no son edificios. Revisadas sobre el mapa base el 2026-10-25.
+// Las teselas nuevas ya las descartan solas al construirse (build.ts); estas teselas son anteriores.
+{
+  "buildings": [
+    { "id": "ms:10.498789,-66.851257", "hide": true }, // 62 m; tapa un edificio de OSM y la calle
+    { "id": "ms:10.498652,-66.847272", "hide": true } // 8 m
+  ]
+}

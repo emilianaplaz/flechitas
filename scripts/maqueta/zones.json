@@ -1,22 +1,13 @@
 [
-  {
-    "name": "san-juan-bosco",
-    "label": "Av. San Juan Bosco, Altamira",
-    "bbox": [
-      10.509,
-      -66.854,
-      10.5128,
-      -66.8498
-    ]
-  },
-  {
-    "name": "altamira-sur",
-    "label": "Altamira sur, La Castellana y Chacao",
-    "bbox": [
-      10.493213,
-      -66.8573,
-      10.504016,
-      -66.846313
-    ]
-  }
+  { "name": "san-juan-bosco", "label": "Av. San Juan Bosco, Altamira", "bbox": [10.509, -66.854, 10.5128, -66.8498] },
+  { "name": "altamira-sur", "label": "Altamira sur, La Castellana y Chacao", "bbox": [10.493223, -66.85729, 10.504006, -66.846323] },
+  { "name": "altamira-norte", "label": "Altamira norte y Av. Boyacá", "bbox": [10.504026, -66.85729, 10.514808, -66.846323] },
+  { "name": "los-palos-grandes", "label": "Los Palos Grandes", "bbox": [10.493223, -66.846303, 10.514808, -66.84083] },
+  { "name": "bello-campo", "label": "Bello Campo, Estado Leal y Av. Libertador", "bbox": [10.487822, -66.85729, 10.493203, -66.846323] },
+  { "name": "la-castellana-oeste", "label": "La Castellana oeste, El Pedregal y San Marino", "bbox": [10.493223, -66.862783, 10.514808, -66.85731] },
+  { "name": "el-rosal", "label": "El Rosal y El Retiro", "bbox": [10.487822, -66.868276, 10.493203, -66.85731] },
+  { "name": "country-club", "label": "Country Club y El Bosque", "bbox": [10.493223, -66.868276, 10.504006, -66.862803] },
+  { "name": "la-floresta", "label": "La Floresta", "bbox": [10.487822, -66.846303, 10.493203, -66.84083] },
+  { "name": "el-ciempies", "label": "Distribuidor El Ciempiés y el Guaire", "bbox": [10.48242, -66.862783, 10.487802, -66.846323] },
+  { "name": "los-palos-grandes-este", "label": "Los Palos Grandes este", "bbox": [10.504026, -66.84081, 10.514808, -66.835337] }
 ]

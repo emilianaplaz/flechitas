@@ -1,5 +1,5 @@
 // Quick logic tests: `npm test` (Node 22+). No browser needed.
-import { angleDiff, bearing, bearingAt, buildPolyline, decodeGeohash, haversine, offset, pointAt, project } from '../src/core/geo.ts';
+import { angleDiff, bearing, bearingAt, buildPolyline, decodeGeohash, haversine, offset, pointAt, project, type LatLon } from '../src/core/geo.ts';
 import { extractUrl, parseInput } from '../src/core/links.ts';
 // Minimal localStorage for the upload-queue tests (Node has none).
 const mem = new Map<string, string>();
@@ -510,7 +510,7 @@ check('incidence at the glass is past Brewster (more reflection)', fi.incidenceD
 // ---- maqueta: buildings (footprints, de-duplication, entrances, overrides) ----
 // (imports are hoisted; kept here so this block stays self-contained)
 import { buildingsIn, entrancesOf, ENTRANCE_FALLBACK_NAME, insideOutline, type TileBuilding } from '../src/core/maqueta.ts';
-import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRings } from '../scripts/maqueta/buildings.ts';
+import { applyBuildingOverrides, buildingHeight, dedupe, matchOffsets, median, overlapShare, stitchRings } from '../scripts/maqueta/buildings.ts';
 {
   const base = { lat: 10.511, lon: -66.852 };
   // Axis-aligned square `size` m wide, its SW corner `east` m east and `north` m north of base. Closed ring.
@@ -589,6 +589,114 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   const box: [number, number, number, number] = [base.lat - 0.0001, base.lon - 0.0001, near1.lat, near1.lon];
   const found = buildingsIn([t(list), t([list[0]]), t()], box).map((b) => b.id).join();
   check('buildings: buildingsIn by bbox, each once, old tiles ok', found === 'osm:w1,ms:a', found);
+
+  // Coordinates check in the build: how Microsoft's footprints sit against the OSM buildings they duplicate.
+  const shifted = matchOffsets([bld('osm:a', square(0, 0, 20), 'osm'), bld('osm:b', square(40, 0, 20), 'osm')], [bld('ms:a', square(2, -1, 20)), bld('ms:b', square(42, -1, 20)), bld('ms:tiny', square(41, 1, 4))]);
+  check('buildings: offset of matching footprints, 2 m east and 1 m south', shifted.length === 2 && shifted.every((o) => near(o.dx, 2, 0.05) && near(o.dz, 1, 0.05)), JSON.stringify(shifted));
+  check('buildings: a much smaller footprint is not a match', matchOffsets([bld('osm:b', square(40, 0, 20), 'osm')], [bld('ms:tiny', square(41, 1, 4))]).length === 0);
+  check('buildings: median', median([3, 1, 2]) === 2 && median([4, 1, 2, 3]) === 2.5 && Number.isNaN(median([])));
+}
+
+// ---- maqueta: a route that leaves the tiles and comes back ----
+{
+  const north = buildPolyline([caracas, offset(caracas, 0, 300)]);
+  // Known for the first 100 m (at 10 m) and the last 100 m (at 30 m); no tiles in between.
+  const dip = RouteProfile.build(north, (p) => {
+    const d = haversine(caracas, p);
+    return d <= 100 ? 10 : d >= 200 ? 30 : null;
+  })!;
+  let worst = 0;
+  for (let d = 0; d < 300; d += 5) worst = Math.max(worst, Math.abs(dip.at(d + 5) - dip.at(d)));
+  check('maqueta: a gap between tiles ramps, no step on the way back in', worst < 1.5 && near(dip.at(150), 20, 1), `${worst} ${dip.at(150)}`);
+  check('maqueta: known heights on both sides stay as they are', dip.at(50) === 10 && dip.at(250) === 30);
+}
+
+// ---- maqueta: zones and tiles in view (Destino) ----
+import { coverageEdges, tilesInBox, zoneFor } from '../src/core/maqueta.ts';
+{
+  const zones = [
+    { name: 'altamira-norte', bbox: [10.504026, -66.85729, 10.514808, -66.846323] as [number, number, number, number] },
+    { name: 'san-juan-bosco', bbox: [10.509, -66.854, 10.5128, -66.8498] as [number, number, number, number] },
+    { name: 'los-palos-grandes', bbox: [10.493223, -66.846303, 10.514808, -66.84083] as [number, number, number, number] },
+  ];
+  check('zones: the street wins over the neighbourhood around it', zoneFor(zones, { lat: 10.511, lon: -66.852 })?.name === 'san-juan-bosco');
+  check('zones: the neighbourhood elsewhere in it', zoneFor(zones, { lat: 10.506, lon: -66.856 })?.name === 'altamira-norte');
+  check('zones: by bbox, whatever the order', zoneFor([...zones].reverse(), { lat: 10.511, lon: -66.852 })?.name === 'san-juan-bosco' && zoneFor(zones, { lat: 10.5, lon: -66.843 })?.name === 'los-palos-grandes');
+  check('zones: none outside', zoneFor(zones, caracas) === null);
+  const have = new Set(['20597/30843', '20598/30843', '20598/30844', '20599/30845']);
+  const view = tilesInBox(have, [10.505, -66.855, 10.512, -66.849]); // across 20597–20598 × 30843–30844
+  check('tilesInBox: the existing tiles the view touches', view.join() === '20597/30843,20598/30843,20598/30844', view.join());
+  check('tilesInBox: nothing where there are no tiles', tilesInBox(have, [10.47, -66.91, 10.48, -66.9]).length === 0);
+
+  // Outline of the area the maqueta covers: an L of three tiles has six straight sides, 8 tiles long.
+  const L = coverageEdges(['20597/30843', '20598/30843', '20597/30844']);
+  const side = haversine(tileToLatLon(20597, 30843), tileToLatLon(20598, 30843));
+  const perimeter = L.reduce((sum, [a, b]) => sum + haversine({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] }), 0);
+  check('coverage: an L of three tiles has six sides', L.length === 6, String(L.length));
+  check('coverage: and a perimeter of eight tile sides', near(perimeter, 8 * side, 1), `${perimeter} vs ${8 * side}`);
+  check('coverage: no inner edges between neighbours', coverageEdges(['20597/30843', '20598/30843']).length === 4);
+}
+
+// ---- maqueta: tile checks before committing (scripts/maqueta/check.ts) ----
+import { crossTileDuplicates, maxGridSlope, roadsThroughBuildings, tileReport } from '../scripts/maqueta/quality.ts';
+{
+  const sw = tileToLatLon(20599, 30844); // SW corner of tile 20599/30843 is its (x, y + 1)
+  const inTile = (dx: number, dy: number) => tileToLatLon(20599 + dx, 30843 + dy);
+  const box = (cx: number, cy: number, half = 0.01): [number, number][] => {
+    const a = inTile(cx - half, cy - half);
+    const b = inTile(cx + half, cy + half);
+    return [[a.lat, a.lon], [b.lat, a.lon], [b.lat, b.lon], [a.lat, b.lon], [a.lat, a.lon]];
+  };
+  const b = (id: string, outline: [number, number][], source: TileBuilding['source'] = 'ms'): TileBuilding => ({ id, name: null, height: 9, levels: null, source, outline, entrances: [] });
+  const street = (name: string, pts: LatLon[]): TileWay => ({ id: `osm:w${name}`, name, oneway: false, lanes: 2, maxspeed: 30, turnLanes: null, pts: pts.map((p): [number, number] => [p.lat, p.lon]) });
+  const slope = (x: number, y: number, rise: number): Tile => ({
+    v: 1,
+    tile: [16, x, y],
+    built: '',
+    sources: [],
+    elev: { rows: 3, cols: 3, z: [0, 0, 0, rise, rise, rise, 2 * rise, 2 * rise, 2 * rise].map((v) => 900 - v) },
+    signs: [{ id: `osm:n${x}${y}`, type: 'stop', lat: tileToLatLon(x + 0.5, y + 0.5).lat, lon: tileToLatLon(x + 0.5, y + 0.5).lon, dir: null, verified: false }],
+    ways: [street('Avenida Prueba', [tileToLatLon(x, y + 0.5), tileToLatLon(x + 1, y + 0.5)])],
+    buildings: [],
+  });
+  const good = { ...slope(20599, 30843, 30), buildings: [b('ms:1', box(0.3, 0.3)), b('osm:w2', box(0.7, 0.7), 'osm')] };
+  const r = tileReport(good);
+  const rowGap = haversine(tileToLatLon(20599, 30843), tileToLatLon(20599, 30843.5)); // grid rows are half a tile apart
+  check('quality: counts what the tile holds', r.key === '20599/30843' && r.ways === 1 && r.withLimit === 1 && r.signs.stop === 1 && r.buildings.ms === 1 && r.buildings.osm === 1);
+  check('quality: a sound tile has no errors', r.errors.length === 0, r.errors.join('; '));
+  check('quality: grid slope', near(maxGridSlope(good), 30 / rowGap, 1e-6) && near(r.elev.min, 840, 1e-9) && near(r.elev.max, 900, 1e-9), String(maxGridSlope(good)));
+  check('quality: a steep grid is a warning, not an error', tileReport(slope(20599, 30843, 0.5 * rowGap)).warnings.some((w) => w.includes('pendiente')) && tileReport(slope(20599, 30843, 0.5 * rowGap)).errors.length === 0);
+
+  const broken: Tile = {
+    ...good,
+    elev: { rows: 3, cols: 3, z: [900, 900, NaN, 900, 900, 900, 900, 900] },
+    ways: [],
+    signs: [{ ...good.signs[0], lat: sw.lat - 0.001 }],
+    buildings: [b('ms:far', box(1.5, 0.5)), b('ms:open', box(0.5, 0.5).slice(0, 4)), b('ms:dup', box(0.2, 0.2)), b('ms:dup', box(0.4, 0.4))],
+  };
+  const e = tileReport(broken).errors.join(' | ');
+  for (const [what, word] of [['grid size', 'rejilla'], ['bad height', 'fuera de rango'], ['no ways', 'sin vías'], ['sign outside', 'señales fuera'], ['building outside', 'centro fuera'], ['open outline', 'abiertos'], ['repeated id', 'repetido']] as const) {
+    check(`quality: error for ${what}`, e.includes(word), e);
+  }
+
+  // Across tiles: one id twice, or two footprints of different tiles over each other.
+  const east = { ...slope(20600, 30843, 0), buildings: [b('ms:1', box(0.3, 0.3)), b('ms:edge', [[inTile(0.99, 0.5).lat, inTile(0.99, 0.5).lon], [inTile(0.99, 0.52).lat, inTile(0.99, 0.52).lon], [inTile(1.01, 0.52).lat, inTile(1.01, 0.52).lon], [inTile(1.01, 0.5).lat, inTile(1.01, 0.5).lon], [inTile(0.99, 0.5).lat, inTile(0.99, 0.5).lon]])] };
+  const west = { ...good, buildings: [...good.buildings!, b('ms:edge-west', [[inTile(0.989, 0.5).lat, inTile(0.989, 0.5).lon], [inTile(0.989, 0.52).lat, inTile(0.989, 0.52).lon], [inTile(1.009, 0.52).lat, inTile(1.009, 0.52).lon], [inTile(1.009, 0.5).lat, inTile(1.009, 0.5).lon], [inTile(0.989, 0.5).lat, inTile(0.989, 0.5).lon]])] };
+  const d = crossTileDuplicates([west, east]);
+  check('quality: same id in two tiles', d.some((x) => x.why === 'mismo id' && x.a.endsWith('ms:1')), JSON.stringify(d));
+  check('quality: overlapping footprints across a tile edge', d.some((x) => x.why === 'se solapan' && [x.a, x.b].some((s) => s.endsWith('ms:edge-west'))), JSON.stringify(d));
+  check('quality: different buildings are not duplicates', crossTileDuplicates([good, slope(20600, 30843, 0)]).length === 0);
+
+  // A named street through a footprint: flagged; a distribuidor over it, or a street beside it, not.
+  const centre = inTile(0.5, 0.5);
+  const hit = b('ms:hit', box(0.5, 0.5)); // ~12 m wide
+  const through = street('Calle Real', [offset(centre, 270, 60), offset(centre, 90, 60)]);
+  const over = street('Distribuidor Altamira', through.pts.map(([lat, lon]) => ({ lat, lon })));
+  const beside = street('Calle Lado', [offset(offset(centre, 0, 30), 270, 60), offset(offset(centre, 0, 30), 90, 60)]);
+  const metres = roadsThroughBuildings([hit], [through]).get('ms:hit') ?? 0;
+  const width = haversine(inTile(0.49, 0.5), inTile(0.51, 0.5));
+  check('quality: street through a footprint, metres inside', near(metres, width, 1.5), `${metres} vs ${width}`);
+  check('quality: overpasses and streets beside it are fine', roadsThroughBuildings([hit], [over, beside]).size === 0);
 }
 
 // ---- find: where a place lands on the camera picture ----

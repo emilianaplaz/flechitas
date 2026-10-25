@@ -5,7 +5,7 @@
 // MapLibre (~800 KB) is loaded only when this screen first opens.
 import type { FilterSpecification, GeoJSONSource, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 import { bearing, type LatLon } from '../core/geo.ts';
-import type { MaquetaIndex, Tile, TileWay } from '../core/maqueta.ts';
+import { coverageEdges, loadTile, tileToLatLon, tilesInBox, zoneFor, type MaquetaIndex, type TileWay } from '../core/maqueta.ts';
 import { resolveDestination } from '../core/links.ts';
 import { fetchRoute, formatDistance, type Route } from '../core/route.ts';
 import { app } from '../core/state.ts';
@@ -22,6 +22,7 @@ const PALETTE = {
 
 export interface Zone {
   name: string;
+  label?: string; // "Los Palos Grandes", from zones.json
   bbox: [number, number, number, number]; // south, west, north, east
   tiles: string[];
 }
@@ -43,13 +44,11 @@ const data = { zone: empty(), route: empty(), holes: empty(), bumps: empty() };
 const visible = { holes: true, bumps: true };
 
 const theme = (): Theme => 'dark';
-const ZONE_LABEL: Record<string, string> = { 'san-juan-bosco': 'Av. San Juan Bosco' };
-export const zoneLabel = (z: Zone) => ZONE_LABEL[z.name] ?? z.name;
+export const zoneLabel = (z: Zone) => z.label ?? z.name;
 
-/** The maqueta zone a point is in (destination → "Elegir punto exacto"), if any. */
+/** The maqueta zone a point is in (destination → "Elegir punto exacto"), if any; the most specific one. */
 export function zoneAt(p: LatLon | null | undefined): Zone | null {
-  if (!p) return null;
-  return zones.find((z) => p.lat >= z.bbox[0] && p.lat <= z.bbox[2] && p.lon >= z.bbox[1] && p.lon <= z.bbox[3]) ?? null;
+  return p ? zoneFor(zones, p) : null;
 }
 export const destZone = () => zoneAt(app.dest?.point);
 /** Route preview for the current destination, when the origin was known. */
@@ -86,8 +85,9 @@ function style(t: Theme): StyleSpecification {
       road('road-service', ['service', 'track', 'path'], c.minor, [13, 0.5, 18, 8]),
       road('road-minor', ['minor', 'residential'], c.road, [12, 1, 18, 18]),
       road('road-major', ['tertiary', 'secondary', 'primary', 'trunk', 'motorway'], c.major, [10, 1.5, 18, 26]),
-      { id: 'zone-fill', type: 'fill', source: 'zone', paint: { 'fill-color': c.pri, 'fill-opacity': 0.08 } },
-      { id: 'zone-line', type: 'line', source: 'zone', paint: { 'line-color': c.pri, 'line-width': 2.5, 'line-dasharray': [3, 2] } },
+      // No antialiasing: neighbouring tiles would show a faint seam between them.
+      { id: 'zone-fill', type: 'fill', source: 'zone', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': c.pri, 'fill-opacity': 0.08, 'fill-antialias': false } },
+      { id: 'zone-line', type: 'line', source: 'zone', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': c.pri, 'line-width': 2.5, 'line-dasharray': [3, 2] } },
       { id: 'route-case', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': c.bg, 'line-width': 10 } },
       { id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': c.route, 'line-width': 6 } },
       { id: 'holes', type: 'circle', source: 'holes', layout: { visibility: visible.holes ? 'visible' : 'none' }, paint: { 'circle-color': c.haz, 'circle-radius': 6, 'circle-stroke-color': c.bg, 'circle-stroke-width': 2 } },
@@ -140,30 +140,46 @@ async function loadZones() {
   } catch {
     return;
   }
-  setData('zone', {
-    type: 'FeatureCollection',
-    features: zones.map((z) => {
-      const [s, w, n, e] = z.bbox;
-      return { type: 'Feature', properties: { name: z.name }, geometry: { type: 'Polygon', coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] } };
-    }),
-  });
-  // Speed bumps the maqueta knows about in its zones.
-  const bumps: GeoJSON.Feature[] = [];
-  for (const key of new Set(zones.flatMap((z) => z.tiles))) {
-    try {
-      const t = (await (await fetch(`/maqueta/16/${key}.json`)).json()) as Tile;
-      for (const s of t.signs) if (s.type === 'bump' || s.type === 'hump' || s.type === 'table') bumps.push(point(s, { rot: s.dir ?? roadBearing(s, t.ways) }));
-      knownWays.push(...t.ways);
-    } catch {
-      /* tile missing: skip */
-    }
-  }
-  bumpsFromMaqueta = bumps;
-  refreshHazards();
+  tileKeys = new Set(zones.flatMap((z) => z.tiles));
+  // Where the maqueta is: its tiles tinted (each once, however many zones share it) and one dashed
+  // line round the outside, not a frame per zone across the streets.
+  const square = (k: string): GeoJSON.Feature => {
+    const [x, y] = k.split('/').map(Number);
+    const [nw, se] = [tileToLatLon(x, y), tileToLatLon(x + 1, y + 1)];
+    return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[nw.lon, se.lat], [se.lon, se.lat], [se.lon, nw.lat], [nw.lon, nw.lat], [nw.lon, se.lat]]] } };
+  };
+  const edges = coverageEdges(tileKeys).map((line): GeoJSON.Feature => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line.map(([lat, lon]) => [lon, lat]) } }));
+  setData('zone', { type: 'FeatureCollection', features: [...[...tileKeys].map(square), ...edges] });
+  map?.on('moveend', () => void loadTilesInView());
+  void loadTilesInView();
   syncDest(); // a destination typed before the zones arrived
 }
 let bumpsFromMaqueta: GeoJSON.Feature[] = [];
 const knownWays: TileWay[] = [];
+let tileKeys = new Set<string>(); // every tile of the maqueta
+const tilesSeen = new Set<string>();
+const TILES_MIN_ZOOM = 14.5; // farther out the bars are specks, and the view would ask for most of Chacao
+
+/**
+ * Speed bumps (and roads, to lay reported bumps across them) of the maqueta tiles in view, loaded as
+ * the map gets there: with the whole of Chacao in the maqueta, fetching every tile up front would
+ * download ~2 MB each time the app opens, wherever the driver is. Tiles come from the same cache
+ * the drive and the maqueta use.
+ */
+async function loadTilesInView() {
+  if (!map || map.getZoom() < TILES_MIN_ZOOM) return;
+  const b = map.getBounds();
+  const keys = tilesInBox(tileKeys, [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]).filter((k) => !tilesSeen.has(k));
+  if (!keys.length) return;
+  keys.forEach((k) => tilesSeen.add(k));
+  const tiles = await Promise.all(keys.map(loadTile));
+  for (const t of tiles) {
+    if (!t) continue; // missing tile: skip
+    for (const s of t.signs) if (s.type === 'bump' || s.type === 'hump' || s.type === 'table') bumpsFromMaqueta.push(point(s, { rot: s.dir ?? roadBearing(s, t.ways) }));
+    knownWays.push(...t.ways);
+  }
+  refreshHazards();
+}
 
 /** Compass bearing of the road under `p` (its nearest way segment), 0 where no way is known. The bar icon lies east-west, so rotating it by this bearing lays it across the road. */
 function roadBearing(p: LatLon, ways: TileWay[]): number {

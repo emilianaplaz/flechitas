@@ -17,7 +17,8 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 interface Item {
   b: TileBuilding;
-  mesh: THREE.Mesh;
+  start: number; // its first vertex in the merged buildings geometry
+  count: number; // and how many it has
   center: LatLon;
   letter: string | null;
 }
@@ -34,6 +35,10 @@ let world = new THREE.Group();
 let zoneKey = '';
 let origin: LatLon = { lat: 0, lon: 0 };
 let items: Item[] = [];
+// Every building of the zone in one mesh, so a whole neighbourhood is one draw call; triItem maps each
+// triangle back to its item for taps.
+let blocks: THREE.Mesh | null = null;
+let triItem: Int32Array = new Int32Array(0);
 let ways: TileWay[] = [];
 let selected: Item | null = null;
 let entrances: TileEntrance[] = [];
@@ -49,35 +54,121 @@ const local = (p: LatLon) => toLocal(origin, p);
 
 // ---------- scene ----------
 
-/** Flat colours per face, as in the canvas: top, the face turned to the camera's left, the one to its right. */
-function paint(item: Item) {
+/**
+ * Flat colours per face, as in the canvas: top, the face turned to the camera's left, the one to its
+ * right; the blue set for the selected building. Worked out on the GPU from each face's normal and the
+ * camera's right, so turning the view costs nothing however many buildings there are.
+ */
+const blockMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    camRight: { value: new THREE.Vector2(1, 0) },
+    top: { value: new THREE.Color() },
+    left: { value: new THREE.Color() },
+    right: { value: new THREE.Color() },
+    stop: { value: new THREE.Color() },
+    sleft: { value: new THREE.Color() },
+    sright: { value: new THREE.Color() },
+  },
+  vertexShader: /* glsl */ `
+    attribute float sel;
+    uniform vec2 camRight;
+    uniform vec3 top, left, right, stop, sleft, sright;
+    varying vec3 vColor;
+    void main() {
+      bool lid = normal.y > 0.5;
+      bool toRight = dot(normal.xz, camRight) > 0.0;
+      vColor = mix(lid ? top : toRight ? right : left, lid ? stop : toRight ? sright : sleft, sel);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: /* glsl */ `
+    varying vec3 vColor;
+    void main() {
+      gl_FragColor = vec4(vColor, 1.0);
+      #include <colorspace_fragment>
+    }`,
+});
+
+function setPalette() {
   const c = theme();
-  const on = item === selected;
-  const top = new THREE.Color(on ? c.stop : c.top);
-  const left = new THREE.Color(on ? c.sleft : c.left);
-  const right = new THREE.Color(on ? c.sright : c.right);
-  const g = item.mesh.geometry;
-  const n = g.getAttribute('normal');
-  const col = g.getAttribute('color') as THREE.BufferAttribute;
-  const rx = Math.cos(az);
-  const rz = -Math.sin(az); // camera right on the ground
-  for (let i = 0; i < n.count; i++) {
-    const ny = n.getY(i);
-    const k = ny > 0.5 ? top : n.getX(i) * rx + n.getZ(i) * rz > 0 ? right : left;
-    col.setXYZ(i, k.r, k.g, k.b);
-  }
-  col.needsUpdate = true;
+  const u = blockMaterial.uniforms;
+  for (const k of ['top', 'left', 'right', 'stop', 'sleft', 'sright'] as const) (u[k].value as THREE.Color).set(c[k]);
 }
 
-function buildingMesh(b: TileBuilding): THREE.Mesh {
-  const pts = b.outline.map(([lat, lon]) => local({ lat, lon }));
-  const shape = new THREE.Shape(pts.map((p) => new THREE.Vector2(p.x, -p.z)));
-  let g: THREE.BufferGeometry = new THREE.ExtrudeGeometry(shape, { depth: b.height, bevelEnabled: false });
-  g.rotateX(-Math.PI / 2);
-  g = g.toNonIndexed();
-  g.computeVertexNormals();
-  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count * 3), 3));
-  return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true }));
+/** Highlights a building or clears it: only its own vertices go back to the GPU. */
+function paint(item: Item) {
+  if (!blocks) return;
+  const sel = blocks.geometry.getAttribute('sel') as THREE.BufferAttribute;
+  (sel.array as Float32Array).fill(item === selected ? 1 : 0, item.start, item.start + item.count);
+  sel.addUpdateRange(item.start, item.count);
+  sel.needsUpdate = true;
+}
+
+/**
+ * All the buildings as walls and a flat roof, in one geometry (no floor: the camera never looks from
+ * below). Built straight from the outlines, several times faster than an ExtrudeGeometry per building.
+ * Returns each building's vertex range and the building of each triangle.
+ */
+function blocksGeometry(list: TileBuilding[]): { geometry: THREE.BufferGeometry; ranges: { start: number; count: number }[]; triItem: Int32Array } {
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const tri: number[] = [];
+  const ranges: { start: number; count: number }[] = [];
+  const vert = (x: number, y: number, z: number, nx: number, ny: number, nz: number) => {
+    pos.push(x, y, z);
+    nor.push(nx, ny, nz);
+  };
+  list.forEach((b, k) => {
+    const start = pos.length / 3;
+    const ring: { x: number; z: number }[] = [];
+    for (const [lat, lon] of b.outline.slice(0, -1)) {
+      const p = local({ lat, lon });
+      const q = ring[ring.length - 1];
+      if (!q || Math.abs(q.x - p.x) > 0.01 || Math.abs(q.z - p.z) > 0.01) ring.push(p);
+    }
+    let area = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i];
+      const c = ring[(i + 1) % ring.length];
+      area += a.x * c.z - c.x * a.z;
+    }
+    if (ring.length < 3 || !area) {
+      ranges.push({ start, count: 0 });
+      return;
+    }
+    if (area < 0) ring.reverse(); // so (dz, -dx) of each edge points out of the building
+    const h = b.height;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i];
+      const c = ring[(i + 1) % ring.length];
+      const len = Math.hypot(c.x - a.x, c.z - a.z);
+      const nx = (c.z - a.z) / len;
+      const nz = -(c.x - a.x) / len;
+      // Two triangles, counter-clockwise seen from outside.
+      vert(c.x, 0, c.z, nx, 0, nz);
+      vert(a.x, 0, a.z, nx, 0, nz);
+      vert(a.x, h, a.z, nx, 0, nz);
+      vert(c.x, 0, c.z, nx, 0, nz);
+      vert(a.x, h, a.z, nx, 0, nz);
+      vert(c.x, h, c.z, nx, 0, nz);
+      tri.push(k, k);
+    }
+    for (const [i, j, l] of THREE.ShapeUtils.triangulateShape(ring.map((p) => new THREE.Vector2(p.x, p.z)), [])) {
+      const [p, q, r] = [ring[i], ring[j], ring[l]];
+      // Facing up: counter-clockwise seen from above.
+      const [m, o] = (q.z - p.z) * (r.x - p.x) - (q.x - p.x) * (r.z - p.z) > 0 ? [q, r] : [r, q];
+      vert(p.x, h, p.z, 0, 1, 0);
+      vert(m.x, h, m.z, 0, 1, 0);
+      vert(o.x, h, o.z, 0, 1, 0);
+      tri.push(k);
+    }
+    ranges.push({ start, count: pos.length / 3 - start });
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geometry.setAttribute('sel', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3), 1));
+  geometry.computeBoundingSphere();
+  return { geometry, ranges, triItem: Int32Array.from(tri) };
 }
 
 /** Streets as flat ribbons, one quad per segment plus a round-ish joint. */
@@ -114,9 +205,11 @@ async function buildZone(zone: Zone) {
   const [s, w, n, e] = zone.bbox;
   origin = { lat: (s + n) / 2, lon: (w + e) / 2 };
   scene.remove(world);
+  world.traverse((o) => (o as THREE.Mesh).geometry?.dispose()); // the previous zone's, off the GPU
   world = new THREE.Group();
   const c = theme();
   scene.background = new THREE.Color(c.bg);
+  setPalette();
 
   const sw = local({ lat: s, lon: w });
   const ne = local({ lat: n, lon: e });
@@ -134,15 +227,18 @@ async function buildZone(zone: Zone) {
   const near = ways.filter((wy) => wy.pts.some(([lat, lon]) => lat > s - 0.0004 && lat < n + 0.0004 && lon > w - 0.0004 && lon < e + 0.0004));
   world.add(streetsMesh(near));
 
-  items = buildingsIn(tiles, zone.bbox).map((b) => {
+  const list = buildingsIn(tiles, zone.bbox);
+  const merged = blocksGeometry(list);
+  selected = null; // belonged to the previous zone's geometry
+  triItem = merged.triItem;
+  blocks = new THREE.Mesh(merged.geometry, blockMaterial);
+  world.add(blocks);
+  items = list.map((b, k) => {
     let lat = 0;
     let lon = 0;
     const ring = b.outline.slice(0, -1);
     for (const [a, o] of ring) (lat += a), (lon += o);
-    const item: Item = { b, mesh: buildingMesh(b), center: { lat: lat / ring.length, lon: lon / ring.length }, letter: null };
-    item.mesh.userData.item = item;
-    world.add(item.mesh);
-    return item;
+    return { b, ...merged.ranges[k], center: { lat: lat / ring.length, lon: lon / ring.length }, letter: null };
   });
   scene.add(world);
   scale = Math.max(gw, gd) / Math.min(innerWidth, innerHeight) / 1.15;
@@ -218,7 +314,7 @@ function render() {
   if (!renderer || $('scrMaqueta').hidden) return;
   if (az !== paintedAz) {
     paintedAz = az; // face shading depends on which side faces the camera
-    items.forEach(paint);
+    (blockMaterial.uniforms.camRight.value as THREE.Vector2).set(Math.cos(az), -Math.sin(az));
     $('mqNorth').style.transform = `rotate(${THREE.MathUtils.radToDeg(az)}deg)`;
   }
   const w = innerWidth;
@@ -288,8 +384,8 @@ function renderCard() {
 function pick(clientX: number, clientY: number) {
   const ray = new THREE.Raycaster();
   ray.setFromCamera(new THREE.Vector2((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1), camera);
-  const hit = ray.intersectObjects(items.map((i) => i.mesh), false)[0];
-  if (hit) select(hit.object.userData.item as Item);
+  const hit = blocks && ray.intersectObject(blocks, false)[0];
+  if (hit?.faceIndex != null) select(items[triItem[hit.faceIndex]]);
 }
 
 // ---------- gestures: like a maps app ----------

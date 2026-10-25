@@ -65,7 +65,7 @@ export interface MaquetaIndex {
   v: 1;
   zoom: number;
   tiles: string[]; // "x/y"
-  zones: { name: string; bbox: [number, number, number, number]; tiles: string[] }[]; // bbox: south, west, north, east
+  zones: { name: string; label?: string; bbox: [number, number, number, number]; tiles: string[] }[]; // bbox: south, west, north, east
 }
 
 // ---- tile math (standard web map tiles) ----
@@ -168,7 +168,12 @@ export class RouteProfile {
     this.step = step;
   }
 
-  /** Null when no sample has a known height. Gaps (no tile) hold the nearest known height, so they read as flat. */
+  /**
+   * Null when no sample has a known height. Where the route has no tile before the maqueta starts or
+   * after it ends, the nearest known height holds, so the road reads as flat. A stretch without tiles
+   * between two known ones (the route leaves the maqueta and comes back) goes straight from one height
+   * to the other, instead of holding one and jumping at the far end.
+   */
   static build(poly: Polyline, elevationAt: (p: LatLon) => number | null, maxStep = PROFILE_STEP): RouteProfile | null {
     // Evenly spaced so the last sample is exactly the route's end.
     const n = Math.max(2, Math.ceil(poly.length / maxStep) + 1);
@@ -183,10 +188,14 @@ export class RouteProfile {
       }
     }
     if (!known) return null;
-    let last = NaN;
-    for (let i = 0; i < n; i++) (Number.isNaN(z[i]) ? (z[i] = last) : (last = z[i]));
-    last = NaN;
-    for (let i = n - 1; i >= 0; i--) (Number.isNaN(z[i]) ? (z[i] = last) : (last = z[i]));
+    let prev = -1; // last sample with a known height
+    for (let i = 0; i < n; i++) {
+      if (Number.isNaN(z[i])) continue;
+      if (prev < 0) z.fill(z[i], 0, i);
+      else for (let k = prev + 1; k < i; k++) z[k] = z[prev] + ((z[i] - z[prev]) * (k - prev)) / (i - prev);
+      prev = i;
+    }
+    z.fill(z[prev], prev + 1);
     return new RouteProfile(z, step);
   }
 
@@ -366,6 +375,68 @@ export function entrancesOf(b: TileBuilding, ways: TileWay[]): TileEntrance[] {
   }
   const p = fromLocal(origin, at.x, at.z);
   return [{ name: ENTRANCE_FALLBACK_NAME, lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6) }];
+}
+
+// ---- zones ----
+
+/** The zone a point is in. Where zones overlap (a street inside its neighbourhood), the smallest one. */
+export function zoneFor<Z extends { bbox: [number, number, number, number] }>(zones: Z[], p: LatLon): Z | null {
+  let best: Z | null = null;
+  let bestArea = Infinity;
+  for (const z of zones) {
+    const [s, w, n, e] = z.bbox;
+    if (p.lat < s || p.lat > n || p.lon < w || p.lon > e) continue;
+    const area = (n - s) * (e - w);
+    if (area < bestArea) (best = z), (bestArea = area);
+  }
+  return best;
+}
+
+/**
+ * The outer edge of an area made of tiles, as straight [lat, lon] lines: tile sides with no tile on
+ * the other side, joined where they continue. Holes in the area get their own edge.
+ */
+export function coverageEdges(keys: Iterable<string>): [number, number][][] {
+  const have = new Set(keys);
+  const at = (x: number, y: number) => have.has(tileKey(x, y));
+  const rows = new Map<number, number[]>(); // y of a horizontal side → x where each piece starts
+  const cols = new Map<number, number[]>(); // x of a vertical side → y where each piece starts
+  const add = (m: Map<number, number[]>, k: number, v: number) => m.set(k, [...(m.get(k) ?? []), v]);
+  for (const key of have) {
+    const [x, y] = key.split('/').map(Number);
+    if (!at(x, y - 1)) add(rows, y, x);
+    if (!at(x, y + 1)) add(rows, y + 1, x);
+    if (!at(x - 1, y)) add(cols, x, y);
+    if (!at(x + 1, y)) add(cols, x + 1, y);
+  }
+  const out: [number, number][][] = [];
+  const runs = (m: Map<number, number[]>, line: (fixed: number, from: number, to: number) => [number, number][]) => {
+    for (const [fixed, starts] of m) {
+      const s = [...new Set(starts)].sort((a, b) => a - b);
+      for (let i = 0; i < s.length; ) {
+        let j = i;
+        while (j + 1 < s.length && s[j + 1] === s[j] + 1) j++;
+        out.push(line(fixed, s[i], s[j] + 1));
+        i = j + 1;
+      }
+    }
+  };
+  const ll = (x: number, y: number): [number, number] => {
+    const p = tileToLatLon(x, y);
+    return [p.lat, p.lon];
+  };
+  runs(rows, (y, x0, x1) => [ll(x0, y), ll(x1, y)]);
+  runs(cols, (x, y0, y1) => [ll(x, y0), ll(x, y1)]);
+  return out;
+}
+
+/** Keys of the tiles a box (south, west, north, east) touches, among the ones in `have`. */
+export function tilesInBox(have: Set<string>, box: [number, number, number, number]): string[] {
+  const a = tileOf({ lat: box[2], lon: box[1] });
+  const b = tileOf({ lat: box[0], lon: box[3] });
+  const out: string[] = [];
+  for (let x = a.x; x <= b.x; x++) for (let y = a.y; y <= b.y; y++) if (have.has(tileKey(x, y))) out.push(tileKey(x, y));
+  return out;
 }
 
 // ---- loading ----

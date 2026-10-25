@@ -1,6 +1,6 @@
 // Building footprints for the maqueta: the pure parts of build.ts (heights, overlap, de-duplication,
 // hand overrides), kept apart so tests/run.ts can import them without running the build.
-import type { LatLon } from '../../src/core/geo.ts';
+import { toLocal, type LatLon } from '../../src/core/geo.ts';
 import { insideOutline, type TileBuilding, type TileEntrance } from '../../src/core/maqueta.ts';
 
 export type Ring = [number, number][]; // [lat, lon]
@@ -113,6 +113,57 @@ export function overlapShare(a: Ring, b: Ring, samples = 24): number {
 /** The footprints of `extra` that don't duplicate any of `keep` (overlap above the threshold). */
 export function dedupe(keep: TileBuilding[], extra: TileBuilding[], threshold = DUPLICATE_OVERLAP): TileBuilding[] {
   return extra.filter((x) => !keep.some((k) => overlapShare(k.outline, x.outline) > threshold));
+}
+
+/** Area-weighted centre of a ring (the vertex mean leans towards wherever the outline has more points). */
+export function ringCentroid(ring: Ring): LatLon {
+  // Relative to the first point: with raw coordinates the products cancel out and lose metres.
+  const [lat0, lon0] = ring[0];
+  let a = 0;
+  let lat = 0;
+  let lon = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [yi, xi] = [ring[i][0] - lat0, ring[i][1] - lon0];
+    const [yj, xj] = [ring[j][0] - lat0, ring[j][1] - lon0];
+    const f = xj * yi - xi * yj;
+    a += f;
+    lon += (xj + xi) * f;
+    lat += (yj + yi) * f;
+  }
+  return a ? { lat: lat0 + lat / (3 * a), lon: lon0 + lon / (3 * a) } : ringCenter(ring);
+}
+
+/**
+ * How far `extra`'s footprints sit from the `keep` buildings they duplicate, in metres (dx east, dz
+ * south): one pair per kept building, its best match among those over the threshold and of about the
+ * same size (so a block of footprints against one big OSM outline doesn't count). Near zero means both
+ * datasets agree on where things are.
+ */
+export function matchOffsets(keep: TileBuilding[], extra: TileBuilding[], threshold = DUPLICATE_OVERLAP): { dx: number; dz: number }[] {
+  const out: { dx: number; dz: number }[] = [];
+  for (const k of keep) {
+    const ak = ringArea(k.outline);
+    let best: TileBuilding | null = null;
+    let bestShare = threshold;
+    for (const x of extra) {
+      const ratio = ringArea(x.outline) / ak;
+      if (ratio < 2 / 3 || ratio > 3 / 2) continue;
+      const s = overlapShare(k.outline, x.outline);
+      if (s > bestShare) (best = x), (bestShare = s);
+    }
+    if (!best) continue;
+    const c = ringCentroid(k.outline);
+    const p = toLocal(c, ringCentroid(best.outline));
+    out.push({ dx: p.x, dz: p.z });
+  }
+  return out;
+}
+
+export function median(v: number[]): number {
+  if (!v.length) return NaN;
+  const s = [...v].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 /**
