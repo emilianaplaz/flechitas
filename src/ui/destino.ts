@@ -7,11 +7,11 @@ import type { FilterSpecification, GeoJSONSource, Map as MlMap, Marker, StyleSpe
 import { bearing, type LatLon } from '../core/geo.ts';
 import type { MaquetaIndex, Tile, TileWay } from '../core/maqueta.ts';
 import { resolveDestination } from '../core/links.ts';
-import { fetchRoute, formatDistance, type Route } from '../core/route.ts';
+import { fetchRoutes, formatDistance, type Route } from '../core/route.ts';
 import { app } from '../core/state.ts';
 import { $, setText, toast } from '../core/ui.ts';
 import { allHazards, loadHazards } from '../hazards/ui.ts';
-import { addPin, loadPins } from '../find/pins.ts';
+import { addPin, loadPins, renamePin } from '../find/pins.ts';
 import { onDest, setDestination, useSimulation } from '../setup.ts';
 
 type Theme = 'dark' | 'light';
@@ -36,11 +36,14 @@ let destMarker: Marker | null = null;
 let fromMarker: Marker | null = null;
 let pickFrom = false; // the Desde field was tapped last: the next tap on the map places the origin
 let pickHintShown = false;
-let preview: Route | null = null;
+let previews: Route[] = []; // fastest first, then the alternatives
+let previewIdx = 0;
+let zoneNote = '';
 let previewSeq = 0;
 const empty = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] });
 const data = { zone: empty(), route: empty(), holes: empty(), bumps: empty() };
-const visible = { holes: true, bumps: true };
+const ZONES_KEY = 'ar-nav.showZones';
+const visible = { holes: true, bumps: true, zones: localStorage.getItem(ZONES_KEY) !== '0' };
 
 const theme = (): Theme => 'dark';
 const ZONE_LABEL: Record<string, string> = { 'san-juan-bosco': 'Av. San Juan Bosco' };
@@ -53,7 +56,7 @@ export function zoneAt(p: LatLon | null | undefined): Zone | null {
 }
 export const destZone = () => zoneAt(app.dest?.point);
 /** Route preview for the current destination, when the origin was known. */
-export const previewRoute = () => preview;
+export const previewRoute = () => previews[previewIdx] ?? null;
 
 function style(t: Theme): StyleSpecification {
   const c = PALETTE[t];
@@ -86,10 +89,10 @@ function style(t: Theme): StyleSpecification {
       road('road-service', ['service', 'track', 'path'], c.minor, [13, 0.5, 18, 8]),
       road('road-minor', ['minor', 'residential'], c.road, [12, 1, 18, 18]),
       road('road-major', ['tertiary', 'secondary', 'primary', 'trunk', 'motorway'], c.major, [10, 1.5, 18, 26]),
-      { id: 'zone-fill', type: 'fill', source: 'zone', paint: { 'fill-color': c.pri, 'fill-opacity': 0.08 } },
-      { id: 'zone-line', type: 'line', source: 'zone', paint: { 'line-color': c.pri, 'line-width': 2.5, 'line-dasharray': [3, 2] } },
+      { id: 'zone-fill', type: 'fill', source: 'zone', layout: { visibility: visible.zones ? 'visible' : 'none' }, paint: { 'fill-color': c.pri, 'fill-opacity': 0.08 } },
+      { id: 'zone-line', type: 'line', source: 'zone', layout: { visibility: visible.zones ? 'visible' : 'none' }, paint: { 'line-color': c.pri, 'line-width': 2.5, 'line-dasharray': [3, 2] } },
       { id: 'route-case', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': c.bg, 'line-width': 10 } },
-      { id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': c.route, 'line-width': 6 } },
+      { id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['case', ['==', ['get', 'sel'], 1], c.route, c.label], 'line-width': ['case', ['==', ['get', 'sel'], 1], 6, 4] } },
       { id: 'holes', type: 'circle', source: 'holes', layout: { visibility: visible.holes ? 'visible' : 'none' }, paint: { 'circle-color': c.haz, 'circle-radius': 6, 'circle-stroke-color': c.bg, 'circle-stroke-width': 2 } },
       {
         id: 'bumps',
@@ -240,6 +243,16 @@ async function placeOrigin(p: LatLon) {
   if (app.from === p) from.value = name;
 }
 
+/** A saved place chosen as the starting point: the drive becomes a simulation from there. */
+export function setOriginPlace(p: LatLon, label: string) {
+  pickFrom = false;
+  $<HTMLInputElement>('from').value = label;
+  app.from = p;
+  useSimulation();
+  void syncDest();
+  map?.easeTo({ center: [p.lon, p.lat] });
+}
+
 /** The origin pin, shown while a simulation starts somewhere other than here. Drag it to move the origin. */
 function syncFromMarker() {
   if (!map || !ml) return;
@@ -260,15 +273,22 @@ function syncFromMarker() {
 
 /** Destination changed (typed, pasted, shared or tapped): pin, zone, route preview, bottom card. */
 async function syncDest() {
+  refreshSavedPins();
   const d = app.dest;
   const zone = destZone();
-  setText('startLabel', zone && !app.arrival ? 'Elegir punto exacto' : 'Conducir');
+  const pickExact = !!zone && !app.arrival;
+  setText('startLabel', pickExact ? 'Elegir punto exacto' : 'Conducir');
+  $('startNow').hidden = !pickExact || !d;
+  // With two choices, "Conducir" is the primary action and picking an exact point is the secondary one.
+  $('start').classList.toggle('primary', !pickExact);
+  $('start').classList.toggle('ghost', pickExact);
+  $('startNow').classList.toggle('primary', pickExact);
+  $('startNow').classList.toggle('ghost', !pickExact);
   syncFromMarker();
   if (!d) {
     destMarker?.remove();
     destMarker = null;
-    preview = null;
-    setData('route', empty());
+    clearPreview();
     return;
   }
   if (map && ml) {
@@ -277,38 +297,80 @@ async function syncDest() {
   }
   const seq = ++previewSeq;
   const from = await origin();
-  const zoneNote = app.arrival ? app.arrival.label : zone ? `Zona de la maqueta · ${zoneLabel(zone)}` : '';
+  zoneNote = app.arrival ? app.arrival.label : zone ? `Zona de la maqueta · ${zoneLabel(zone)}` : '';
   setText('destLabel', zoneNote || (from ? 'Calculando ruta…' : 'Te ubico al empezar'));
   if (!from) {
     map?.easeTo({ center: [d.point.lon, d.point.lat], zoom: Math.max(map.getZoom(), 15) });
     return;
   }
   try {
-    const r = await fetchRoute(from, d.point);
+    const found = await fetchRoutes(from, d.point);
     if (seq !== previewSeq) return;
-    preview = r;
-    const coords = r.poly.pts.map((p) => [p.lon, p.lat]);
-    setData('route', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }] });
-    const mins = Math.max(1, Math.round(r.duration / 60));
-    setText('destLabel', [`${mins} min · ${formatDistance(r.poly.length)}`, zoneNote].filter(Boolean).join(' · '));
+    previews = found;
+    previewIdx = 0;
+    drawPreviews();
     if (map && ml) {
-      const b = new ml.LngLatBounds(coords[0] as [number, number], coords[0] as [number, number]);
-      for (const c of coords) b.extend(c as [number, number]);
+      const all = found.flatMap((r) => r.poly.pts.map((p) => [p.lon, p.lat] as [number, number]));
+      const b = new ml.LngLatBounds(all[0], all[0]);
+      for (const c of all) b.extend(c);
       map.fitBounds(b, { padding: { top: 260, bottom: 300, left: 40, right: 40 }, maxZoom: 17, duration: 600 });
     }
   } catch {
     if (seq !== previewSeq) return;
-    preview = null;
-    setData('route', empty());
+    clearPreview();
     setText('destLabel', zoneNote || 'Sin vista previa de la ruta');
   }
 }
 
-/** Saved places ("Guardar este lugar") as pins on the map; tapping one makes it the destination. */
+function clearPreview() {
+  previews = [];
+  previewIdx = 0;
+  setData('route', empty());
+  $('routeChips').replaceChildren();
+}
+
+const routeText = (r: Route) => `${Math.max(1, Math.round(r.duration / 60))} min · ${formatDistance(r.poly.length)}`;
+
+/** Draws every route (the chosen one on top, in the route colour), the chips to pick between them and the card text. */
+function drawPreviews() {
+  const features = previews
+    .map((r, i) => ({ i, r }))
+    .sort((a, b) => Number(a.i === previewIdx) - Number(b.i === previewIdx))
+    .map(({ i, r }) => ({
+      type: 'Feature' as const,
+      properties: { sel: i === previewIdx ? 1 : 0, idx: i },
+      geometry: { type: 'LineString' as const, coordinates: r.poly.pts.map((p) => [p.lon, p.lat]) },
+    }));
+  setData('route', { type: 'FeatureCollection', features });
+  setText('destLabel', [routeText(previews[previewIdx]), zoneNote].filter(Boolean).join(' · '));
+  $('routeChips').replaceChildren(
+    ...(previews.length < 2
+      ? []
+      : previews.map((r, i) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = routeText(r);
+          b.setAttribute('aria-pressed', String(i === previewIdx));
+          b.onclick = () => chooseRoute(i);
+          return b;
+        })),
+  );
+}
+
+/** The next drive follows the picked route (it checks that it still starts and ends where the drive does). */
+function chooseRoute(i: number) {
+  if (i === previewIdx || !previews[i]) return;
+  previewIdx = i;
+  app.chosenRoute = previews[i];
+  drawPreviews();
+}
+
+/** Saved places ("Guardar este lugar") show on the map only while one is the destination or the origin. */
+const isChosen = (p: LatLon) => [app.dest?.point, app.from].some((c) => c && Math.abs(c.lat - p.lat) < 1e-6 && Math.abs(c.lon - p.lon) < 1e-6);
 const savedMarkers = new Map<string, Marker>();
 export function refreshSavedPins() {
   if (!map || !ml) return;
-  const pins = loadPins();
+  const pins = loadPins().filter((x) => isChosen(x.p));
   for (const [id, m] of savedMarkers) {
     if (pins.some((x) => x.id === id)) continue;
     m.remove();
@@ -353,6 +415,55 @@ async function savePlace() {
   const saved = addPin(spot, null);
   refreshSavedPins();
   toast(`${saved.label} guardado${note}`, note ? 5000 : 2600);
+}
+
+/** Dragging the save button onto the map saves a place right where it is dropped; a plain tap still saves "here". */
+function initSaveDrag(btn: HTMLElement) {
+  let drag: { x: number; y: number; ghost: HTMLElement | null } | null = null;
+  let dragged = false;
+  btn.style.touchAction = 'none';
+  btn.addEventListener('pointerdown', (e) => {
+    drag = { x: e.clientX, y: e.clientY, ghost: null };
+    dragged = false;
+    btn.setPointerCapture(e.pointerId);
+  });
+  btn.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    if (!drag.ghost) {
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
+      drag.ghost = btn.cloneNode(true) as HTMLElement;
+      drag.ghost.removeAttribute('id');
+      Object.assign(drag.ghost.style, { position: 'fixed', zIndex: '1000', pointerEvents: 'none', opacity: '0.9', transform: 'translate(-50%, -50%) scale(1.15)' });
+      document.body.append(drag.ghost);
+      dragged = true;
+    }
+    drag.ghost.style.left = `${e.clientX}px`;
+    drag.ghost.style.top = `${e.clientY}px`;
+  });
+  const end = (e: PointerEvent, drop: boolean) => {
+    const d = drag;
+    drag = null;
+    d?.ghost?.remove();
+    if (!d?.ghost || !drop || !map) return;
+    const r = map.getContainer().getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+    const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);
+    const spot = { lat: ll.lat, lon: ll.lng };
+    const saved = addPin(spot, null);
+    refreshSavedPins();
+    toast(`${saved.label} guardado`, 2600);
+    void placeName(spot).then((name) => {
+      renamePin(saved.id, name);
+      refreshSavedPins();
+    });
+  };
+  btn.addEventListener('pointerup', (e) => end(e, true));
+  btn.addEventListener('pointercancel', (e) => end(e, false));
+  // The click that follows a drag is not a tap.
+  btn.addEventListener('click', (e) => {
+    if (dragged) e.stopImmediatePropagation();
+    dragged = false;
+  }, true);
 }
 
 /** Name for a tapped point (street and number), or its coordinates. */
@@ -425,6 +536,10 @@ export function showDestinoMap(): Promise<void> {
     });
     map.on('click', async (e) => {
       const p = { lat: e.lngLat.lat, lon: e.lngLat.lng };
+      // A tap on an alternative route's line picks that route instead of moving the destination.
+      const r = 8;
+      const hit = map!.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers: ['route'] }).find((f) => f.properties?.sel === 0);
+      if (hit) return chooseRoute(Number(hit.properties?.idx));
       if (pickFrom) return placeOrigin(p);
       setDestination({ point: p, label: 'Punto en el mapa' });
       setDestination({ point: p, label: await placeName(p) }, true);
@@ -464,6 +579,14 @@ export function initDestino() {
     }
   });
   document.querySelectorAll<HTMLInputElement>('input[name=mode]').forEach((r) => r.addEventListener('change', () => void syncDest()));
+  const showZones = $<HTMLInputElement>('showZones');
+  showZones.checked = visible.zones;
+  showZones.addEventListener('change', () => {
+    visible.zones = showZones.checked;
+    localStorage.setItem(ZONES_KEY, visible.zones ? '1' : '0');
+    for (const id of ['zone-fill', 'zone-line']) map?.setLayoutProperty(id, 'visibility', visible.zones ? 'visible' : 'none');
+  });
+  initSaveDrag($('savePlace'));
   $('savePlace').onclick = () => void savePlace();
   $('recenter').onclick = () => {
     if (here) map?.easeTo({ center: [here.lon, here.lat], zoom: 16 });

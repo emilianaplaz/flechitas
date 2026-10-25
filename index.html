@@ -28,6 +28,9 @@
               <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="5.5" class="icoOrigin" stroke-width="3.5" /></svg>
               <label for="from" class="vh">Desde</label>
               <input id="from" type="text" autocomplete="off" placeholder="Mi ubicación actual" />
+              <button id="fromPlacesBtn" class="iconBtn" type="button" aria-label="Lugares guardados como punto de partida" aria-haspopup="listbox" aria-expanded="false">
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 L14.6 9 L20.5 9.7 L16.1 13.8 L17.3 19.7 L12 16.8 L6.7 19.7 L7.9 13.8 L3.5 9.7 L9.4 9 Z" fill="none" stroke-width="2.2" stroke-linejoin="round" /></svg>
+              </button>
             </div>
             <div class="sRow">
               <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" class="icoDest" /><circle cx="9" cy="9" r="2.5" class="icoDestDot" /></svg>
@@ -65,8 +68,13 @@
             <span id="dcTitle" class="dcTitle">¿A dónde vas?</span>
             <span id="destLabel" class="dcSub">Escribe una dirección, pega un enlace o toca el mapa</span>
           </div>
+          <div id="routeChips" class="mqChips" role="group" aria-label="Ruta"></div>
           <button id="start" class="primary" type="button">
             <span id="startLabel">Conducir</span>
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10 H16 M11 5 L16 10 L11 15" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
+          <button id="startNow" class="ghost" type="button" hidden>
+            <span>Conducir</span>
             <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10 H16 M11 5 L16 10 L11 15" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </button>
           <p id="setupMsg" class="msg" role="status"></p>
@@ -97,6 +105,7 @@
             <span id="mqTitle" class="dcTitle">Toca un edificio</span>
             <span id="mqSub" class="dcSub">Elige el punto exacto de llegada</span>
           </div>
+          <div id="mqRoutes" class="mqChips" role="group" aria-label="Ruta"></div>
           <div id="mqChips" class="mqChips" role="group" aria-label="Punto de llegada"></div>
           <button id="mqGo" class="primary" type="button" disabled>Confirmar punto y conducir</button>
         </div>
@@ -226,6 +235,10 @@
         <label class="check">
           <input id="detectBumps" type="checkbox" checked />
           <span><b>Detectar huecos y policías acostados</b><small>Con el acelerómetro. Se guarda solo, sin preguntarte; ignora los baches leves.</small></span>
+        </label>
+        <label class="check">
+          <input id="showZones" type="checkbox" checked />
+          <span><b>Mostrar zonas renderizadas en el mapa</b><small>Los recuadros azules punteados donde hay maqueta 3D.</small></span>
         </label>
         <input id="useSensors" type="checkbox" hidden />
 

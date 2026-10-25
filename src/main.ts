@@ -23,7 +23,7 @@ import { remoteGps, remotePhone, remoteTilt, startHudLink } from './remote/hudLi
 import { connectHud, disconnectHud, hudLinked, onHudState, sendFix, sendRoute, sendStop, setDriveProvider, type LinkState } from './remote/phoneLink.ts';
 import { normalizeCode } from './remote/protocol.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
-import { destZone, initDestino } from './ui/destino.ts';
+import { destZone, getHere, initDestino } from './ui/destino.ts';
 import { initMaqueta, prepareMaqueta } from './ui/maqueta.ts';
 import { initFind } from './find/ui.ts';
 import { go, initShell } from './ui/shell.ts';
@@ -106,7 +106,8 @@ if (hudRole) {
   initDestino();
   initFind();
   // Maqueta: "Confirmar punto y conducir" sets the exact arrival point and starts the drive.
-  initMaqueta(({ arrival, label }) => {
+  initMaqueta(({ arrival, label, route }) => {
+    app.chosenRoute = route;
     setDestination({ point: { lat: arrival.lat, lon: arrival.lon }, label }, false, arrival);
     go('destino');
     $('start').click();
@@ -215,25 +216,34 @@ function clearScene(yaw: number) {
   });
 }
 
+const startButtons = () => [$<HTMLButtonElement>('start'), $<HTMLButtonElement>('startNow')];
+const setStartBusy = (busy: boolean) => startButtons().forEach((b) => (b.disabled = busy));
+
 $('start').onclick = async () => {
-  const btn = $<HTMLButtonElement>('start');
   // Destination inside a maqueta zone and no exact point yet: pick it in the maqueta first.
   const zone = destZone();
   if (zone && !app.arrival && app.dest) {
-    btn.disabled = true;
+    setStartBusy(true);
     setupMsg('Cargando la maqueta…');
     try {
-      await prepareMaqueta(zone, app.dest.point);
+      await prepareMaqueta(zone, app.dest.point, app.mode === 'sim' && app.from ? app.from : getHere());
       setupMsg('');
       go('maqueta');
     } catch (e) {
       setupMsg((e as Error).message);
     } finally {
-      btn.disabled = false;
+      setStartBusy(false);
     }
     return;
   }
-  btn.disabled = true;
+  await beginDrive();
+};
+
+// The destination is in a maqueta zone, but the user doesn't want to pick an exact point: just navigate.
+$('startNow').onclick = () => beginDrive();
+
+async function beginDrive() {
+  setStartBusy(true);
   setupMsg('');
   try {
     // First awaits in the handler: iOS only shows the sensor permission prompts inside the tap.
@@ -273,9 +283,9 @@ $('start').onclick = async () => {
     stopAutoTilt();
     stopBumpWatcher();
   } finally {
-    btn.disabled = false;
+    setStartBusy(false);
   }
-};
+}
 
 $('travelWalk').onclick = () => void setTravel('walk');
 $('travelDrive').onclick = () => void setTravel('drive');

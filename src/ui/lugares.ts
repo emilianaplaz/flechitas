@@ -6,7 +6,7 @@ import { $, toast } from '../core/ui.ts';
 import { loadPins, removePin, renamePin } from '../find/pins.ts';
 import { cloudEnabled } from '../hazards/cloud.ts';
 import { setDestination } from '../setup.ts';
-import { getHere, refreshSavedPins } from './destino.ts';
+import { getHere, refreshSavedPins, setOriginPlace } from './destino.ts';
 import { syncStatus } from './syncPins.ts';
 
 const button = (cls: string, text: string, attrs: Record<string, string>) => {
@@ -150,15 +150,17 @@ export function initLugares(onGo: () => void) {
   });
 }
 
-/** Bookmark button beside "¿A dónde vas?": tapping it lists the saved places; tapping one sets the destination. */
+/** Bookmark buttons beside "Desde" and "¿A dónde vas?": each lists the saved places; tapping one sets the origin or the destination. */
 export function initDestShortcut() {
-  const btn = $('placesBtn');
   const menu = $('destPlaces');
+  const buttons = { from: $('fromPlacesBtn'), dest: $('placesBtn') };
+  let openFor: keyof typeof buttons | null = null;
   const close = () => {
     menu.hidden = true;
-    btn.setAttribute('aria-expanded', 'false');
+    openFor = null;
+    for (const b of Object.values(buttons)) b.setAttribute('aria-expanded', 'false');
   };
-  const open = () => {
+  const open = (which: keyof typeof buttons) => {
     const pins = loadPins().slice().reverse();
     if (!pins.length) return toast('Aún no guardaste lugares. Usa el botón del marcador en el mapa.', 3500);
     const me = getHere();
@@ -179,21 +181,27 @@ export function initDestShortcut() {
       }),
     );
     menu.hidden = false;
-    btn.setAttribute('aria-expanded', 'true');
+    openFor = which;
+    buttons[which].setAttribute('aria-expanded', 'true');
   };
-  btn.onclick = () => (menu.hidden ? open() : close());
+  for (const which of ['from', 'dest'] as const) {
+    buttons[which].onclick = () => (openFor === which ? close() : open(which));
+  }
   document.addEventListener('pointerdown', (e) => {
     const t = e.target as Node;
-    if (!menu.hidden && !menu.contains(t) && !btn.contains(t)) close();
+    if (!menu.hidden && !menu.contains(t) && !Object.values(buttons).some((b) => b.contains(t))) close();
   });
-  $('dest').addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') close();
-  });
+  for (const id of ['from', 'dest']) {
+    $(id).addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') close();
+    });
+  }
   menu.addEventListener('click', (e) => {
     const id = (e.target as HTMLElement).closest<HTMLElement>('button')?.dataset.id;
     const x = loadPins().find((p) => p.id === id);
     if (!x) return;
-    setDestination({ point: x.p, label: x.label });
+    if (openFor === 'from') setOriginPlace(x.p, x.label);
+    else setDestination({ point: x.p, label: x.label });
     close();
   });
 }
