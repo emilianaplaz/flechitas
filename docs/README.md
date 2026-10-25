@@ -59,7 +59,7 @@ Esta carpeta es para quien entra al proyecto a programar. Qué hace el producto 
 | HUD del parabrisas con óptica exacta en el iPad | Hecho; sin prueba en carro con medidas reales |
 | Enlace teléfono ↔ iPad | Hecho |
 | Calibración automática (FOV, inclinación, ladeo) | Hecho; sin validar en un viaje real |
-| Maqueta (relieve, señales, límites, edificios, punto exacto, calle 3D en Simulación) | Hecho en 2 zonas; Chacao completo en curso |
+| Maqueta (relieve, señales, límites, edificios, punto exacto, calle 3D en Simulación) | Hecho en Chacao (28 teselas, 11 zonas); faltan bordes |
 | Peligros (detección automática, agrupación, nube) | Hecho; detector sin ajustar; sin reporte manual |
 | Cuentas y lugares guardados sincronizados | Hecho (opcional); onboarding en curso |
 | Encontrar (ubicación en vivo con aprobación) | Hecho |

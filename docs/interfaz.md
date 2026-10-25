@@ -45,7 +45,7 @@ tapan `#setup` (lo ocultan) y lo vuelven a mostrar al salir.
 | Recentrar | `#recenter` | Centra en la posición del teléfono. |
 | Tarjeta de destino | `#dcTitle`, `#destLabel`, `#start` | Nombre, "N min · X km" de la vista previa, y el botón **Conducir** o **Elegir punto exacto** si el destino cae en una zona de la maqueta. |
 
-Capas dibujadas: zonas de la maqueta (marco azul punteado), ruta de la vista previa, huecos (círculos
+Capas dibujadas: la cobertura de la maqueta (sus teselas teñidas, con un solo borde azul punteado por fuera), ruta de la vista previa, huecos (círculos
 amarillos) y policías acostados (barras rosadas cruzadas sobre la calle: las de OSM de las teselas y
 las reportadas). Las capas existen con `visible` en el código pero **no hay control en la interfaz
 para apagarlas**. Tocar el mapa fija el destino ("Punto en el mapa") y después le pone el nombre de la

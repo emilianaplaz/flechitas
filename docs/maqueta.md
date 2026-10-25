@@ -53,24 +53,40 @@ Teselas web estándar en **zoom 16** (unos 600 × 600 m en Caracas): `public/maq
 
 ## 2. Zonas construidas hoy
 
-| Zona | Caja | Teselas | Edificios (OSM / Microsoft) | Señales |
-|---|---|---|---|---|
-| `san-juan-bosco` (Av. San Juan Bosco, Altamira) | 10.5090, −66.8540 → 10.5128, −66.8498 | 20597–20598 × 30843–30844 | 1 027 (186 / 841) | 24 PARE, 61 pasos, 9 semáforos, 2 CEDA, 9 *bump*, 8 *hump* |
-| `altamira-sur` (Altamira sur, La Castellana y Chacao) | 10.4932, −66.8573 → 10.5040, −66.8463 | 20597–20598 × 30845–30846 | 822 (434 / 388) | 29 PARE, 220 pasos, 35 semáforos, 1 CEDA, 6 *bump*, 3 *hump*, 1 *table* |
+La parte de Chacao con calles: **28 teselas** (x 20595–20600, y 30843–30848; 2,1 MB, 5 333 edificios,
+937 señales) en **11 zonas**, cada una un rectángulo de teselas enteras:
 
-Ningún edificio tiene entradas registradas todavía, y la mayoría de Microsoft no trae altura (quedan en
-9 m). El mapa del Destino solo tiene nombre bonito para `san-juan-bosco` (`ZONE_LABEL` en
-`ui/destino.ts`); `altamira-sur` se muestra con su nombre interno. Cubrir todo Chacao es trabajo en
-curso de otra sesión (ver [trabajo-en-paralelo.md](trabajo-en-paralelo.md)).
+| Zona | Teselas | Edificios (OSM / Microsoft) |
+|---|---|---|
+| `san-juan-bosco` Av. San Juan Bosco (dentro de `altamira-norte`) | 20597–20598 × 30843–30844 | 195 en su caja |
+| `altamira-norte` Altamira norte y Av. Boyacá | 20597–20598 × 30843–30844 | 1 027 (186 / 841) |
+| `altamira-sur` Altamira sur, La Castellana y Chacao | 20597–20598 × 30845–30846 | 815 (434 / 381) |
+| `los-palos-grandes` Los Palos Grandes | 20599 × 30843–30846 | 895 (281 / 614) |
+| `los-palos-grandes-este` | 20600 × 30843–30844 | 426 (3 / 423) |
+| `la-castellana-oeste` La Castellana oeste, El Pedregal y San Marino | 20596 × 30843–30846 | 875 (99 / 776) |
+| `country-club` Country Club y El Bosque | 20595 × 30845–30846 | 208 (39 / 169) |
+| `bello-campo` Bello Campo, Estado Leal y Av. Libertador | 20597–20598 × 30847 | 388 (316 / 72) |
+| `el-rosal` El Rosal y El Retiro | 20595–20596 × 30847 | 268 (135 / 133) |
+| `la-floresta` La Floresta | 20599 × 30847 | 211 (189 / 22) |
+| `el-ciempies` Distribuidor El Ciempiés y el Guaire | 20596–20598 × 30848 | 220 (126 / 94) |
+
+Las cajas, cuánto de cada una cae en Chacao, las señales, cómo se verificó cada zona y lo que falta en
+los bordes están en [MAQUETA.md](../MAQUETA.md#zonas-de-chacao). Ningún edificio tiene entradas
+registradas todavía, y la mayoría de Microsoft no trae altura (quedan en 9 m). Destino muestra el
+`label` de cada zona, que viene en `index.json`.
 
 ## 3. El script que genera las teselas
 
 ```bash
-npm run maqueta -- san-juan-bosco
+npm run maqueta -- san-juan-bosco                   # todas las teselas de la zona
+npm run maqueta -- los-palos-grandes --solo-faltantes  # conserva las que ya existen
+npm run maqueta:check                               # revisa las teselas (ver §3.1)
 ```
 
 Corre con `node --experimental-strip-types` (Node 22+), solo con `fetch`. Hace decenas de pedidos con
-pausas de 1,5 s: se corre a mano y se hace commit del resultado, nunca en CI.
+pausas de 1,5 s, y reintenta a los 10, 30 y 60 s si el servidor está ocupado o no responde. Se corre a
+mano y se hace commit del resultado, nunca en CI. Los archivos de Microsoft (unos 17 MB) se guardan en
+`scripts/maqueta/.cache/` (ignorado por git) y se bajan una sola vez.
 
 ```mermaid
 flowchart TD
@@ -107,7 +123,22 @@ Detalles:
   `building:levels × 3 m`, si no la estimación del dataset si es positiva, si no **9 m**.
 - **Duplicados** (`overlapShare`): muestreo 24 × 24 sobre la huella más chica; si la otra cubre más del
   50 %, gana OSM.
-- El índice se fusiona: se agregan las teselas y la zona se reemplaza.
+- **Huellas sobre la calle**: una huella de Microsoft que una calle con nombre atraviesa (≥6 m de su eje
+  adentro, sin contar distribuidores, elevados, túneles, puentes, rampas ni autopista) se descarta: en
+  Chacao todas eran duplicados corridos o manchas sobre la calle. Las de OSM no se tocan.
+- **Coordenadas**: por tesela informa cuántos edificios están en OSM y en Microsoft y cuánto se
+  desfasan (mediana, `matchOffsets`). En Chacao, Microsoft queda 1–3 m al noreste por la inclinación de
+  los techos altos en la foto aérea; no se corrige (ver MAQUETA.md).
+- El índice se fusiona: se agregan las teselas y la zona se reemplaza (con su `label`).
+
+### 3.1 Revisión (`npm run maqueta:check`)
+
+[check.ts](../scripts/maqueta/check.ts), con la lógica pura en [quality.ts](../scripts/maqueta/quality.ts).
+Tabla por tesela (señales por tipo, vías con nombre/límite/carriles, edificios por fuente, alturas y
+pendiente de la rejilla) y problemas. Son **errores** (código 1): rejilla rota, tesela sin vías, cosas
+fuera de su tesela, contornos abiertos, ids repetidos, el mismo edificio en dos teselas o una zona cuya
+caja toca teselas ajenas. Son **avisos**: pendiente de rejilla > 35 % (las faldas del Ávila) y edificios
+atravesados por una calle. Con `-- <zona>` revisa solo esas zonas, comparándolas con sus vecinas.
 
 ## 4. Correcciones a mano (overrides)
 
@@ -132,7 +163,9 @@ OSM, Microsoft y el modelo de elevación, y se aplican en cada reconstrucción.
 quita el edificio con `hide`. `addBuildings` entra con `source: 'manual'` (el anillo se cierra solo).
 Si un id no existe en la tesela, la build avisa. Hay una plantilla **sin aplicar** con datos de relleno
 en [overrides/ejemplo_20597_30843.jsonc](../scripts/maqueta/overrides/ejemplo_20597_30843.jsonc): para
-usarla hay que renombrarla a `20597_30843.jsonc` y medir los datos. Hoy no hay ningún override aplicado.
+usarla hay que renombrarla a `20597_30843.jsonc` y medir los datos. Los únicos overrides aplicados son
+`20597_30846`, `20598_30845` y `20598_30846`: ocultan 7 huellas de Microsoft con una calle encima en
+teselas construidas antes de que la build las descartara sola.
 
 ## 5. Entradas y el punto exacto de llegada
 
@@ -149,8 +182,16 @@ edificio o "Edificio B"). La ruta se pide **a la entrada** (OSRM la lleva a la c
 AR pone el destino sobre la entrada misma, a la altura de la maqueta ([render-ar.md](render-ar.md#6-destino)).
 El iPad recibe lo mismo en el mensaje `route`.
 
-La Maqueta se abre cuando el destino cae dentro de la caja de una zona de `index.json` (`zoneAt()`); el
-botón dice **Elegir punto exacto** en vez de *Conducir*.
+La Maqueta se abre cuando el destino cae dentro de la caja de una zona de `index.json` (`zoneAt()`, que
+usa `zoneFor()`: donde dos zonas se solapan gana la más chica); el botón dice **Elegir punto exacto** en
+vez de *Conducir*. La pantalla dibuja todos los edificios de la zona en **una sola malla** armada directo
+de los contornos (paredes y techo), y un shader pinta cada cara (techo, lado izquierdo, lado derecho y el
+azul del elegido) con su normal y la derecha de la cámara. Girar no cuesta CPU y elegir un edificio solo
+actualiza sus vértices, así que una zona de 1 000 edificios se mueve fluida en un teléfono.
+
+En Destino, la maqueta se ve como su **cobertura**: las teselas teñidas y un solo borde punteado por
+fuera (`coverageEdges`). Los policías acostados de la maqueta se cargan solo de las teselas a la vista
+desde zoom 14,5 (`tilesInBox`), con la misma caché que la ruta.
 
 ## 6. Uso en la app durante un viaje
 
@@ -161,7 +202,9 @@ botón dice **Elegir punto exacto** en vez de *Conducir*.
    por separado al construirla, así que dos vecinas pueden diferir metros en su borde común; a una
    celda (~50 m) de cada lado se ponderan ambas (1 dentro, 0,5 en el borde, 0 una celda afuera).
 3. `RouteProfile.build(poly, elevationAt)`: altura cada ≤5 m, muestras parejas que terminan justo al
-   final de la ruta; los huecos sin tesela toman la altura conocida más cercana (se leen planos).
+   final de la ruta. Antes de la primera tesela y después de la última se toma la altura conocida más
+   cercana (se leen planos). Un tramo sin teselas entre dos conocidos (la ruta sale de la maqueta y
+   vuelve) va en línea recta de una altura a la otra, sin escalón al volver a entrar.
    `profile.at(d)` interpola sin crear objetos.
 4. `speedLimits(poly, ways)`: cada 10 m, la vía con `maxspeed` más cercana (≤12 m) que va en el sentido
    de la ruta (±35°; una de doble sentido también al revés). `limitAt()` devuelve km/h o `null`.
@@ -174,10 +217,14 @@ destino, los peligros y las señales, y suma la pendiente bajo el carro a la inc
 ## 7. Agregar una zona
 
 1. Agregar `{ "name", "label", "bbox": [s, w, n, e] }` a [scripts/maqueta/zones.json](../scripts/maqueta/zones.json).
-2. `npm run maqueta -- <name>` y revisar el resumen por tesela (señales, vías, edificios por fuente, alturas).
-3. Opcional: overrides por tesela y volver a correr.
-4. Agregar el nombre visible en `ZONE_LABEL` de `ui/destino.ts`.
-5. `npm test`, `npm run build` y commit de `public/maqueta/` y `zones.json`.
+   El `label` es el nombre que muestra Destino. Para no tocar teselas de otras zonas, la caja va alineada
+   a las teselas y metida ~1 m hacia adentro.
+2. `npm run maqueta -- <name> --solo-faltantes` y revisar el resumen por tesela (señales, vías, edificios
+   por fuente, alturas, desfase con OSM).
+3. `npm run maqueta:check -- <name>` sin errores; revisar en el mapa los avisos de edificios atravesados.
+4. Opcional: overrides por tesela y volver a correr (sin `--solo-faltantes` para rehacerlas).
+5. Verla en la app: el borde en Destino, la pantalla Maqueta y una ruta en Simulación.
+6. `npm test`, `npm run build` y commit de `public/maqueta/`, `zones.json` y los overrides.
 
 ## 8. Pendiente
 
@@ -185,4 +232,5 @@ destino, los peligros y las señales, y suma la pendiente bajo el carro a la inc
 - La malla invisible de edificios que solo escribe profundidad, para que la flecha de giro se oculte
   tras las esquinas (MAQUETA.md fase 4).
 - Carriles: ancho de la cinta y `lateral` por tramo según `lanes`/`turn:lanes` (fase 3).
-- Más zonas: Chacao completo (en curso), después el resto.
+- Más zonas: los bordes de Chacao que faltan (MAQUETA.md), después el resto de Caracas.
+- En la Cota Mil el modelo de 90 m mezcla el cerro con la vía (rejilla con 60–70 % de pendiente).

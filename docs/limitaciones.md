@@ -12,7 +12,7 @@
 | Lente | FOV de 63° supuesto para todos los teléfonos (un iPhone midió 56°). | Tabla por modelo o medición. |
 | Enlace iPad / Encontrar | Broker público de PeerJS y sus TURN públicos, sin garantía. El código de 6 dígitos es el único secreto del enlace del iPad; cualquiera que lo sepa puede mandarle mensajes. | Broker propio o Supabase Realtime, TURN propio, autenticación. |
 | HUD | Paralaje (la imagen está a ~0,9 m), doble imagen del vidrio laminado, poco contraste de día, medidas del preset estimadas, sin seguimiento de cabeza. Etiquetas de peligros y tarjeta del destino ocultas con la óptica. | Prueba en carro con medidas reales. |
-| Maqueta | Dos zonas (San Juan Bosco y Altamira sur). Sin entradas medidas ni overrides aplicados; edificios de Microsoft a 9 m. Sin malla que oculte la flecha tras las esquinas. | Más zonas, overrides medidos. |
+| Maqueta | Chacao con calles: 28 teselas en 11 zonas (faltan bordes con poco municipio adentro, ver MAQUETA.md). Sin entradas medidas; edificios de Microsoft a 9 m. En la Cota Mil el relieve mezcla el cerro con la vía. Sin malla que oculte la flecha tras las esquinas. | Más zonas, overrides medidos. |
 | Peligros | Detector sin ajustar con datos reales. Se cargan los últimos 5 000 de toda la base. Los reportes nuevos del teléfono no llegan al iPad durante el viaje (el iPad carga los compartidos al empezar). | Ajuste de umbrales, carga por zona, mandar reportes por el enlace. |
 | Sin conexión | El service worker solo guarda `/`: sin red no hay app, mapa, rutas ni teselas. | Precaché de la app y las teselas. |
 | Plataforma | iOS: sin Web Share Target, sin pantalla completa en iPhone salvo instalada, permisos dentro de un toque. | — |
@@ -41,7 +41,7 @@ Encontrados al documentar contra el código de `cambios-juando` (a292172). No se
 8. **Restos de la cámara remota por video**: `uprightPlan` (solo en tests) y comentarios en
    `drive/sources.ts` ("the one used as a remote camera") y `calibDock.ts` ("a phone paired by QR").
 9. **Nombre**: la interfaz dice *MapZ*; el manifest, el texto de *Enviar enlace* y los documentos, *Vía AR*.
-10. **`ZONE_LABEL`** solo conoce `san-juan-bosco`: la otra zona se muestra como `altamira-sur`.
+10. ~~**`ZONE_LABEL`** solo conocía `san-juan-bosco`~~: resuelto, cada zona trae su `label` en `index.json`.
 11. **Esquema**: la tabla `detections` y las columnas `hazards.confirmations`/`last_seen` ya no se escriben.
 12. **Metadatos del hackathon** sin llenar: `platanus-hack-project.jsonc` y `project-description.md`.
 
@@ -68,7 +68,7 @@ Lo que decían [SETUP.md](../SETUP.md), [TODO.md](../TODO.md), [MAQUETA.md](../M
 | SPEC §11 | Agrupar duplicados y vencimiento pendientes | Hechos (`hazards/cluster.ts`). |
 | TODO | Agrupación a 12 m huecos y 15 m policías | 15 m para huecos y policías (mismo grupo), 12 m alcabalas. |
 | SETUP | Encontrar: botón +, *Guardar este lugar* en la cámara, lista con ✕ | Encontrar es una pestaña solo para compartir ubicación; guardar es en el mapa y la lista en Ajustes. |
-| SETUP | Zona de la maqueta: Av. San Juan Bosco | También `altamira-sur`. |
+| SETUP | Zona de la maqueta: Av. San Juan Bosco | Las 11 zonas de Chacao (MAQUETA.md). |
 | SETUP | `npm test`: geometría y enlaces | 327 comprobaciones de casi todos los módulos puros. |
 | MAQUETA | Edificios de San Juan Bosco sin nombre | 10 edificios de OSM tienen nombre (ninguno en el tramo de prueba). |
 | PLAN-HUD-AR | Enlace por Supabase Realtime, `src/render/shaders.ts`, `src/sync/` | WebRTC/PeerJS; esos archivos no existen (su nota de estado ya lo aclara). |

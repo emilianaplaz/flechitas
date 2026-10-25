@@ -52,7 +52,7 @@ Tipos de las teselas (`Tile`, `TileSign`, `TileWay`, `TileBuilding`, `TileEntran
 matemática de teselas web z16 (`tileXY`, `tileToLatLon`, `tileOf`, `gridPoint`), elevación
 (`tileElevation`, `elevationIn` que mezcla teselas vecinas), `RouteProfile` (elevación cada ≤5 m de la
 ruta, `at(d)` sin crear objetos), `speedLimits`/`limitAt`, edificios (`buildingsIn`, `insideOutline`,
-`entrancesOf`) y carga con caché (`loadTile`, `loadRouteMaqueta`). Ver [maqueta.md](maqueta.md).
+`entrancesOf`), zonas y cobertura (`zoneFor`, `tilesInBox`, `coverageEdges`) y carga con caché (`loadTile`, `loadRouteMaqueta`). Ver [maqueta.md](maqueta.md).
 
 ### [core/types.ts](../src/core/types.ts)
 `Fix { p, speed, heading, accuracy, t }` (`t` = `performance.now()` cuando el fix fue válido) y
@@ -183,6 +183,7 @@ Ver [interfaz.md](interfaz.md).
 |---|---|
 | [api/expand.ts](../api/expand.ts) | Función de Vercel `GET /api/expand?url=…`; `vite.config.ts` la sirve igual en desarrollo. |
 | [scripts/maqueta/build.ts](../scripts/maqueta/build.ts), [buildings.ts](../scripts/maqueta/buildings.ts) | Generador de teselas y sus partes puras. |
+| [scripts/maqueta/check.ts](../scripts/maqueta/check.ts), [quality.ts](../scripts/maqueta/quality.ts) | `npm run maqueta:check`: revisión de las teselas y su lógica pura. |
 | [supabase/schema.sql](../supabase/schema.sql) | Esquema completo, idempotente. |
 | [public/](../public/) | `manifest.webmanifest`, `sw.js`, íconos, `maqueta/`. |
 | [pipeline3d/](../pipeline3d/README.md), [PRUEBA RENDER/](../PRUEBA%20RENDER/README.md) | Experimento video → calle 3D (COLMAP + OpenMVS) y su visor. No está conectado a la app. |

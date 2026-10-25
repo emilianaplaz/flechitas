@@ -13,6 +13,7 @@ npm test           # tests de lógica, sin navegador
 npm run build      # tsc --noEmit && vite build → dist/
 npm run preview    # sirve dist/
 npm run maqueta -- san-juan-bosco   # regenera las teselas de una zona (red, varios minutos)
+npm run maqueta:check               # revisa las teselas: conteos, repetidos, huellas sobre la calle
 ```
 
 - `vite --host` con `@vitejs/plugin-basic-ssl`: **https** para que el teléfono en el mismo Wi-Fi pueda
@@ -57,7 +58,8 @@ Dependencias: `three` 0.170, `maplibre-gl` 4.7, `peerjs` 1.5. Desarrollo: `types
 | phone ↔ iPad link | ids, código, `encodeRoute`/`decodeRoute` |
 | remote camera | `physicalAngle`, `interfaceAngle`, `uprightPlan` |
 | windshield HUD optics | reflexión, números del Fortuner, matrices vs. trazado de rayos, eje del espejo, homografía, ubicación |
-| maqueta | matemática de teselas, interpolación, `RouteProfile` con 13 % de pendiente, límites, señales por sentido |
+| maqueta | matemática de teselas, interpolación, `RouteProfile` con 13 % de pendiente y huecos entre teselas, límites, señales por sentido, `zoneFor`, `tilesInBox`, `coverageEdges` |
+| maqueta: revisión | `tileReport`, `maxGridSlope`, `crossTileDuplicates`, `roadsThroughBuildings`, `matchOffsets` |
 | buildings | alturas, solapamiento, dedupe, overrides, `entrancesOf`, `buildingsIn` |
 | find | `aim`, `onEdge`, `ViewerSlot`, `ApprovalGate`, `sanitizeName`, `parsePos`, `parseHello`, enlaces |
 | saved places | pines, dueños, `mergePins`, la cola contra un Supabase falso (401, 400, red, dos usuarios) |
