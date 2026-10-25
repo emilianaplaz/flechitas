@@ -1,11 +1,24 @@
 // The same hueco or bump is reported many times, each a few metres off (GPS error, taps placed behind the car).
-// Reports of one type that sit close together and face the same way are merged into one hazard.
+// Reports that sit close together and face the same way are merged into one hazard. Hueco and policía share one
+// pool because the detector can mistake one for the other; the type with the larger total weight wins.
 // Done when the list is read, because the app can't edit rows in the database.
 import { angleDiff, haversine } from '../core/geo.ts';
 import type { Hazard, HazardType } from './store.ts';
 
-const RADIUS_M: Partial<Record<HazardType, number>> = { policia: 15, hueco: 12 };
-const DEFAULT_RADIUS_M = 12;
+const ROAD_RADIUS_M = 15;
+const ALCABALA_RADIUS_M = 12;
+/** A cluster is listed only from this total weight: one lone unconfirmed detection (0.5) is kept but stays hidden. */
+export const MIN_SHOW_WEIGHT = 1;
+export const OSM_WEIGHT = 3; // a mapped bump is authoritative
+export const CONFIRMED_WEIGHT = 1;
+export const UNCONFIRMED_WEIGHT = 0.5;
+
+export function weightOf(h: Hazard): number {
+  if (h.source === 'osm') return OSM_WEIGHT;
+  if (h.source === 'tap' || h.confirmed === true) return CONFIRMED_WEIGHT;
+  if (h.source === 'detected') return UNCONFIRMED_WEIGHT;
+  return CONFIRMED_WEIGHT; // legacy rows without a source
+}
 const MAX_HEADING_DIFF = 60;
 const DAY_MS = 86_400_000;
 /** How long a hazard stays valid after its newest report. Potholes get patched; bumps are built to stay. */
@@ -24,17 +37,29 @@ interface Group {
   heading?: number;
 }
 
+const poolOf = (t: HazardType) => (t === 'alcabala' ? 'alcabala' : 'road');
+
 const near = (g: Group, h: Hazard) => {
   if ((g.heading != null && h.heading != null && Math.abs(angleDiff(g.heading, h.heading)) > MAX_HEADING_DIFF)) return false;
-  return haversine(g, h) <= (RADIUS_M[h.type] ?? DEFAULT_RADIUS_M);
+  return haversine(g, h) <= (h.type === 'alcabala' ? ALCABALA_RADIUS_M : ROAD_RADIUS_M);
 };
+
+/** Larger summed weight wins; a tie goes to the newest report (members are in time order). */
+function winningType(members: Hazard[]): HazardType {
+  const sum = new Map<HazardType, number>();
+  for (const m of members) sum.set(m.type, (sum.get(m.type) ?? 0) + weightOf(m));
+  let best = members[members.length - 1]!.type;
+  for (const [t, w] of sum) if (w > sum.get(best)!) best = t;
+  return best;
+}
 
 export function clusterHazards(all: Hazard[], now = Date.now()): Hazard[] {
   const groups: Group[] = [];
-  const byType = new Map<HazardType, Group[]>();
+  const byPool = new Map<string, Group[]>();
   for (const h of [...all].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
-    const list = byType.get(h.type) ?? [];
-    byType.set(h.type, list);
+    const pool = poolOf(h.type);
+    const list = byPool.get(pool) ?? [];
+    byPool.set(pool, list);
     const g = list.find((x) => near(x, h));
     if (g) {
       g.members.push(h);
@@ -54,11 +79,15 @@ export function clusterHazards(all: Hazard[], now = Date.now()): Hazard[] {
     const reports = g.members.filter((m) => m.source !== 'osm');
     const stamps = reports.map((m) => Date.parse(m.createdAt)).filter((t) => !Number.isNaN(t));
     const lastSeen = stamps.length ? Math.max(...stamps) : 0;
-    const ttl = TTL_MS[g.members[0]!.type];
+    const type = winningType(g.members);
+    const ttl = TTL_MS[type];
     if (!osm && ttl && lastSeen && now - lastSeen > ttl) continue;
-    const first = osm ?? g.members[0]!;
+    const total = g.members.reduce((n, m) => n + weightOf(m), 0);
+    if (!osm && total < MIN_SHOW_WEIGHT) continue;
+    const first = osm ?? g.members.find((m) => m.type === type)!;
     out.push({
       ...first,
+      type,
       lat: osm ? osm.lat : g.lat,
       lon: osm ? osm.lon : g.lon,
       ...(g.heading != null ? { heading: g.heading } : {}),

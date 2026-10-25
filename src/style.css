@@ -1,28 +1,30 @@
-/* MapZ — tokens from the "MapZ App UI" canvas. Dark is the default; light follows the system.
+/* MapZ — tokens. Dark is the default (graphite surfaces, Tesla-style); light follows the system.
    The old names (--bg, --panel, --line, --text, --muted) stay as aliases so the HUD, dock and sheets keep working. */
 :root {
-  --bg: #031017;
-  --surf: #0a2230;
-  --line: #12384a;
-  --field: #4f7a8c;
-  --text: #ffffff;
-  --muted: #9fc6d6;
-  --pri: #2563eb;
+  --bg: #0a0a0b;
+  --surf: #151618;
+  --line: rgba(255, 255, 255, 0.09);
+  --field: #5b5f66;
+  --text: #f4f4f5;
+  --muted: #9a9ea6;
+  --pri: #3e6ae1;
   --onpri: #ffffff;
-  --link: #7db2ff;
-  --sel: #10346b;
+  --link: #7ea1ff;
+  --sel: rgba(62, 106, 225, 0.2);
   --route: #4b86f5;
   --origin: #22e07a; /* where a drive starts, on the map and in the search card; the destination is --pri */
   --haz: #ffe14d;
   --bump: #ff6fb5;
-  --mbg: #031017;
+  --mbg: #0a0a0b;
   --glass: #29e3ff;
-  --panel: rgba(10, 34, 48, 0.9);
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --panel: rgba(21, 22, 24, 0.82);
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  --ease: cubic-bezier(0.22, 0.8, 0.24, 1); /* the in-car "settle": fast start, long soft landing */
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
 
   /* HUD and alerts (Andres' windshield style) */
   --guide: #00e676;
-  --warn: #ff3b30;
+  --warn: #e82127;
   --amber: #ffb020;
   --ok: #22e07a;
   --mirror-x: 1;
@@ -33,29 +35,6 @@
   color-scheme: dark;
   -webkit-tap-highlight-color: transparent;
 }
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f4f8fb;
-    --surf: #ffffff;
-    --line: #d5e1ea;
-    --field: #5e7a8e;
-    --text: #031017;
-    --muted: #4a6573;
-    --pri: #1a56c4;
-    --onpri: #ffffff;
-    --link: #1457c7;
-    --sel: #dce8fb;
-    --route: #1a56c4;
-    --origin: #14a356;
-    --haz: #a87c00;
-    --bump: #c71f6e;
-    --mbg: #e6eef3;
-    --panel: rgba(255, 255, 255, 0.94);
-    --shadow: 0 10px 30px rgba(3, 16, 23, 0.14);
-    color-scheme: light;
-  }
-}
-
 * { box-sizing: border-box; }
 html, body {
   margin: 0;
@@ -127,10 +106,10 @@ button.big { min-height: 54px; flex: 1; font-size: 16px; }
   color: var(--text);
   box-shadow: var(--shadow);
 }
-.roundBtn.dark { background: rgba(3, 16, 23, 0.72); border-color: rgba(255, 255, 255, 0.16); color: #fff; }
+.roundBtn.dark { background: rgba(12, 12, 14, 0.72); border-color: rgba(255, 255, 255, 0.16); color: #fff; }
 .iconBtn { width: 46px; height: 46px; padding: 0; display: grid; place-items: center; border-radius: 14px; color: var(--muted); flex: none; }
 
-input[type='text'] {
+input[type='text'], input[type='email'], input[type='password'] {
   flex: 1;
   min-width: 0;
   height: 46px;
@@ -141,8 +120,8 @@ input[type='text'] {
   outline: none;
   font-weight: 700;
 }
-input[type='text']::placeholder { color: var(--muted); font-weight: 500; }
-input[type='text']:focus, input[type='text'].accent { border-color: var(--pri); }
+input[type='text']::placeholder, input[type='email']::placeholder, input[type='password']::placeholder { color: var(--muted); font-weight: 500; }
+input[type='text']:focus, input[type='email']:focus, input[type='password']:focus, input[type='text'].accent { border-color: var(--pri); }
 input[type='file'] { width: 100%; font-size: 13px; color: var(--muted); }
 input[type='range'] { width: 100%; accent-color: var(--pri); }
 select { width: 100%; padding: 10px; border-radius: 12px; background: transparent; border: 2px solid var(--line); }
@@ -243,7 +222,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .dcSub { font-size: 14px; color: var(--muted); line-height: 1.35; }
 
 /* map markers and attribution */
-.mapHere { width: 20px; height: 20px; border-radius: 50%; background: var(--route); border: 4px solid #fff; box-shadow: 0 0 0 6px rgba(75, 134, 245, 0.25); }
+.mapHere { width: 20px; height: 20px; border-radius: 50%; background: var(--route); border: 4px solid #fff; box-shadow: 0 0 0 6px rgba(75, 134, 245, 0.28); }
 .mapFrom { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 6px solid var(--origin); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45); cursor: grab; }
 .mapDest { width: 30px; height: 40px; background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 40'%3E%3Cpath d='M15 1C7.3 1 1 7.2 1 14.9 1 25.4 15 39 15 39s14-13.6 14-24.1C29 7.2 22.7 1 15 1z' fill='%232563EB' stroke='%23fff' stroke-width='2'/%3E%3Ccircle cx='15' cy='15' r='5' fill='%23fff'/%3E%3C/svg%3E"); }
 .map .maplibregl-ctrl-top-right { top: calc(max(16px, env(safe-area-inset-top)) + 248px); }
@@ -259,8 +238,6 @@ h2 { margin: 0 0 4px; font-size: 20px; }
   .destCard { left: auto; width: min(360px, 44vw); bottom: calc(64px + env(safe-area-inset-bottom) + 12px); padding: 14px; }
   .bottomNav { height: calc(64px + env(safe-area-inset-bottom)); }
   .navItem { flex-direction: row; gap: 8px; }
-  .fab { width: 58px; height: 58px; top: -22px; }
-  .fabLabel { display: none; }
   .page { padding-bottom: calc(64px + env(safe-area-inset-bottom) + 24px); }
 }
 
@@ -353,24 +330,6 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 }
 .navItem { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 10px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .navItem[aria-current='page'] { color: var(--link); }
-.navGap { width: 70px; }
-.fab {
-  position: absolute;
-  left: 50%;
-  top: -32px;
-  transform: translateX(-50%);
-  width: 70px;
-  height: 70px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--pri);
-  color: var(--onpri);
-  border: 6px solid var(--bg);
-}
-.fab:disabled { opacity: 1; filter: saturate(0.55); }
-.fabLabel { position: absolute; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); transform: translateX(-50%); font-size: 12px; font-weight: 700; color: var(--muted); }
 
 /* ---------- Conducir (phone camera AR) ---------- */
 #hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
@@ -393,7 +352,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
   border-radius: 999px;
   font-size: 13px;
   font-weight: 700;
-  background: rgba(3, 16, 23, 0.72);
+  background: rgba(12, 12, 14, 0.72);
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.16);
 }
@@ -460,7 +419,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
   color: #fff;
   font-weight: 800;
   font-size: 18px;
-  box-shadow: 0 6px 24px rgba(255, 59, 48, 0.45);
+  box-shadow: 0 6px 24px rgba(232, 33, 39, 0.45);
   animation: pulse 0.9s ease-in-out infinite alternate;
 }
 @keyframes pulse { from { transform: translateX(-50%) scale(1); } to { transform: translateX(-50%) scale(1.06); } }
@@ -491,7 +450,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
   height: 48px;
   padding: 0;
   border-radius: 50%;
-  background: rgba(3, 16, 23, 0.72);
+  background: rgba(12, 12, 14, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: #fff;
   font-size: 20px;
@@ -524,6 +483,28 @@ h2 { margin: 0 0 4px; font-size: 20px; }
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
 }
 .report.alt { background: var(--amber); color: #2a1a00; }
+.holeConfirm {
+  position: relative;
+  flex: none;
+  align-self: flex-end;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--surf);
+  color: var(--warn);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  display: grid;
+  place-items: center;
+}
+.holeConfirm[hidden] { display: none; }
+.holeConfirm:not([hidden]) { animation: popIn 0.4s var(--ease-spring) both; }
+.holeConfirm .holeIcon { position: relative; }
+.holeRing { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.holeRing circle { fill: none; stroke: var(--warn); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 0; }
+.holeConfirm:not([hidden]) .holeRing circle { animation: holeCountdown var(--confirm-ms, 8000ms) linear forwards; }
+@keyframes holeCountdown { to { stroke-dashoffset: 100; } }
 .simBar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 16px; width: 220px; }
 #simSpeedVal { font-size: 13px; font-weight: 700; color: var(--muted); min-width: 60px; font-variant-numeric: tabular-nums; }
 .etaCard { width: min(360px, 46vw); padding: 14px; border-radius: 24px; }
@@ -639,7 +620,7 @@ body.calibrating #driveBottom, body.calibrating #rightBtns { display: none; }
   transform: translateX(-50%);
   padding: 12px 16px;
   border-radius: 14px;
-  background: rgba(3, 16, 23, 0.92);
+  background: rgba(12, 12, 14, 0.92);
   color: #fff;
   font-size: 14px;
   font-weight: 600;
@@ -663,8 +644,8 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
   text-align: center;
   background: #000;
   color: #fff;
-  --line: #12384a;
-  --muted: #9fc6d6;
+  --line: rgba(255, 255, 255, 0.09);
+  --muted: #9a9ea6;
   --text: #fff;
 }
 .hudRole h1 { margin: 0; font-size: 28px; }
@@ -685,10 +666,10 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
 .hgReadout b { color: var(--text); }
 .hgFine { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
 
-/* ---------- Encontrar: markers over the camera, saved places, a person sharing ---------- */
+/* ---------- Encontrar: markers over the camera, a person sharing with you ---------- */
 #find { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
 #find button, #find input { pointer-events: auto; }
-#find.shareOnly { background: var(--bg); }
+#find.noCamera { background: var(--bg); }
 .fMarks { position: absolute; inset: 0; overflow: hidden; }
 .fMark { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
 .fTag {
@@ -701,7 +682,7 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
   border-radius: 999px;
   font-size: 14px;
   font-weight: 800;
-  background: rgba(3, 16, 23, 0.82);
+  background: rgba(12, 12, 14, 0.82);
   color: #fff;
   border: 2px solid var(--glass);
 }
@@ -740,7 +721,7 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
 .fDist { font-weight: 700; }
 .fX { padding: 8px 12px; color: var(--muted); }
 .fBox { display: flex; flex-direction: column; gap: 6px; }
-.fWatch {
+.fShareCard {
   position: absolute;
   top: calc(max(12px, env(safe-area-inset-top)) + 58px);
   left: 12px;
@@ -748,14 +729,297 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
   padding: 12px 14px;
   border-radius: 20px;
 }
-.fWatchHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.fWatchHead .muted { font-size: 13px; }
-.fWatchHead button { flex: none; min-height: 44px; padding: 8px 14px; }
-.fCode { display: block; font-size: 30px; font-weight: 800; letter-spacing: 0.08em; }
+.fShareHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fShareHead .muted { font-size: 13px; }
+.fShareHead button { flex: none; min-height: 44px; padding: 8px 14px; }
+.fCodeText { display: block; font-size: 30px; font-weight: 800; letter-spacing: 0.08em; }
+.fAsk {
+  position: absolute;
+  top: 54%;
+  translate: 0 -50%;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  border-radius: 24px;
+}
+.fAsk:not([hidden]) { animation: popIn 0.4s var(--ease-spring) both; }
+.fAsk h2 { margin: 0; font-size: 18px; }
+.fAsk p { margin: 0; }
+.fAskWho { font-size: 22px; font-weight: 800; overflow-wrap: anywhere; }
+.fAskBtns { display: flex; gap: 10px; margin-top: 6px; }
+.fAskBtns button { flex: 1; min-height: 52px; }
 .fState { margin: 0; font-size: 14px; color: var(--muted); min-height: 1.2em; }
-#fShareCode { padding: 12px 14px; font-size: 22px; font-weight: 800; letter-spacing: 0.08em; border-radius: 14px; border: 2px solid var(--line); background: transparent; }
+#fSeeCode { padding: 12px 14px; font-size: 22px; font-weight: 800; letter-spacing: 0.08em; border-radius: 14px; border: 2px solid var(--line); background: transparent; }
 .fActions { display: flex; gap: 8px; }
 .fActions button { flex: 1; min-height: 48px; padding: 8px; font-size: 14px; }
 .fActions button.primary { flex: 1.3; font-size: 14px; }
-#find.shareOnly .fActions, #find.shareOnly .fList, #find.shareOnly .fMarks { display: none; }
+#find.noCamera .fActions, #find.noCamera .fList, #find.noCamera .fMarks { display: none; }
 body:has(#find:not([hidden])) #toast { bottom: auto; top: 40%; }
+
+/* ==========================================================================
+   Tesla-style skin: graphite glass, soft-landing motion.
+   Motion uses the standalone `translate` / `scale` / `opacity` properties so it composes with the
+   `transform` that hud.ts (mirror/flip) and the older keyframes already set. Screens show/hide with
+   [hidden], so entrance animations replay every time a screen comes back.
+   ========================================================================== */
+body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+h1, .dcTitle, .devTitle { letter-spacing: -0.015em; }
+
+/* ---------- press + hover feel ---------- */
+button, .modes label, .layerChip, .navItem, .statusChip, .chip {
+  transition: background-color 0.28s var(--ease), border-color 0.28s var(--ease), color 0.28s var(--ease),
+    box-shadow 0.28s var(--ease), opacity 0.28s var(--ease), scale 0.28s var(--ease), filter 0.28s var(--ease);
+}
+button:active:not(:disabled) { scale: 0.96; transition-duration: 0.08s; }
+@media (hover: hover) {
+  button.ghost:hover, .roundBtn:hover, .layerChip:hover, .modes label:hover, .step:hover { background-color: color-mix(in srgb, var(--text) 8%, transparent); }
+  button.primary:hover:not(:disabled) { filter: brightness(1.12); }
+}
+button.primary { box-shadow: 0 8px 24px color-mix(in srgb, var(--pri) 38%, transparent); }
+button.primary:disabled { box-shadow: none; }
+
+/* ---------- glass panels (setup screens sit over the map, not live video: blur is cheap there) ---------- */
+@media all {
+  .surface { background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0) 45%); }
+  .roundBtn, .seg, .layerChip, .bottomNav { background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0)); }
+}
+.app .searchCard, .app .destCard, .app .mqCard, .app .layerChip, .app .seg, .app .roundBtn, .bottomNav {
+  background-color: var(--panel);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  backdrop-filter: blur(22px) saturate(1.4);
+}
+.seg button[aria-pressed='true'] { box-shadow: 0 2px 10px color-mix(in srgb, var(--pri) 45%, transparent); }
+.modes label:has(input:checked) { box-shadow: inset 0 0 0 1px var(--pri); }
+.layerChip[aria-pressed='true'] { background-color: color-mix(in srgb, var(--text) 7%, var(--surf)); }
+
+/* ---------- screen + card entrances ---------- */
+@keyframes fadeIn { from { opacity: 0; } }
+@keyframes riseIn { from { opacity: 0; translate: 0 22px; } }
+@keyframes dropIn { from { opacity: 0; translate: 0 -18px; } }
+@keyframes slideInL { from { opacity: 0; translate: -28px 0; } }
+@keyframes slideInR { from { opacity: 0; translate: 28px 0; } }
+@keyframes popIn { from { opacity: 0; scale: 0.82; } 60% { scale: 1.04; } }
+@keyframes sheetIn { from { opacity: 0; translate: 0 26px; scale: 0.97; } }
+
+.screen:not([hidden]) { animation: fadeIn 0.4s var(--ease) both; }
+.screen:not([hidden]) > .searchCard, .screen:not([hidden]) > .mqHead { animation: dropIn 0.55s var(--ease) 0.05s both; }
+.screen:not([hidden]) > .modeRow { animation: dropIn 0.55s var(--ease) 0.12s both; }
+.screen:not([hidden]) > .layerChips { animation: dropIn 0.55s var(--ease) 0.18s both; }
+.screen:not([hidden]) > .destCard, .screen:not([hidden]) > .mqCard { animation: riseIn 0.6s var(--ease) 0.14s both; }
+.page:not([hidden]) > * { animation: riseIn 0.55s var(--ease) both; }
+.page:not([hidden]) > :nth-child(2) { animation-delay: 0.05s; }
+.page:not([hidden]) > :nth-child(3) { animation-delay: 0.09s; }
+.page:not([hidden]) > :nth-child(4) { animation-delay: 0.13s; }
+.page:not([hidden]) > :nth-child(n + 5) { animation-delay: 0.17s; }
+.bottomNav { animation: riseIn 0.6s var(--ease) both; }
+
+/* bottom nav: the active tab lifts and gets a pill underline that grows in */
+.navItem { position: relative; }
+.navItem svg { transition: translate 0.35s var(--ease-spring); }
+.navItem[aria-current='page'] svg { translate: 0 -2px; }
+.navItem::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  width: 18px;
+  height: 3px;
+  margin-left: -9px;
+  border-radius: 2px;
+  background: var(--link);
+  scale: 0 1;
+  transition: scale 0.35s var(--ease-spring);
+}
+.navItem[aria-current='page']::after { scale: 1 1; }
+
+/* ---------- map markers ---------- */
+.mapHere { animation: hereRing 2.4s ease-out infinite; }
+@keyframes hereRing {
+  0% { box-shadow: 0 0 0 0 rgba(75, 134, 245, 0.45); }
+  100% { box-shadow: 0 0 0 22px rgba(75, 134, 245, 0); }
+}
+.mapDest { animation: markerDrop 0.55s var(--ease-spring) both; transform-origin: 50% 100%; }
+@keyframes markerDrop { from { opacity: 0; translate: 0 -26px; scale: 1 1.25; } }
+.mqPin.on { animation: pinPulse 1.8s ease-out infinite; }
+@keyframes pinPulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--haz) 55%, transparent); }
+  100% { box-shadow: 0 0 0 20px color-mix(in srgb, var(--haz) 0%, transparent); }
+}
+
+/* ---------- sliders: thick track, big white thumb ---------- */
+input[type='range'] { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
+input[type='range']::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 16%, transparent); }
+input[type='range']::-moz-range-track { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 16%, transparent); }
+input[type='range']::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--pri); }
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -10px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--text);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  transition: scale 0.2s var(--ease-spring);
+}
+input[type='range']::-moz-range-thumb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: var(--text); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); }
+input[type='range']:active::-webkit-slider-thumb { scale: 1.18; }
+
+/* ---------- Conducir (simulation / drive HUD) ---------- */
+#hud:not([hidden]) #driveChips { animation: dropIn 0.5s var(--ease) 0.05s both; }
+#hud:not([hidden]) #maneuver { animation: slideInL 0.6s var(--ease) 0.1s both; }
+#hud:not([hidden]) #stats { animation: slideInR 0.6s var(--ease) 0.16s both; }
+#hud:not([hidden]) #rightBtns { animation: fadeIn 0.6s var(--ease) 0.3s both; }
+#hud:not([hidden]) .driveBottom { animation: riseIn 0.65s var(--ease) 0.2s both; }
+#hazardBanner:not([hidden]) { animation: fadeIn 0.25s var(--ease) both, pulse 0.9s ease-in-out 0.25s infinite alternate; }
+#arrived:not([hidden]) { animation: popIn 0.55s var(--ease-spring) both; box-shadow: 0 12px 40px rgba(34, 224, 122, 0.4); }
+#toast:not([hidden]) { animation: riseIn 0.4s var(--ease) both; box-shadow: var(--shadow); border: 1px solid rgba(255, 255, 255, 0.1); }
+.dock:not([hidden]), .sheet:not([hidden]) { animation: sheetIn 0.45s var(--ease) both; }
+#find:not([hidden]) .fBottom { animation: riseIn 0.55s var(--ease) 0.08s both; }
+#find:not([hidden]) .fTop { animation: dropIn 0.5s var(--ease) both; }
+.fMark:not(.off) .fPole { animation: fadeIn 0.4s var(--ease) both; }
+
+/* the maneuver glyph glows like the in-car turn indicator */
+#glyph { box-shadow: 0 0 22px color-mix(in srgb, var(--pri) 55%, transparent); transition: background-color 0.4s var(--ease); }
+.chipDot { animation: dotPulse 1.8s ease-in-out infinite; }
+@keyframes dotPulse { 50% { opacity: 0.35; scale: 0.8; } }
+#simBar, .etaCard { transition: opacity 0.3s var(--ease); }
+.etaMin, #mDist, #speed { transition: color 0.3s var(--ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* ==========================================================================
+   Sleek pass: filled fields instead of outlines, thinner chrome, floating
+   side panel on wide screens (the Tesla layout), smaller type.
+   ========================================================================== */
+input[type='text'], input[type='email'], input[type='password'], select, #fSeeCode, .hgField input {
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.06);
+  transition: border-color 0.25s var(--ease), box-shadow 0.25s var(--ease), background-color 0.25s var(--ease);
+}
+input[type='text']:focus, input[type='email']:focus, input[type='password']:focus, input[type='text'].accent { border-color: var(--pri); background: rgba(255, 255, 255, 0.08); box-shadow: 0 0 0 4px color-mix(in srgb, var(--pri) 22%, transparent); }
+input[type='text'].accent:not(:focus) { border-color: transparent; }
+button.ghost, .statusChip, .step, .modes label, .layerChip, .mqChips button, .dock .chip { border-width: 1px; }
+.layerChip[aria-pressed='true'].haz, .layerChip[aria-pressed='true'].bump { box-shadow: inset 0 0 0 1px currentColor, var(--shadow); }
+.layerChip[aria-pressed='true'].haz { color: var(--haz); }
+.layerChip[aria-pressed='true'].bump { color: var(--bump); }
+.layerChip[aria-pressed='true'] { color: var(--text); }
+.layerChip { height: 40px; font-weight: 600; font-size: 13px; }
+.searchCard, .destCard, .mqCard { border-radius: 22px; }
+.searchCard { padding: 12px; }
+.dcTitle { font-size: 19px; font-weight: 700; }
+.dcSub { font-size: 13px; }
+button.primary { min-height: 52px; border-radius: 14px; font-size: 16px; font-weight: 700; background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0)); }
+.seg button { font-weight: 600; }
+.bottomNav { border: 1px solid var(--line); border-bottom: 0; }
+.navItem { font-weight: 600; font-size: 11px; letter-spacing: 0.02em; }
+
+@media (min-width: 700px) and (min-height: 541px) {
+  .searchCard, .destCard, .modeRow, .mqCard, .mqHead { right: auto; width: 400px; }
+  .searchCard, .modeRow, .layerChips, .mqHead { left: 24px; }
+  .destCard, .mqCard { left: 24px; bottom: calc(84px + 24px); }
+  .searchCard { top: 24px; }
+  .modeRow { top: 164px; }
+  .layerChips { top: 220px; }
+  .map .maplibregl-ctrl-top-right { top: 24px; right: 12px; }
+  .bottomNav { left: 50%; right: auto; width: 520px; margin-left: -260px; bottom: 14px; border-radius: 30px; border-bottom: 1px solid var(--line); padding: 0 16px; }
+  .page { padding-left: max(16px, calc((100vw - 640px) / 2)); padding-right: max(16px, calc((100vw - 640px) / 2)); }
+}
+
+/* ---------- map: save-this-spot button and saved places ---------- */
+.mapBtns { display: flex; gap: 10px; }
+.mapSaved {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--glass);
+  border: 3px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--glass), 0 0 16px color-mix(in srgb, var(--glass) 60%, transparent);
+  cursor: pointer;
+  animation: popIn 0.5s var(--ease-spring) both;
+}
+.mapSaved::after {
+  content: attr(data-label);
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  translate: -50% 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---------- Ajustes: tabs and saved places ---------- */
+.setTabs { align-self: stretch; margin-bottom: 18px; max-width: 460px; }
+.setTabs button { flex: 1 1 auto; justify-content: center; min-width: 0; padding: 9px 8px; white-space: nowrap; }
+@media (min-width: 420px) { .setTabs button { padding: 9px 16px; } }
+.placeRow .devText { gap: 2px; }
+.placeRow .ghost { padding: 0 18px; height: 40px; flex: none; }
+.placeRow .fX { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; }
+.placesEmpty { margin-top: 8px; }
+.placesSync { margin: 12px 0 0; font-size: 13px; }
+.placeDist { color: var(--text); font-weight: 700; }
+.placeInput { height: 38px; font-size: 16px; font-weight: 700; }
+.placeRow .fX { font-size: 16px; }
+
+/* ---------- "¿A dónde vas?" saved-places shortcut ---------- */
+.searchCard { z-index: 3; }
+.placeMenu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 8px;
+  padding: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: 20px;
+  background-color: var(--panel);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  backdrop-filter: blur(22px) saturate(1.4);
+  animation: dropIn 0.3s var(--ease) both;
+}
+.placeMenu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  text-align: left;
+  font-weight: 700;
+}
+.placeMenu button::before { content: ''; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--glass); box-shadow: 0 0 10px var(--glass); }
+.pmName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmDist { flex: none; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (hover: hover) { .placeMenu button:hover { background: color-mix(in srgb, var(--text) 8%, transparent); } }
+#placesBtn { color: var(--muted); transition: color 0.25s var(--ease), background-color 0.25s var(--ease); }
+#placesBtn[aria-expanded='true'] { color: var(--link); background: var(--sel); }
+
+/* ---------- Ajustes: cuenta ---------- */
+.acctView { padding: 16px; max-width: 460px; }
+.acctView:not([hidden]) { animation: riseIn 0.45s var(--ease) both; }
+#acctForm { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+#acctFields { display: flex; flex-direction: column; gap: 14px; border: 0; margin: 0; padding: 0; min-width: 0; }
+.acctField { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.acctField[hidden] { display: none; }
+.acctField input { flex: none; width: 100%; font-size: 16px; }
+.acctMsg { margin: 0; min-height: 1.4em; font-size: 14px; line-height: 1.4; color: var(--amber); }
+#acctSubmit[aria-busy='true'] { opacity: 0.7; cursor: progress; }
+.acctView .devRow { padding: 0 0 14px; border: 0; }
+.acctWide { width: 100%; height: 46px; }
+.acctAvatar { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--pri); color: var(--onpri); font-weight: 800; font-size: 18px; }
+
+/* Build marker, to tell which deploy is live */
+.verBadge { position: fixed; top: max(3px, env(safe-area-inset-top)); right: 8px; z-index: 50; padding: 1px 7px; border-radius: 999px; background: var(--pri); color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; line-height: 1.5; pointer-events: none; }

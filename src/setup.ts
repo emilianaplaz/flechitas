@@ -137,17 +137,6 @@ export function initSetupScreen() {
   // Before the map's own listener (initDestino), so the preview already starts from the typed origin.
   $('from').addEventListener('change', originTyped);
   $('dest').addEventListener('change', () => resolveDestInput().catch((e) => setupMsg((e as Error).message)));
-  $('paste').onclick = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      $<HTMLInputElement>('dest').value = text;
-      setupMsg('');
-      await resolveDestInput();
-    } catch (e) {
-      setupMsg(e instanceof Error && e.name === 'NotAllowedError' ? 'Permite el acceso al portapapeles o pega a mano' : (e as Error).message);
-    }
-  };
-
   // Opened from the Android share sheet (Web Share Target) — Google Maps / Waze "Compartir".
   const q = new URLSearchParams(location.search);
   const shared = [q.get('url'), q.get('text'), q.get('title')].filter(Boolean).join(' ');

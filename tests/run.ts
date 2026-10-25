@@ -8,9 +8,10 @@ const mem = new Map<string, string>();
   setItem: (k: string, v: string) => void mem.set(k, v),
   removeItem: (k: string) => void mem.delete(k),
 } as Storage;
-import { cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
+import { amend, cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
 import { BumpDetector } from '../src/hazards/bump.ts';
-import { clusterHazards } from '../src/hazards/cluster.ts';
+import { HazardStore } from '../src/hazards/store.ts';
+import { clusterHazards, weightOf } from '../src/hazards/cluster.ts';
 import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
 import { defaultsFor, loadCalib, loadFlip, saveCalib, saveFlip } from '../src/render/calib.ts';
@@ -22,8 +23,9 @@ import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransfo
 import { RouteProfile, gridPoint, limitAt, speedLimits, tileElevation, tileOf, tileToLatLon, tileXY, type Tile, type TileSign, type TileWay } from '../src/core/maqueta.ts';
 import { indexSigns, signsAhead } from '../src/signs/ahead.ts';
 import { aim, lensOnScreen, onEdge } from '../src/find/aim.ts';
-import { ageLabel, codeFromSearch, findPeerId, parsePos, shareLink } from '../src/find/protocol.ts';
-import { MAX_PINS, addPin, loadPins, removePin } from '../src/find/pins.ts';
+import { ASK_TTL_MS, ApprovalGate, CODE_TTL_MS, LOST_MS, MAX_DENIALS, ViewerSlot, newSessionId, parseHello, sanitizeName, ageLabel, codeFromSearch, findPeerId, parsePos, shareLink } from '../src/find/protocol.ts';
+import { MAX_PINS, addPin, adoptUnowned, loadPins, onPinChange, removePin, renamePin, setPinOwner, type Pin } from '../src/find/pins.ts';
+import { OUTBOX_KEY, createPinsSync, mergePins, type PinsSync } from '../src/find/pinsSync.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -147,8 +149,27 @@ check('road noise is ignored', events(drive((t) => 1.2 * Math.sin(t / 40))).leng
 check('rough asphalt (peaks ~4) is ignored', events(drive((t) => pulse(t, 1000, 60, -3.6) + pulse(t, 1060, 60, 4.2))).length === 0);
 check('too slow (walking) is ignored', events(drive(hole(), 1.4)).length === 0);
 check('weak bump below threshold is ignored', events(drive((t) => pulse(t, 1000, 100, 3))).length === 0);
-check('short lift-first jolt is neither, not reported', events(drive((t) => pulse(t, 1000, 60, 4) + pulse(t, 1060, 60, -3) + pulse(t, 1120, 60, 6))).length === 0);
-check('long drop-first jolt is neither, not reported', events(drive((t) => pulse(t, 1000, 150, -4) + pulse(t, 1150, 150, 4) + pulse(t, 1300, 80, 8))).length === 0);
+ev = events(drive((t) => pulse(t, 1000, 60, 4) + pulse(t, 1060, 60, -3) + pulse(t, 1120, 60, 6)));
+check('short lift-first hard jolt follows the order: policia', ev.length === 1 && ev[0]!.type === 'policia', JSON.stringify(ev));
+ev = events(drive((t) => pulse(t, 1000, 150, -4) + pulse(t, 1150, 150, 4) + pulse(t, 1300, 80, 8)));
+check('long drop-first hard jolt follows the order: hueco', ev.length === 1 && ev[0]!.type === 'hueco', JSON.stringify(ev));
+const softBump = (t: number) => pulse(t, 1000, 250, 3) + pulse(t, 1250, 250, -3);
+ev = events(drive(softBump, 5));
+check('slow smooth bump at 5 m/s is policia', ev.length === 1 && ev[0]!.type === 'policia' && ev[0]!.peak < 5.5, JSON.stringify(ev));
+check('same smooth shape at 12 m/s is ignored', events(drive(softBump, 12)).length === 0);
+check('same smooth shape at walking speed is ignored', events(drive(softBump, 1.4)).length === 0);
+const softHole = (t: number) => pulse(t, 1000, 250, -3) + pulse(t, 1250, 250, 3);
+ev = events(drive(softHole, 5));
+check('slow smooth hole at 5 m/s is hueco (drop first)', ev.length === 1 && ev[0]!.type === 'hueco' && ev[0]!.peak < 5.5, JSON.stringify(ev));
+const midHole = (t: number) => pulse(t, 1000, 190, -3.5) + pulse(t, 1190, 190, 3.8);
+ev = events(drive(midHole, 9));
+check('gentle hole at 9 m/s, between the slow and hard paths, is hueco', ev.length === 1 && ev[0]!.type === 'hueco', JSON.stringify(ev));
+check('the same gentle shape at 15 m/s is ignored', events(drive(midHole, 15)).length === 0);
+check('slow hole at walking speed is ignored', events(drive(softHole, 1.4)).length === 0);
+check('a one-sided hard jolt (no counter-movement) is ignored', events(drive((t) => pulse(t, 1000, 60, 8), 10)).length === 0);
+check('a slow one-sided lift is ignored', events(drive((t) => pulse(t, 1000, 300, 3), 5)).length === 0);
+ev = events(drive(hole(), 6));
+check('hard pothole at 6 m/s is still hueco', ev.length === 1 && ev[0]!.type === 'hueco', JSON.stringify(ev));
 ev = events(drive((t) => hole(1000)(t) + hole(1700)(t), 10, 4));
 check('two hits within 3 s count once', ev.length === 1, String(ev.length));
 const flipped = new BumpDetector();
@@ -169,8 +190,32 @@ check('same result with inverted sign convention (iOS)', flippedEv.length === 1 
   check('three nearby huecos become one with 3 confirmations', m.length === 1 && m[0]!.confirmations === 3, JSON.stringify(m));
   m = clusterHazards([H('a', 'hueco', 0, day(1)), H('b', 'hueco', 0.0003, day(1))], now); // ~33 m
   check('far apart stay separate', m.length === 2);
-  m = clusterHazards([H('a', 'hueco', 0, day(1)), H('b', 'policia', 0, day(1))], now);
-  check('different types never merge', m.length === 2);
+  const det = { source: 'detected' as const };
+  const conf = { source: 'detected' as const, confirmed: true };
+  m = clusterHazards([H('a', 'hueco', 0, day(1), conf), H('b', 'policia', 0.00003, day(1), conf)], now);
+  check('nearby hueco and policia merge into one', m.length === 1 && m[0]!.confirmations === 2, JSON.stringify(m));
+  m = clusterHazards([H('a', 'hueco', 0, day(2), det), H('b', 'policia', 0.00003, day(1), det), H('c', 'policia', 0.00004, day(1), det)], now);
+  check('two unconfirmed policia beat one unconfirmed hueco', m.length === 1 && m[0]!.type === 'policia', JSON.stringify(m));
+  m = clusterHazards([H('a', 'hueco', 0, day(2), conf), H('b', 'policia', 0.00003, day(1), det)], now);
+  check('one confirmed hueco beats one unconfirmed policia', m.length === 1 && m[0]!.type === 'hueco', JSON.stringify(m));
+  m = clusterHazards([H('a', 'hueco', 0, day(1), det)], now);
+  check('a lone unconfirmed detection is not shown', m.length === 0);
+  m = clusterHazards([H('a', 'hueco', 0, day(1), det), H('b', 'hueco', 0.00003, day(1), det)], now);
+  check('two unconfirmed reports are shown', m.length === 1 && m[0]!.confirmations === 2);
+  m = clusterHazards([H('a', 'hueco', 0, day(1), conf)], now);
+  check('a confirmed single report is shown', m.length === 1);
+  m = clusterHazards([H('a', 'hueco', 0, day(2), { source: 'tap' }), H('b', 'policia', 0.00003, day(1), { source: 'tap' })], now);
+  check('a weight tie goes to the newest report', m.length === 1 && m[0]!.type === 'policia', JSON.stringify(m));
+  m = clusterHazards([H('o', 'policia', 0, '', { source: 'osm' }), H('a', 'hueco', 0.00003, day(2), { source: 'tap' }), H('b', 'hueco', 0.00004, day(1), conf)], now);
+  check('a mapped bump outweighs a couple of hueco reports', m.length === 1 && m[0]!.type === 'policia' && m[0]!.id === 'o', JSON.stringify(m));
+  m = clusterHazards([H('o', 'policia', 0, '', { source: 'osm' })], now);
+  check('a mapped bump alone is shown', m.length === 1);
+  m = clusterHazards([H('a', 'hueco', 0, day(100), { source: 'tap' }), H('b', 'policia', 0.00003, day(100), { source: 'tap' }), H('c', 'policia', 0.00004, day(100), { source: 'tap' })], now);
+  check('the winning type sets the TTL (policia outlives 90 days)', m.length === 1 && m[0]!.type === 'policia');
+  m = clusterHazards([{ ...H('a', 'alcabala', 0, day(1)), source: 'tap' as const }, H('b', 'hueco', 0, day(1), { source: 'tap' })], now);
+  check('alcabala never merges with road hazards', m.length === 2, JSON.stringify(m));
+  check('weights: osm 3, tap 1, confirmed 1, detected 0.5, legacy 1',
+    [H('a', 'hueco', 0, '', { source: 'osm' }), H('a', 'hueco', 0, '', { source: 'tap' }), H('a', 'hueco', 0, '', conf), H('a', 'hueco', 0, '', det), H('a', 'hueco', 0, '')].map(weightOf).join() === '3,1,1,0.5,1');
   m = clusterHazards([H('a', 'policia', 0, day(1), { heading: 0 }), H('b', 'policia', 0, day(1), { heading: 180 })], now);
   check('opposite directions stay separate', m.length === 2);
   m = clusterHazards([H('a', 'policia', 0, day(1), { heading: 10 }), H('b', 'policia', 0.00003, day(1))], now);
@@ -211,6 +256,25 @@ await (async () => {
   enqueue('hazards', { client_id: 'd' }, 'd', 9000);
   await flush({ send: ok, now: 9100, force: true });
   check('force flush ignores the undo window (drive ended)', sent.at(-1) === 'd' && pending().length === 0);
+
+  enqueue('hazards', { client_id: 'e', type: 'policia', confirmed: false }, 'e', 20_000);
+  amend('e', { type: 'hueco', confirmed: true });
+  const amended = pending().find((x) => x.id === 'e')!;
+  check('amend rewrites the pending row in place and keeps its due', amended.due === 80_000 && amended.row.type === 'hueco' && amended.row.confirmed === true, JSON.stringify(amended));
+  amend('gone', { confirmed: true });
+  check('amend on an unknown or uploaded row does nothing', pending().length === 1);
+  cancel('e');
+
+  const store = new HazardStore();
+  store.local = [];
+  const det = store.add('policia', { lat: 10.5, lon: -66.9 }, { source: 'detected' });
+  const tapped = store.add('hueco', { lat: 10.5, lon: -66.9 }, { source: 'tap' });
+  check('detected starts unconfirmed, tap starts confirmed', det.confirmed === false && tapped.confirmed === true);
+  check('queued row carries confirmed', pending().find((x) => x.id === det.id)!.row.confirmed === false);
+  const dueBefore = pending().find((x) => x.id === det.id)!.due;
+  const c = store.confirm(det.id);
+  check('confirm makes it a confirmed hueco and amends the queued row', c?.type === 'hueco' && c.confirmed === true && pending().find((x) => x.id === det.id)!.row.type === 'hueco' && pending().find((x) => x.id === det.id)!.due === dueBefore);
+  check('confirm of an unknown id returns undefined', store.confirm('nope') === undefined);
 
   // ---- HUD & Calib profile tests ----
   const camDef = defaultsFor('landscape', 'camera');
@@ -569,6 +633,106 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   check('ageLabel', ageLabel(12_000) === 'hace 12 s' && ageLabel(180_000) === 'hace 3 min');
 }
 
+// ---- find: one viewer, and the code expiring ----
+{
+  let t = 0;
+  const slot = new ViewerSlot(() => t);
+  check('slot: the first viewer takes the seat', slot.admit() === true);
+  t += LOST_MS - 1;
+  check('slot: a second one is refused while the first is alive', slot.admit() === false);
+  slot.heard();
+  t += LOST_MS - 1;
+  check('slot: hearing the viewer keeps the seat taken', slot.admit() === false && slot.alive());
+  t += 2;
+  check('slot: a silent viewer loses the seat to the next one', !slot.alive() && slot.admit() === true);
+  slot.release();
+  check('slot: released seat is free', slot.admit() === true);
+
+  t = 0;
+  const idle = new ViewerSlot(() => t);
+  t = CODE_TTL_MS - 1;
+  check('slot: not expired just before the TTL', !idle.expired());
+  t = CODE_TTL_MS;
+  check('slot: expires when nobody connects within the TTL', idle.expired());
+
+  t = 0;
+  const used = new ViewerSlot(() => t);
+  used.admit();
+  t = CODE_TTL_MS * 3;
+  used.heard();
+  check('slot: never expires while a viewer is alive', !used.expired());
+  used.release();
+  t += CODE_TTL_MS - 1;
+  check('slot: the TTL restarts when the viewer leaves', !used.expired());
+  t += 1;
+  check('slot: and expires after an empty TTL', used.expired());
+
+  t = 0;
+  const silent = new ViewerSlot(() => t);
+  silent.admit();
+  t = LOST_MS + CODE_TTL_MS - 1;
+  check('slot: a silent viewer counts as gone from its last ping', !silent.expired());
+  t += 1;
+  check('slot: expiry follows from the last ping plus the TTL', silent.expired());
+}
+
+// ---- find: approving the viewer ----
+{
+  check('name: plain text kept', sanitizeName('Ana López') === 'Ana López');
+  check('name: control characters removed', sanitizeName('A\u0000n\u0007a\u007F') === 'Ana');
+  check('name: bidi override removed', sanitizeName('\u202Eevil\u202C') === 'evil');
+  check('name: zero-width and BOM removed', sanitizeName('A\u200Bn\u200Da\uFEFF') === 'Ana');
+  check('name: whitespace collapsed and trimmed', sanitizeName('  Ana \n\t  López  ') === 'Ana López');
+  check('name: cut to 40 characters', sanitizeName('x'.repeat(100)) === 'x'.repeat(40));
+  check('name: only whitespace or invisible is null', sanitizeName(' \u200B\n ') === null && sanitizeName('') === null);
+  check('name: not a string is null', sanitizeName(42) === null && sanitizeName({}) === null && sanitizeName(undefined) === null);
+  check('name: HTML stays plain text', sanitizeName('<img src=x onerror=alert(1)>') === '<img src=x onerror=alert(1)>');
+
+  const sid = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+  check('hello: valid', JSON.stringify(parseHello({ t: 'hello', name: 'Ana', sid })) === JSON.stringify({ name: 'Ana', sid }));
+  check('hello: null name stays null', parseHello({ t: 'hello', name: null, sid })?.name === null);
+  check('hello: sid too short or too long', parseHello({ t: 'hello', name: null, sid: 'abc123' }) === null && parseHello({ t: 'hello', name: null, sid: 'a'.repeat(65) }) === null);
+  check('hello: sid not hex', parseHello({ t: 'hello', name: null, sid: 'g'.repeat(32) }) === null);
+  check('hello: non-string name becomes null', parseHello({ t: 'hello', name: 7, sid })?.name === null);
+  check('hello: extra fields ignored', Object.keys(parseHello({ t: 'hello', name: 'A', sid, admin: true }) ?? {}).join() === 'name,sid');
+  check('hello: wrong type or shape', parseHello({ t: 'ping' }) === null && parseHello(null) === null && parseHello('hello') === null);
+  check('session ids are 32 hex characters and differ', /^[0-9a-f]{32}$/.test(newSessionId()) && newSessionId() !== newSessionId());
+
+  let t = 0;
+  const gate = new ApprovalGate(() => t);
+  check('gate: first hello asks', gate.hello('s1', 'Ana') === 'ask' && gate.asking()?.name === 'Ana');
+  check('gate: a second hello while asking is refused', gate.hello('s2', null) === 'refuse');
+  gate.allow();
+  check('gate: allow ends the asking', gate.asking() === null);
+  check('gate: a second hello while admitted is refused', gate.hello('s2', null) === 'refuse');
+  gate.leave();
+  check('gate: the approved sid redialing is admitted without asking', gate.hello('s1', 'Ana') === 'auto');
+  gate.leave();
+  check('gate: a new sid is asked', gate.hello('s2', null) === 'ask');
+  gate.deny();
+  gate.leave();
+  check('gate: a denied sid is refused', gate.hello('s2', null) === 'refuse' && gate.denials === 1);
+  check('gate: a viewer who leaves unanswered is asked again', gate.hello('s3', null) === 'ask' && (gate.leave(), gate.hello('s3', null) === 'ask'));
+
+  t = 0;
+  const slow = new ApprovalGate(() => t);
+  slow.hello('s1', null);
+  t = ASK_TTL_MS - 1;
+  check('gate: not expired just before the TTL', !slow.askExpired());
+  t = ASK_TTL_MS;
+  check('gate: the ask times out', slow.askExpired());
+  slow.deny();
+  check('gate: no ask pending, nothing to expire', !slow.askExpired());
+
+  const strict = new ApprovalGate(() => 0);
+  for (let i = 0; i < MAX_DENIALS; i++) {
+    check(`gate: not locked after ${i} denials`, !strict.locked());
+    strict.hello(`sid${i}`.padEnd(16, '0'), null);
+    strict.deny();
+  }
+  check('gate: the third denial locks', strict.locked() && strict.hello('fresh0000000000', null) === 'refuse');
+}
+
 // ---- find: saved places ----
 {
   mem.clear();
@@ -618,6 +782,324 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   const hit = new Raycaster(new Vector3(0, 200, 0), new Vector3(0, -1, 0)).intersectObject(sc.scene.children.at(-1)!, true).at(-1);
   check('scenery: ground under the car at 0', !!hit && near(hit.point.y, 0, 0.3), String(hit?.point.y));
   check('scenery: no tiles, nothing to draw', !sc.set(null) && !sc.covers(at));
+}
+
+// ---- accounts: sign up, sign in, refresh, sign out against a fake Supabase Auth ----
+{
+  const { createAuthClient, SESSION_KEY } = await import('../src/auth/session.ts');
+  type Req = { method: string; path: string; body: Record<string, unknown> | null; headers: Record<string, string> };
+  type Handler = (r: Req) => { status: number; body?: unknown } | 'offline';
+  const PASSWORD = 'correct-horse-9';
+  const userOf = (meta?: string) => ({ id: 'u-1', email: 'ana@example.com', ...(meta ? { user_metadata: { display_name: meta } } : {}) });
+  const tokens = (n: number, expiresIn = 3600, meta = 'Ana') => ({ status: 200, body: { access_token: `at-${n}`, refresh_token: `rt-${n}`, expires_in: expiresIn, user: userOf(meta) } });
+  const rig = (handler: Handler, store = new Map<string, string>(), t0 = 1_000_000) => {
+    const calls: Req[] = [];
+    let clock = t0;
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input).replace('https://x.supabase.co', '');
+      const req: Req = { method: init?.method ?? 'GET', path: u, body: init?.body ? JSON.parse(String(init.body)) : null, headers: (init?.headers ?? {}) as Record<string, string> };
+      calls.push(req);
+      const r = handler(req);
+      if (r === 'offline') throw new TypeError('Failed to fetch');
+      return { status: r.status, ok: r.status >= 200 && r.status < 300, json: async () => r.body ?? {} } as Response;
+    }) as typeof fetch;
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+    const client = () => createAuthClient({ config: { url: 'https://x.supabase.co', key: 'sb_publishable_abc' }, fetch: fakeFetch, storage, now: () => clock });
+    return { calls, store, client, advance: (ms: number) => (clock += ms) };
+  };
+  const happy: Handler = (r) => (r.path.startsWith('/rest/v1/profiles') ? { status: 200, body: [{ display_name: 'Ana P' }] } : r.path.startsWith('/auth/v1/logout') ? { status: 204 } : tokens(1));
+
+  {
+    const t = rig(happy);
+    const c = t.client();
+    const out = await c.signUp({ email: ' ana@example.com ', password: PASSWORD, displayName: 'Ana' });
+    const s = c.state();
+    check('auth: sign up with a session signs in and stores it', out.ok && s.kind === 'signedIn' && JSON.parse(t.store.get(SESSION_KEY)!).accessToken === 'at-1');
+    const signup = t.calls.find((x) => x.path === '/auth/v1/signup')!;
+    check('auth: sign up sends the display name and trims the email', JSON.stringify(signup.body?.data) === '{"display_name":"Ana"}' && signup.body?.email === 'ana@example.com');
+    check('auth: publishable key goes in apikey only', signup.headers.apikey === 'sb_publishable_abc' && !('authorization' in signup.headers));
+    const profile = t.calls.find((x) => x.path.startsWith('/rest/v1/profiles'))!;
+    check('auth: profile read uses the user token', profile.headers.authorization === 'Bearer at-1' && profile.path.includes('id=eq.u-1'));
+    check('auth: the profile name wins over sign-in metadata', s.kind === 'signedIn' && s.session.user.displayName === 'Ana P');
+    check('auth: password is never written to storage', [...t.store.values()].every((v) => !v.includes(PASSWORD)));
+  }
+  {
+    const t = rig((r) => (r.path === '/auth/v1/signup' ? { status: 200, body: userOf() } : { status: 500 }));
+    const c = t.client();
+    const out = await c.signUp({ email: 'ana@example.com', password: PASSWORD, displayName: 'Ana' });
+    const s = c.state();
+    check('auth: sign up without a session needs confirmation', out.ok && s.kind === 'needsConfirmation' && s.email === 'ana@example.com' && t.store.size === 0);
+    c.dismissConfirmation();
+    check('auth: dismissing the confirmation returns to signed out', c.state().kind === 'signedOut');
+  }
+  {
+    const t = rig((r) => (r.path.startsWith('/rest/v1/profiles') ? { status: 404 } : tokens(1, 3600, 'Ana')));
+    const c = t.client();
+    await c.signIn({ email: 'ana@example.com', password: PASSWORD });
+    const grant = t.calls.find((x) => x.path === '/auth/v1/token?grant_type=password');
+    check('auth: sign in hits the password grant', !!grant && grant.body?.password === PASSWORD);
+    check('auth: name falls back to sign-in metadata when the profile read fails', c.state().kind === 'signedIn' && (c.state() as { session: { user: { displayName: string } } }).session.user.displayName === 'Ana');
+    const fresh = rig(() => ({ status: 500 }), t.store).client();
+    await fresh.restore();
+    check('auth: a fresh client restores the stored session', fresh.state().kind === 'signedIn');
+    check('auth: no password anywhere in storage after sign in', [...t.store.values()].every((v) => !v.includes(PASSWORD)));
+  }
+  {
+    const t = rig((r) => (r.path.startsWith('/auth/v1/token') ? { status: 400, body: { error_code: 'invalid_credentials', msg: 'Invalid login credentials' } } : { status: 500 }));
+    const c = t.client();
+    const out = await c.signIn({ email: 'ana@example.com', password: 'wrong-password' });
+    check('auth: wrong password gives a Spanish message and stays signed out', !out.ok && out.message === 'Correo o contraseña incorrectos.' && c.state().kind === 'signedOut' && t.store.size === 0);
+  }
+  {
+    const cases: [number, unknown, string][] = [
+      [422, { error_code: 'user_already_exists', msg: 'User already registered' }, 'Ese correo ya tiene una cuenta'],
+      [422, { error_code: 'weak_password', msg: 'Password should be at least 6 characters' }, 'muy débil'],
+      [400, { error_code: 'email_not_confirmed', msg: 'Email not confirmed' }, 'confirmaste tu correo'],
+      [429, { error_code: 'over_request_rate_limit', msg: 'rate limit' }, 'Demasiados intentos'],
+      [500, { msg: 'boom <internal detail>' }, 'No se pudo completar'],
+    ];
+    for (const [status, body, expect] of cases) {
+      const c = rig(() => ({ status, body })).client();
+      const out = await c.signIn({ email: 'ana@example.com', password: PASSWORD });
+      check(`auth: ${status} maps to a Spanish message (${expect})`, !out.ok && out.message.includes(expect) && !out.message.includes('internal'), out.ok ? '' : out.message);
+    }
+    const off = await rig(() => 'offline').client().signIn({ email: 'ana@example.com', password: PASSWORD });
+    check('auth: offline gives the network message', !off.ok && off.code === 'network' && off.message.startsWith('No hay conexión'));
+    const short = rig(() => ({ status: 500 }));
+    const out = await short.client().signUp({ email: 'ana@example.com', password: 'short', displayName: '' });
+    check('auth: a short password is rejected before any request', !out.ok && out.code === 'passwordTooShort' && short.calls.length === 0);
+    const none = createAuthClient({ config: null, fetch: (() => { throw new Error('no network expected'); }) as typeof fetch, storage: { getItem: () => null, setItem() {}, removeItem() {} } });
+    const o = await none.signIn({ email: 'ana@example.com', password: PASSWORD });
+    check('auth: without server config nothing throws and the user is told', !o.ok && o.code === 'notConfigured' && none.state().kind === 'signedOut');
+  }
+  {
+    const live = rig(happy);
+    await live.client().signIn({ email: 'ana@example.com', password: PASSWORD });
+    const stored = live.store.get(SESSION_KEY)!;
+    const refreshCalls = (t: ReturnType<typeof rig>) => t.calls.filter((x) => x.path === '/auth/v1/token?grant_type=refresh_token').length;
+
+    const far = rig(happy, new Map([[SESSION_KEY, stored]]), 1_000_000);
+    const farClient = far.client();
+    await farClient.restore();
+    const startup = refreshCalls(far);
+    await farClient.ensureFresh();
+    check('auth: startup refreshes once, then not while far from expiry', startup === 1 && refreshCalls(far) === 1);
+    far.advance(3600_000 - 30_000);
+    await farClient.ensureFresh();
+    check('auth: refresh is called when expiry is under 60 s away', refreshCalls(far) === 2);
+    const rotated = JSON.parse(far.store.get(SESSION_KEY)!);
+    check('auth: refreshed tokens are stored and the name is kept', rotated.refreshToken === 'rt-1' && rotated.user.displayName === 'Ana P');
+
+    for (const status of [400, 401]) {
+      const t = rig((r) => (r.path.includes('refresh_token') ? { status, body: { error_code: 'refresh_token_not_found' } } : { status: 500 }), new Map([[SESSION_KEY, stored]]));
+      const c = t.client();
+      await c.restore();
+      check(`auth: refresh failing with ${status} signs out and clears storage`, c.state().kind === 'signedOut' && t.store.size === 0);
+    }
+    const flaky = rig(() => 'offline', new Map([[SESSION_KEY, stored]]));
+    const fc = flaky.client();
+    await fc.restore();
+    check('auth: refresh failing offline keeps the session', fc.state().kind === 'signedIn' && flaky.store.has(SESSION_KEY));
+
+    const out = rig((r) => (r.path.startsWith('/auth/v1/logout') ? 'offline' : { status: 500 }), new Map([[SESSION_KEY, stored]]));
+    const oc = out.client();
+    await oc.restore();
+    await oc.signOut();
+    check('auth: sign out clears storage even if the logout call fails', oc.state().kind === 'signedOut' && out.store.size === 0 && out.calls.some((x) => x.path === '/auth/v1/logout'));
+    check('auth: logout sends the access token', out.calls.find((x) => x.path === '/auth/v1/logout')?.headers.authorization?.startsWith('Bearer ') === true);
+  }
+  {
+    for (const junk of ['{not json', '{"accessToken":1}', 'null', '[]', JSON.stringify({ accessToken: 'a', refreshToken: 'r', expiresAt: 'soon', user: {} })]) {
+      const t = rig(() => ({ status: 500 }), new Map([[SESSION_KEY, junk]]));
+      const c = t.client();
+      await c.restore();
+      check(`auth: corrupted stored session ignored (${junk.slice(0, 14)})`, c.state().kind === 'signedOut' && t.calls.length === 0 && t.store.size === 0);
+    }
+  }
+}
+
+// ---- find: saved places in the account ----
+{
+  const pin = (id: string, label: string, at: number, updatedAt?: number): Pin => ({ id, label, p: { lat: 1, lon: 2 }, acc: null, at, ...(updatedAt !== undefined ? { updatedAt } : {}) });
+  const ids = (l: Pin[]) => l.map((x) => x.id).join(',');
+  let m = mergePins([], [pin('r', 'R', 1)], []);
+  check('merge: remote-only is added locally and not uploaded', ids(m.merged) === 'r' && m.upload.length === 0);
+  m = mergePins([pin('l', 'L', 1)], [], []);
+  check('merge: local-only is flagged for upload', ids(m.merged) === 'l' && ids(m.upload) === 'l');
+  m = mergePins([pin('a', 'new', 1, 50)], [pin('a', 'old', 1, 10)], []);
+  check('merge: newer local rename wins and uploads', m.merged[0].label === 'new' && ids(m.upload) === 'a');
+  m = mergePins([pin('a', 'old', 1, 10)], [pin('a', 'new', 1, 50)], []);
+  check('merge: newer remote rename wins and does not upload', m.merged[0].label === 'new' && m.upload.length === 0);
+  m = mergePins([pin('a', 'old', 10)], [pin('a', 'new', 1, 5)], []);
+  check('merge: a missing updatedAt counts as the pin time', m.merged[0].label === 'old' && ids(m.upload) === 'a');
+  m = mergePins([], [pin('gone', 'G', 1), pin('keep', 'K', 2)], ['gone']);
+  check('merge: a pending delete is not resurrected', ids(m.merged) === 'keep');
+  m = mergePins([], [], []);
+  check('merge: empty both', m.merged.length === 0 && m.upload.length === 0 && m.evict.length === 0);
+  const many = Array.from({ length: MAX_PINS + 2 }, (_, i) => pin(`p${i}`, `P${i}`, i));
+  m = mergePins([], many, []);
+  check('merge: capped at MAX_PINS, evicted remote ids reported', m.merged.length === MAX_PINS && m.evict.join() === 'p0,p1');
+
+  mem.clear();
+  setPinOwner(null);
+  const anon = addPin({ lat: 1, lon: 1 }, null, 100);
+  check('privacy: a pin made signed out has no owner', anon.owner === undefined && loadPins().length === 1);
+  setPinOwner('A');
+  check('privacy: unowned pins show to the signed-in user', loadPins().length === 1);
+  check('privacy: the next signed-in user adopts unowned pins', adoptUnowned().length === 1 && loadPins()[0].owner === 'A');
+  setPinOwner(null);
+  check('privacy: owner A pins are invisible signed out', loadPins().length === 0);
+  setPinOwner('B');
+  check('privacy: owner A pins are invisible to B', loadPins().length === 0 && adoptUnowned().length === 0);
+  const bPin = addPin({ lat: 2, lon: 2 }, null, 200);
+  removePin('nope');
+  renamePin(bPin.id, 'Casa B', 300);
+  check('privacy: B edits never touch A pins', loadPins().length === 1 && JSON.parse(mem.get('ar-nav.pins')!).length === 2);
+  setPinOwner('A');
+  check('privacy: A sees their pin again and not B', ids(loadPins()) === 'pin-100');
+  setPinOwner(null);
+  const late = addPin({ lat: 3, lon: 3 }, null, 400);
+  setPinOwner('C');
+  check('privacy: pins made signed out go to the next user only once', adoptUnowned().length === 1 && late.owner === undefined);
+  setPinOwner('A');
+  check('privacy: ...and not to a later one', ids(loadPins()) === 'pin-100');
+  setPinOwner(null);
+
+  const changes: string[] = [];
+  onPinChange((c) => changes.push(c.kind === 'delete' ? `del:${c.id}` : `up:${c.pin.id}`));
+  mem.clear();
+  addPin({ lat: 1, lon: 1 }, null, 1);
+  check('pins: signed-out changes are not announced', changes.length === 0);
+  setPinOwner('U');
+  adoptUnowned();
+  for (let i = 0; i < MAX_PINS; i++) addPin({ lat: 1, lon: 1 }, null, 10 + i);
+  check('pins: dropping the oldest at the cap announces its delete', changes.includes('del:pin-1') && changes.at(-1) === `up:pin-${10 + MAX_PINS - 1}`);
+  setPinOwner(null);
+  onPinChange(() => {});
+}
+
+// ---- find: saved places outbox ----
+{
+  type Call = { url: string; method: string; headers: Record<string, string>; body: unknown };
+  const rig = (reply: (c: Call) => { status: number } | 'offline', start: string | null = 'U') => {
+    const store = new Map<string, string>();
+    const calls: Call[] = [];
+    const tokens = { n: 0 };
+    let user = start;
+    const sync: PinsSync = createPinsSync({
+      config: { url: 'https://x.supabase.co', key: 'sb_publishable_k' },
+      fetch: (async (url: string, init: RequestInit) => {
+        const c = { url, method: init.method ?? 'GET', headers: init.headers as Record<string, string>, body: init.body ? JSON.parse(init.body as string) : undefined };
+        calls.push(c);
+        const r = reply(c);
+        if (r === 'offline') throw new TypeError('offline');
+        return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => [] } as Response;
+      }) as typeof fetch,
+      storage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => void store.set(k, v), removeItem: (k) => void store.delete(k) },
+      user: () => user,
+      token: async () => (user ? `tok${tokens.n}` : null),
+      refresh: async () => void tokens.n++,
+    });
+    return { sync, calls, store, tokens, signOut: () => (user = null), signInAs: (u: string) => (user = u) };
+  };
+  const up = (id: string) => ({ kind: 'upsert' as const, pin: { id, label: id, p: { lat: 1, lon: 2 }, acc: null, at: 1 } });
+  const queued = (t: ReturnType<typeof rig>) => (JSON.parse(t.store.get(OUTBOX_KEY) ?? '[]') as { id: string }[]).map((o) => o.id).join(',');
+
+  {
+    const t = rig(() => ({ status: 201 }));
+    t.sync.change(up('a'));
+    t.sync.change({ kind: 'delete', id: 'b' });
+    t.sync.change(up('c'));
+    await t.sync.flush();
+    check('outbox: ops flush in order and the queue empties', t.calls.map((c) => c.method).join() === 'POST,DELETE,POST' && queued(t) === '' && t.sync.status() === 'synced');
+    const post = t.calls[0];
+    check('outbox: upsert is a merge-duplicates POST on user_id,client_id', post.url.endsWith('/rest/v1/saved_places?on_conflict=user_id,client_id') && post.headers.prefer === 'resolution=merge-duplicates,return=minimal');
+    check('outbox: the body carries user_id explicitly and the user token', (post.body as { user_id: string; client_id: string }).user_id === 'U' && (post.body as { client_id: string }).client_id === 'a' && post.headers.authorization === 'Bearer tok0');
+    check('outbox: delete targets the client_id', t.calls[1].url.endsWith('/rest/v1/saved_places?client_id=eq.b'));
+  }
+  {
+    let down = true;
+    const t = rig(() => (down ? 'offline' : { status: 201 }));
+    t.sync.change(up('a'));
+    t.sync.change(up('b'));
+    await t.sync.flush();
+    check('outbox: a network failure stops at the first op and keeps all', t.calls.length === 1 && queued(t) === 'a,b' && t.sync.status() === 'syncing');
+    down = false;
+    await t.sync.flush();
+    check('outbox: the next flush sends what was kept', queued(t) === '');
+  }
+  {
+    const t = rig((c) => ((c.body as { client_id?: string } | undefined)?.client_id === 'bad' ? { status: 400 } : { status: 201 }));
+    t.sync.change(up('a'));
+    t.sync.change(up('bad'));
+    t.sync.change(up('c'));
+    await t.sync.flush();
+    check('outbox: a 400 drops only that op', t.calls.length === 3 && queued(t) === '');
+  }
+  {
+    const t = rig(() => ({ status: 401 }));
+    t.sync.change(up('a'));
+    t.sync.change(up('b'));
+    await t.sync.flush();
+    check('outbox: a 401 refreshes once, retries once, then stops and keeps the queue', t.tokens.n === 1 && t.calls.length === 2 && t.calls[1].headers.authorization === 'Bearer tok1' && queued(t) === 'a,b');
+  }
+  {
+    const t = rig((c) => (c.headers.authorization === 'Bearer tok0' ? { status: 401 } : { status: 201 }));
+    t.sync.change(up('a'));
+    t.sync.change(up('b'));
+    await t.sync.flush();
+    check('outbox: a 401 followed by a good refreshed token carries on', t.tokens.n === 1 && queued(t) === '');
+  }
+  {
+    const t = rig(() => 'offline');
+    t.sync.change(up('a'));
+    t.sync.change({ kind: 'delete', id: 'a' });
+    check('outbox: upsert then delete leaves only the delete', queued(t) === 'a' && JSON.parse(t.store.get(OUTBOX_KEY)!)[0].kind === 'delete');
+    t.sync.change(up('a'));
+    check('outbox: delete then upsert leaves only the upsert', JSON.parse(t.store.get(OUTBOX_KEY)!).length === 1 && JSON.parse(t.store.get(OUTBOX_KEY)!)[0].kind === 'upsert');
+  }
+  {
+    const t = rig(() => ({ status: 201 }), null);
+    t.sync.change(up('a'));
+    await t.sync.flush();
+    await t.sync.sync();
+    check('outbox: nothing is queued or sent signed out', t.calls.length === 0 && t.store.size === 0 && t.sync.status() === 'signedOut');
+  }
+  {
+    const t = rig(() => 'offline');
+    t.sync.change(up('a'));
+    await t.sync.flush();
+    t.signOut();
+    await t.sync.flush();
+    t.signInAs('V');
+    await t.sync.flush();
+    check('outbox: ops of user U wait and are never sent as V', t.calls.length === 1 && queued(t) === 'a' && t.sync.pending('V') === 0);
+    t.signInAs('U');
+    check('outbox: ...and resume for U', t.sync.pending('U') === 1);
+  }
+  {
+    mem.clear();
+    setPinOwner(null);
+    addPin({ lat: 9, lon: 9 }, null, 777);
+    setPinOwner('A');
+    adoptUnowned();
+    const t = rig(() => ({ status: 201 }), 'B');
+    setPinOwner('B');
+    await t.sync.signedIn();
+    check('account B never receives A pins', t.calls.every((c) => c.method !== 'POST') && loadPins().length === 0);
+    setPinOwner(null);
+  }
+  {
+    mem.clear();
+    setPinOwner(null);
+    addPin({ lat: 9, lon: 9 }, null, 888);
+    const t = rig(() => ({ status: 201 }), 'U');
+    setPinOwner('U');
+    await t.sync.signedIn();
+    const posts = t.calls.filter((c) => c.method === 'POST');
+    check('sign-in adopts signed-out pins and uploads them', posts.length === 1 && (posts[0].body as { client_id: string }).client_id === 'pin-888' && loadPins()[0].owner === 'U');
+    setPinOwner(null);
+  }
 }
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');

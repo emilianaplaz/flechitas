@@ -1,6 +1,9 @@
 // Detects potholes and speed bumps from the phone's accelerometer.
-// Heuristic, tuned by reasoning rather than field data. Nobody confirms a hit, so a jolt is reported only when
-// it is hard AND its shape is unmistakably one or the other; anything in between is dropped.
+// Heuristic, tuned by reasoning rather than field data. Every plausible hit is reported with a best-guess type
+// and saved unconfirmed (half weight). Clustering by place and weight sorts out wrong guesses, and the driver can
+// confirm a hole with the button. The order of the movement decides the guess: a pothole drops the phone first,
+// a speed bump lifts it first. Two shapes are plausible: a hard jolt, or at moderate speed a gentle, longer
+// movement with a real counter-movement. Everything else (road noise, footsteps, rough asphalt) is ignored.
 import type { HazardType } from './store.ts';
 
 export interface BumpEvent {
@@ -10,14 +13,19 @@ export interface BumpEvent {
   speed: number; // m/s when the jolt began
 }
 
-const START = 3.5; // m/s²: vertical jolt that opens an event (rough asphalt stays below this)
+const START = 2.0; // m/s²: vertical movement that opens an event; the shape and peak tests below filter it
 const QUIET = 1.5; // below this the event is over once it stays there for QUIET_MS
 const QUIET_MS = 120;
 const MAX_EVENT_MS = 600;
+const MAX_EVENT_SLOW_MS = 1500; // a bump crossed slowly takes longer
 const MIN_PEAK = 5.5; // m/s²: the hardest lobe must reach this, so mild movement is never reported
-const MIN_COUNTER = 2.5; // m/s²: a bump needs a real descent after the lift
-const SHORT_MS = 250; // a pothole is over in less than this; a speed bump (front then rear axle) lasts longer
-const MIN_SPEED = 4; // m/s (~14 km/h): rules out footsteps and a phone being handled
+const MIN_COUNTER = 2.5; // m/s²: a hard hit needs a real movement back after the first lobe
+const MIN_SPEED = 4; // m/s (~14 km/h): hard jolts below this are footsteps or a phone being handled
+const MIN_SLOW_SPEED = 2.5; // m/s: the soft path needs at least this
+const SOFT_MAX_SPEED = 12; // m/s (~43 km/h): faster than this a bump or hole jolts hard, so a soft movement is just road
+const SOFT_PEAK = 2.0; // m/s²: smallest lobe of the soft path, for bumps and holes alike
+const SOFT_MIN_MS = 250; // both lobes of a bump or hole crossed slowly; shorter soft jolts are rough asphalt
+const SOFT_COUNTER = 1.2; // m/s²: the movement back after the first lobe
 const REFRACTORY_MS = 3000;
 const GRAVITY_TAU_MS = 1000;
 
@@ -53,18 +61,19 @@ export class BumpDetector {
     e.up = Math.max(e.up, v);
     e.down = Math.max(e.down, -v);
     if (mag >= QUIET) e.lastLoud = tMs;
-    if (tMs - e.lastLoud < QUIET_MS && tMs - e.t0 < MAX_EVENT_MS) return null;
+    const maxMs = e.speed < SOFT_MAX_SPEED ? MAX_EVENT_SLOW_MS : MAX_EVENT_MS;
+    if (tMs - e.lastLoud < QUIET_MS && tMs - e.t0 < maxMs) return null;
 
     this.open = null;
     const peak = Math.max(e.up, e.down);
     const dur = e.lastLoud - e.t0;
-    if (peak < MIN_PEAK || e.speed < MIN_SPEED || tMs - this.lastEventT < REFRACTORY_MS) return null;
-    // A pothole drops the phone first and then slams up, all within a quarter second.
-    // A speed bump lifts it first, comes back down, and lasts longer. Mixed shapes are not reported.
-    let type: BumpEvent['type'];
-    if (e.sign < 0 && dur < SHORT_MS && e.up >= MIN_PEAK && e.up > e.down) type = 'hueco';
-    else if (e.sign > 0 && dur >= SHORT_MS && e.down >= MIN_COUNTER) type = 'policia';
-    else return null;
+    if (tMs - this.lastEventT < REFRACTORY_MS) return null;
+    // The lobe after the first one: a real bump or hole has both, a single jolt (kerb, phone knocked) does not.
+    const counter = e.sign > 0 ? e.down : e.up;
+    const hard = peak >= MIN_PEAK && e.speed >= MIN_SPEED && counter >= MIN_COUNTER;
+    const soft = e.speed >= MIN_SLOW_SPEED && e.speed < SOFT_MAX_SPEED && dur >= SOFT_MIN_MS && peak >= SOFT_PEAK && counter >= SOFT_COUNTER;
+    if (!hard && !soft) return null;
+    const type: BumpEvent['type'] = e.sign < 0 ? 'hueco' : 'policia';
     this.lastEventT = tMs;
     return { type, peak, durationMs: dur, speed: e.speed };
   }

@@ -3,8 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-    <meta name="theme-color" content="#031017" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#F4F8FB" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0a0b" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet" />
@@ -19,6 +18,7 @@
 
     <!-- Phone app (official UI, MapZ canvas): Destino and Dispositivos, with the bottom nav. Conducir is #hud. -->
     <section id="setup" class="app">
+      <span class="verBadge" aria-hidden="true">v2</span>
       <!-- 1 · Destino -->
       <div id="scrDestino" class="screen">
         <div id="map" class="map" role="img" aria-label="Mapa"></div>
@@ -33,11 +33,12 @@
               <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" class="icoDest" /><circle cx="9" cy="9" r="2.5" class="icoDestDot" /></svg>
               <label for="dest" class="vh">A dónde vas</label>
               <input id="dest" class="accent" type="text" autocomplete="off" placeholder="¿A dónde vas?" />
+              <button id="placesBtn" class="iconBtn" type="button" aria-label="Lugares guardados" aria-haspopup="listbox" aria-expanded="false">
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 L14.6 9 L20.5 9.7 L16.1 13.8 L17.3 19.7 L12 16.8 L6.7 19.7 L7.9 13.8 L3.5 9.7 L9.4 9 Z" fill="none" stroke-width="2.2" stroke-linejoin="round" /></svg>
+              </button>
             </div>
           </div>
-          <button id="paste" class="iconBtn" type="button" aria-label="Pegar un enlace de Google Maps o Waze">
-            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4" width="12" height="17" rx="2.5" fill="none" stroke-width="2" /><path d="M9 4 V3 H15 V4 M9 10 H15 M9 14 H13" fill="none" stroke-width="2" stroke-linecap="round" /></svg>
-          </button>
+          <div id="destPlaces" class="placeMenu surface" role="listbox" aria-label="Lugares guardados" hidden></div>
         </div>
         <div class="modeRow">
           <div class="seg" role="group" aria-label="Cómo vas">
@@ -50,13 +51,14 @@
               Manejar
             </button>
           </div>
-          <button id="recenter" class="roundBtn" type="button" aria-label="Centrar en mi ubicación">
-            <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="4" fill="none" stroke-width="2.2" /><path d="M11 1 V5 M11 17 V21 M1 11 H5 M17 11 H21" stroke-width="2.2" stroke-linecap="round" /></svg>
-          </button>
-        </div>
-        <div class="layerChips" role="group" aria-label="Capas del mapa">
-          <button id="layerHoles" class="layerChip haz" type="button" aria-pressed="true"><span class="dot" aria-hidden="true"></span>Huecos</button>
-          <button id="layerBumps" class="layerChip bump" type="button" aria-pressed="true"><span class="bar" aria-hidden="true"></span>Policías acostados</button>
+          <div class="mapBtns">
+            <button id="savePlace" class="roundBtn" type="button" aria-label="Guardar este lugar" title="Guardar este lugar">
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21 C12 21 5 14.8 5 9.5 A7 7 0 0 1 19 9.5 C19 14.8 12 21 12 21 Z M12 6.8 V12.2 M9.3 9.5 H14.7" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+            <button id="recenter" class="roundBtn" type="button" aria-label="Centrar en mi ubicación">
+              <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="4" fill="none" stroke-width="2.2" /><path d="M11 1 V5 M11 17 V21 M1 11 H5 M17 11 H21" stroke-width="2.2" stroke-linecap="round" /></svg>
+            </button>
+          </div>
         </div>
         <div class="destCard surface">
           <div class="dcText">
@@ -107,10 +109,62 @@
             <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </button>
           <div class="phText">
-            <h1>Dispositivos</h1>
-            <span class="muted">Vincula el iPad y calibra la cámara</span>
+            <h1>Ajustes</h1>
+            <span class="muted">Dispositivos, lugares guardados y tu cuenta</span>
           </div>
         </header>
+
+        <div class="seg setTabs" role="tablist" aria-label="Secciones de ajustes">
+          <button id="tabDev" type="button" role="tab" aria-pressed="true">Dispositivos</button>
+          <button id="tabPlaces" type="button" role="tab" aria-pressed="false">Lugares guardados</button>
+          <button id="tabAccount" type="button" role="tab" aria-pressed="false">Cuenta</button>
+        </div>
+
+        <div id="panPlaces" hidden>
+          <div id="placesList" class="listCard surface"></div>
+          <p id="placesEmpty" class="sub placesEmpty">Aún no guardaste ningún lugar. En el mapa, toca el botón del marcador para guardar donde estás.</p>
+          <p id="placesSync" class="sub muted placesSync" hidden></p>
+        </div>
+
+        <div id="panAccount" hidden>
+          <p id="acctOff" class="sub" hidden>Las cuentas necesitan el servidor configurado. Mientras tanto la app funciona igual, sin cuenta.</p>
+          <div id="acctOut" class="listCard surface acctView">
+            <div class="seg acctSeg" role="tablist" aria-label="Entrar o crear cuenta">
+              <button id="acctModeIn" type="button" role="tab" aria-pressed="true">Entrar</button>
+              <button id="acctModeUp" type="button" role="tab" aria-pressed="false">Crear cuenta</button>
+            </div>
+            <form id="acctForm" novalidate>
+              <fieldset id="acctFields">
+                <label class="acctField" id="acctNameRow" hidden><span>Nombre</span><input id="acctName" type="text" autocomplete="name" maxlength="40" placeholder="Cómo te llamamos" /></label>
+                <label class="acctField"><span>Correo</span><input id="acctEmail" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="tu@correo.com" /></label>
+                <label class="acctField"><span>Contraseña</span><input id="acctPass" type="password" autocomplete="current-password" placeholder="Mínimo 8 caracteres" /></label>
+              </fieldset>
+              <button id="acctSubmit" class="primary" type="submit">Entrar</button>
+              <p id="acctMsg" class="acctMsg" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+          <div id="acctWait" class="listCard surface acctView" hidden>
+            <div class="devRow">
+              <div class="devText">
+                <span class="devTitle">Revisa tu correo para confirmar la cuenta</span>
+                <span class="muted">Enviamos un enlace a <b id="acctWaitMail"></b>. Después de confirmar, vuelve y entra.</span>
+              </div>
+            </div>
+            <button id="acctBack" class="ghost acctWide" type="button">Volver a entrar</button>
+          </div>
+          <div id="acctIn" class="listCard surface acctView" hidden>
+            <div class="devRow">
+              <span id="acctAvatar" class="acctAvatar" aria-hidden="true"></span>
+              <div class="devText">
+                <span id="acctDisplay" class="devTitle"></span>
+                <span id="acctMail" class="muted"></span>
+              </div>
+            </div>
+            <button id="acctOutBtn" class="ghost acctWide" type="button">Cerrar sesión</button>
+          </div>
+        </div>
+
+        <div id="panDev">
 
         <div class="listCard surface">
           <div class="devRow">
@@ -186,6 +240,7 @@
           </div>
           <button id="beHud" class="ghost wide" type="button">Usar esta pantalla como HUD del parabrisas</button>
         </details>
+        </div>
       </div>
 
       <nav class="bottomNav" aria-label="Navegación principal">
@@ -193,19 +248,18 @@
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6 L9 4 L15 6 L21 4 V18 L15 20 L9 18 L3 20 Z M9 4 V18 M15 6 V20" fill="none" stroke-width="2" stroke-linejoin="round" /></svg>
           Mapa
         </button>
-        <div class="navGap" aria-hidden="true"></div>
+        <button id="findOpen" type="button" class="navItem" aria-label="Encontrar: compartir ubicación o ver a alguien">
+          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5" fill="none" stroke-width="2" /><path d="M5 20 C5 15.5 8 13.5 12 13.5 S19 15.5 19 20" fill="none" stroke-width="2" stroke-linecap="round" /></svg>
+          Encontrar
+        </button>
         <button type="button" data-go="dispositivos" class="navItem">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="12" height="14" rx="2.5" fill="none" stroke-width="2" /><rect x="15" y="8" width="6" height="11" rx="1.5" fill="none" stroke-width="2" /></svg>
-          Dispositivos
+          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7 H20 M4 17 H20" fill="none" stroke-width="2" stroke-linecap="round" /><circle cx="9" cy="7" r="2.6" fill="var(--bg)" stroke-width="2" /><circle cx="15" cy="17" r="2.6" fill="var(--bg)" stroke-width="2" /></svg>
+          Ajustes
         </button>
-        <button id="findOpen" type="button" class="fab" aria-label="Encontrar: guardar un lugar o ver a alguien">
-          <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 4 V22 M4 13 H22" stroke-width="3.2" stroke-linecap="round" /></svg>
-        </button>
-        <span class="fabLabel" aria-hidden="true">Encontrar</span>
       </nav>
     </section>
 
-    <!-- Encontrar: camera with a marker on saved places and on one person sharing their location -->
+    <!-- Encontrar: camera with a marker on the one person sharing their location with you -->
     <section id="find" hidden>
       <div id="fMarks" class="fMarks" aria-hidden="true"></div>
       <div class="fTop">
@@ -215,28 +269,36 @@
         <span id="fGps" class="chip">Buscando GPS…</span>
         <span id="fCompass" class="chip warn" hidden>Sin brújula</span>
       </div>
-      <div id="fWatchBox" class="fWatch surface" hidden>
-        <div class="fWatchHead">
+      <div id="fShareCard" class="fShareCard surface" hidden>
+        <div class="fShareHead">
           <div>
             <span class="muted">Código para compartir</span>
-            <output id="fCode" class="fCode">··· ···</output>
+            <output id="fShareCodeText" class="fCodeText">··· ···</output>
           </div>
-          <button id="fInvite" class="ghost" type="button">Enviar enlace</button>
+          <button id="fShareInvite" class="ghost" type="button">Enviar enlace</button>
         </div>
-        <p id="fWatchState" class="fState"></p>
+        <p id="fShareState" class="fState"></p>
+      </div>
+      <div id="fAsk" class="fAsk surface" role="alertdialog" aria-live="assertive" aria-labelledby="fAskTitle" aria-describedby="fAskWho" hidden>
+        <h2 id="fAskTitle">Alguien quiere ver tu ubicación</h2>
+        <p id="fAskWho" class="fAskWho"></p>
+        <p id="fAskNote" class="muted" hidden>Nombre sin verificar</p>
+        <div class="fAskBtns">
+          <button id="fAskNo" class="ghost" type="button">Rechazar</button>
+          <button id="fAskYes" class="primary" type="button">Permitir</button>
+        </div>
       </div>
       <div id="fBottom" class="fBottom surface">
         <div id="fList" class="fList" hidden></div>
-        <div id="fShareBox" class="fBox" hidden>
-          <label for="fShareCode" class="muted">Código de quien te busca</label>
-          <input id="fShareCode" type="text" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="000 000" />
-          <p id="fShareState" class="fState"></p>
-          <button id="fShareBtn" class="primary" type="button">Compartir mi ubicación</button>
+        <div id="fSeeBox" class="fBox" hidden>
+          <label for="fSeeCode" class="muted">Código de quien comparte</label>
+          <input id="fSeeCode" type="text" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="000 000" />
+          <p id="fSeeState" class="fState"></p>
+          <button id="fSeeBtn" class="primary" type="button">Ver ubicación</button>
         </div>
         <div class="fActions">
-          <button id="fDrop" class="primary" type="button">Guardar este lugar</button>
-          <button id="fSee" class="ghost" type="button">Ver a alguien</button>
-          <button id="fShareOpen" class="ghost" type="button">Compartir la mía</button>
+          <button id="fShareToggle" class="ghost" type="button">Compartir ubicación</button>
+          <button id="fSeeToggle" class="ghost" type="button">Ver a alguien</button>
         </div>
       </div>
     </section>
@@ -292,6 +354,13 @@
 
       <div id="driveBottom" class="driveBottom">
         <div id="leftBtns" class="reportRow">
+          <button id="confirmHole" class="holeConfirm" type="button" aria-label="Fue un hueco: confirmar" hidden>
+            <svg class="holeRing" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="25" pathLength="100" /></svg>
+            <svg class="holeIcon" viewBox="0 0 28 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <ellipse cx="14" cy="15" rx="11" ry="6.5" />
+              <path d="M9 13.5l3 2-2 2.5 4 1" />
+            </svg>
+          </button>
           <button data-report="hueco" class="report" type="button">⚠ Hueco</button>
           <button data-report="policia" class="report alt" type="button">▬ Policía acostado</button>
         </div>

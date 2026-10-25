@@ -9,7 +9,7 @@ import type { Arrival } from '../remote/protocol.ts';
 import type { Zone } from './destino.ts';
 
 const PALETTE = {
-  dark: { bg: 0x031017, gnd: 0x071f2b, street: 0x0e3347, top: 0x1f5575, left: 0x123b53, right: 0x0b2b3e, stop: 0x4b86f5, sleft: 0x2563eb, sright: 0x1b47b0 },
+  dark: { bg: 0x0a0a0b, gnd: 0x111214, street: 0x2a2d32, top: 0x3a3e45, left: 0x24272c, right: 0x181a1d, stop: 0x4b86f5, sleft: 0x3e6ae1, sright: 0x2a4aa8 },
   light: { bg: 0xf4f8fb, gnd: 0xe2ecf2, street: 0xffffff, top: 0xffffff, left: 0xcbd9e3, right: 0xb0c2d0, stop: 0x3b74e0, sleft: 0x1a56c4, sright: 0x123f94 },
 };
 const ELEV = THREE.MathUtils.degToRad(35); // camera elevation: the isometric look of the canvas
@@ -44,7 +44,7 @@ const target = new THREE.Vector3();
 let onConfirm: (c: MaquetaChoice) => void = () => {};
 let frameReq = 0;
 
-const theme = () => (matchMedia('(prefers-color-scheme: light)').matches ? PALETTE.light : PALETTE.dark);
+const theme = () => PALETTE.dark;
 const local = (p: LatLon) => toLocal(origin, p);
 
 // ---------- scene ----------

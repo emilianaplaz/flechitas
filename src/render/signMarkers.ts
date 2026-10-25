@@ -1,18 +1,16 @@
 // Road signs from the maqueta, drawn in the 3D overlay: PARE, CEDA and FOTOMULTA panels and traffic
-// lights floating at the kerb (no posts, like the turn signs), zebra crossings on the road. Pooled;
-// ArScene owns one of these and feeds it the signs ahead every frame.
+// lights floating at the kerb (no posts, like the turn signs). Zebra crossings aren't drawn: the real
+// paint is right there on the road. Pooled; ArScene owns one of these and feeds it the signs ahead every frame.
 import * as THREE from 'three';
 import { toLocal, toRad, type LatLon } from '../core/geo.ts';
 import type { SignType } from '../core/maqueta.ts';
 import type { SignView } from '../signs/ahead.ts';
 
 const POOL = 12;
-const CROSSING_POOL = 6;
 const KERB = 4.5; // m to the right of the route line (OSM draws the road centre)
 const PANEL = 1.2; // m, side of a sign panel
 const PANEL_Y = 2.4; // m above the road, centre of a panel
 const LIGHT_Y = 3.2; // m above the road, centre of a traffic light
-const STRIPES = 7; // zebra stripes across the road, 1 m apart
 
 type Standing = Exclude<SignType, 'crossing' | 'bump' | 'hump' | 'table'>;
 type Panel = Exclude<Standing, 'traffic_signals'>;
@@ -114,18 +112,6 @@ function trafficLightModel(): THREE.Group {
   return g;
 }
 
-function crossingModel(): THREE.Group {
-  const g = new THREE.Group();
-  const stripe = new THREE.PlaneGeometry(0.5, 3).rotateX(-Math.PI / 2);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
-  for (let i = 0; i < STRIPES; i++) {
-    const m = new THREE.Mesh(stripe, mat);
-    m.position.x = i - (STRIPES - 1) / 2;
-    g.add(m);
-  }
-  return g;
-}
-
 interface Slot {
   group: THREE.Group;
   type: Standing | null;
@@ -135,7 +121,6 @@ export class SignMarkers {
   readonly group = new THREE.Group();
   private models = new Map<Standing, THREE.Group>();
   private slots: Slot[] = [];
-  private crossings: THREE.Group[] = [];
 
   constructor() {
     const backMat = lit(0x3a4148, 0.1);
@@ -147,31 +132,16 @@ export class SignMarkers {
       this.group.add(group);
       this.slots.push({ group, type: null });
     }
-    for (let i = 0; i < CROSSING_POOL; i++) {
-      const g = crossingModel();
-      g.visible = false;
-      this.group.add(g);
-      this.crossings.push(g);
-    }
   }
 
   /** `heightAt(d)` is the road's height at `d` metres along the route, relative to the car. */
   update(signs: SignView[], origin: LatLon, along: number, heightAt: (d: number) => number) {
     let si = 0;
-    let ci = 0;
     for (const s of signs) {
       const c = toLocal(origin, s.p);
       const b = toRad(s.bearing);
       const h = heightAt(s.along);
-      if (s.type === 'crossing') {
-        if (ci >= this.crossings.length) continue;
-        const g = this.crossings[ci++];
-        g.visible = true;
-        g.position.set(c.x, h + 0.03, c.z);
-        g.rotation.y = -b;
-        continue;
-      }
-      if (s.type === 'bump' || s.type === 'hump' || s.type === 'table' || si >= this.slots.length) continue;
+      if (s.type === 'crossing' || s.type === 'bump' || s.type === 'hump' || s.type === 'table' || si >= this.slots.length) continue;
       const slot = this.slots[si++];
       if (slot.type !== s.type) {
         slot.group.clear();
@@ -185,6 +155,5 @@ export class SignMarkers {
       slot.group.scale.setScalar(THREE.MathUtils.clamp((s.along - along) / 45, 1, 2.2));
     }
     for (; si < this.slots.length; si++) this.slots[si].group.visible = false;
-    for (; ci < this.crossings.length; ci++) this.crossings[ci].visible = false;
   }
 }

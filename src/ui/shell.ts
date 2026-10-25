@@ -3,7 +3,10 @@
 import { $ } from '../core/ui.ts';
 import { getCalib, onCalibChange, setCalibValue } from '../render/calibDock.ts';
 import type { Calib } from '../render/calib.ts';
-import { showDestinoMap } from './destino.ts';
+import { initAccount } from '../auth/ui.ts';
+import { refreshSavedPins, showDestinoMap } from './destino.ts';
+import { initDestShortcut, initLugares, renderLugares, renderSyncStatus } from './lugares.ts';
+import { initPinsSync } from './syncPins.ts';
 import { showMaqueta } from './maqueta.ts';
 
 export type Screen = 'destino' | 'maqueta' | 'dispositivos';
@@ -16,7 +19,10 @@ export function go(screen: Screen) {
     if (b.dataset.go === tab) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
-  if (screen === 'dispositivos') renderCalib(getCalib());
+  if (screen === 'dispositivos') {
+    renderCalib(getCalib());
+    renderLugares();
+  }
   if (screen === 'destino') void showDestinoMap();
   if (screen === 'maqueta') showMaqueta();
 }
@@ -45,9 +51,12 @@ export function initShell() {
   bind('calHeight', 'height');
   bind('calPitch', 'pitch');
   onCalibChange(renderCalib);
-  // Map layers (hazards and speed bumps): toggles for now, drawn on the map in the Destino phase.
-  for (const id of ['layerHoles', 'layerBumps']) {
-    $(id).addEventListener('click', () => $(id).setAttribute('aria-pressed', String($(id).getAttribute('aria-pressed') !== 'true')));
-  }
+  initLugares(() => go('destino'));
+  initDestShortcut();
+  initPinsSync(() => {
+    refreshSavedPins();
+    renderLugares();
+  }, renderSyncStatus);
+  initAccount();
   go('destino');
 }

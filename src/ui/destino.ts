@@ -11,11 +11,12 @@ import { fetchRoute, formatDistance, type Route } from '../core/route.ts';
 import { app } from '../core/state.ts';
 import { $, setText, toast } from '../core/ui.ts';
 import { allHazards, loadHazards } from '../hazards/ui.ts';
+import { addPin, loadPins } from '../find/pins.ts';
 import { onDest, setDestination, useSimulation } from '../setup.ts';
 
 type Theme = 'dark' | 'light';
 const PALETTE = {
-  dark: { bg: '#031017', minor: '#0E2D3C', road: '#12384A', major: '#1A4A5E', water: '#071F2B', park: '#0B2F33', bldg: '#082636', label: '#7FA3B3', pri: '#2563EB', route: '#4B86F5', haz: '#FFE14D', bump: '#FF6FB5' },
+  dark: { bg: '#0A0A0B', minor: '#17181A', road: '#222428', major: '#2C2F34', water: '#0B1118', park: '#0F1613', bldg: '#121315', label: '#8A8E96', pri: '#3E6AE1', route: '#4B86F5', haz: '#FFE14D', bump: '#FF6FB5' },
   light: { bg: '#E6EEF3', minor: '#DAE5EC', road: '#FFFFFF', major: '#FFFFFF', water: '#BFD9EA', park: '#CFE6D6', bldg: '#D3DFE7', label: '#5E7A8E', pri: '#1A56C4', route: '#1A56C4', haz: '#A87C00', bump: '#C71F6E' },
 };
 
@@ -41,7 +42,7 @@ const empty = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', fea
 const data = { zone: empty(), route: empty(), holes: empty(), bumps: empty() };
 const visible = { holes: true, bumps: true };
 
-const theme = (): Theme => (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+const theme = (): Theme => 'dark';
 const ZONE_LABEL: Record<string, string> = { 'san-juan-bosco': 'Av. San Juan Bosco' };
 export const zoneLabel = (z: Zone) => ZONE_LABEL[z.name] ?? z.name;
 
@@ -191,20 +192,30 @@ function refreshHazards() {
   setData('bumps', { type: 'FeatureCollection', features: [...bumpsFromMaqueta, ...all.filter((h) => h.type === 'policia' && h.source !== 'osm').map((h) => point(h, { rot: roadBearing(h, knownWays) }))] });
 }
 
-function watchHere() {
+/** This phone's position when the GPS has given one. */
+export const getHere = () => here;
+
+function setHere(c: GeolocationCoordinates) {
+  const first = !here;
+  here = { lat: c.latitude, lon: c.longitude };
+  if (!map || !ml) return;
+  hereMarker ??= new ml.Marker({ element: pin('mapHere') }).setLngLat([here.lon, here.lat]).addTo(map);
+  hereMarker.setLngLat([here.lon, here.lat]);
+  if (first && !app.dest) map.easeTo({ center: [here.lon, here.lat], zoom: 15 });
+  if (first) void syncDest();
+}
+
+/** High accuracy first (phones); laptops often have no GPS chip, so on failure other than "denied" retry with normal accuracy. */
+function watchHere(highAccuracy = true) {
   if (!('geolocation' in navigator)) return;
-  navigator.geolocation.watchPosition(
-    (p) => {
-      const first = !here;
-      here = { lat: p.coords.latitude, lon: p.coords.longitude };
-      if (!map || !ml) return;
-      hereMarker ??= new ml.Marker({ element: pin('mapHere') }).setLngLat([here.lon, here.lat]).addTo(map);
-      hereMarker.setLngLat([here.lon, here.lat]);
-      if (first && !app.dest) map.easeTo({ center: [here.lon, here.lat], zoom: 15 });
-      if (first) void syncDest();
+  const id = navigator.geolocation.watchPosition(
+    (p) => setHere(p.coords),
+    (e) => {
+      if (e.code === e.PERMISSION_DENIED || !highAccuracy) return;
+      navigator.geolocation.clearWatch(id);
+      watchHere(false);
     },
-    () => {},
-    { enableHighAccuracy: true, maximumAge: 10000 },
+    { enableHighAccuracy: highAccuracy, maximumAge: 10000, timeout: 15000 },
   );
 }
 
@@ -293,6 +304,57 @@ async function syncDest() {
   }
 }
 
+/** Saved places ("Guardar este lugar") as pins on the map; tapping one makes it the destination. */
+const savedMarkers = new Map<string, Marker>();
+export function refreshSavedPins() {
+  if (!map || !ml) return;
+  const pins = loadPins();
+  for (const [id, m] of savedMarkers) {
+    if (pins.some((x) => x.id === id)) continue;
+    m.remove();
+    savedMarkers.delete(id);
+  }
+  for (const x of pins) {
+    const known = savedMarkers.get(x.id);
+    if (known) {
+      known.getElement().dataset.label = x.label; // renamed in Ajustes
+      continue;
+    }
+    const el = pin('mapSaved');
+    el.dataset.label = x.label;
+    el.addEventListener('click', (e) => {
+      e.stopPropagation(); // not a map tap: the destination is this exact place
+      setDestination({ point: x.p, label: x.label });
+    });
+    savedMarkers.set(x.id, new ml.Marker({ element: el }).setLngLat([x.p.lon, x.p.lat]).addTo(map));
+  }
+}
+
+async function savePlace() {
+  let spot = here;
+  let note = '';
+  if (!spot) {
+    try {
+      const p = await new Promise<GeolocationPosition>((ok, no) => navigator.geolocation.getCurrentPosition(ok, no, { maximumAge: 60000, timeout: 8000 }));
+      setHere(p.coords);
+      spot = here;
+    } catch (e) {
+      if ((e as GeolocationPositionError).code === 1) {
+        return toast('El navegador bloqueó tu ubicación. Toca el candado junto a la dirección y permite "Ubicación".', 6000);
+      }
+      // No GPS (a laptop, say): the pin goes where the map is centered.
+      const c = map?.getCenter();
+      if (!c) return toast('Todavía no tengo tu ubicación');
+      spot = { lat: c.lat, lon: c.lng };
+      note = ' (sin GPS: en el centro del mapa)';
+    }
+  }
+  if (!spot) return;
+  const saved = addPin(spot, null);
+  refreshSavedPins();
+  toast(`${saved.label} guardado${note}`, note ? 5000 : 2600);
+}
+
 /** Name for a tapped point (street and number), or its coordinates. */
 async function placeName(p: LatLon): Promise<string> {
   try {
@@ -369,6 +431,7 @@ export function showDestinoMap(): Promise<void> {
     });
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
     watchHere();
+    refreshSavedPins();
     void loadZones();
     void loadHazards().then(refreshHazards).catch(() => {});
     if (app.dest) void syncDest();
@@ -401,15 +464,9 @@ export function initDestino() {
     }
   });
   document.querySelectorAll<HTMLInputElement>('input[name=mode]').forEach((r) => r.addEventListener('change', () => void syncDest()));
+  $('savePlace').onclick = () => void savePlace();
   $('recenter').onclick = () => {
     if (here) map?.easeTo({ center: [here.lon, here.lat], zoom: 16 });
     else toast('Todavía no tengo tu ubicación');
   };
-  const layer = (btn: string, key: 'holes' | 'bumps') =>
-    $(btn).addEventListener('click', () => {
-      visible[key] = $(btn).getAttribute('aria-pressed') === 'true';
-      map?.setLayoutProperty(key, 'visibility', visible[key] ? 'visible' : 'none');
-    });
-  layer('layerHoles', 'holes');
-  layer('layerBumps', 'bumps');
 }
