@@ -50,6 +50,7 @@ Esta carpeta es para quien entra al proyecto a programar. Qué hace el producto 
 | [PLAN-HUD-AR.md](../PLAN-HUD-AR.md) | Plan original del HUD (iPad + iPhone). La óptica y el enlace se hicieron distinto (cálculo exacto, PeerJS). |
 | [SPEC-3D-STREETS.md](../SPEC-3D-STREETS.md), [pipeline3d/README.md](../pipeline3d/README.md) | Calles 3D desde video (experimento, no conectado a la app). |
 | [TODO.md](../TODO.md) | Lista de pendientes por módulo (algunos ítems viejos, ver limitaciones). |
+| [experiments/fachadas/RESULTADOS.md](../experiments/fachadas/RESULTADOS.md), [LICENCIAS.md](../experiments/fachadas/LICENCIAS.md) | Experimento de fachadas reales: comparación, recomendación, licencias y costos de cada fuente. |
 
 ## Estado por área
 

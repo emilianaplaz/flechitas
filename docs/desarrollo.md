@@ -13,6 +13,7 @@ npm test           # tests de lógica, sin navegador
 npm run build      # tsc --noEmit && vite build → dist/
 npm run preview    # sirve dist/
 npm run maqueta -- san-juan-bosco   # regenera las teselas de una zona (red, varios minutos)
+npm run fachadas   # experimento de fachadas en http://localhost:5190 (instala sus dependencias la primera vez)
 ```
 
 - `vite --host` con `@vitejs/plugin-basic-ssl`: **https** para que el teléfono en el mismo Wi-Fi pueda
@@ -101,5 +102,8 @@ integrar: `npm test && npm run build`.
   test. Spec: [SPEC-3D-STREETS.md](../SPEC-3D-STREETS.md). No está conectado a la app.
 - [PRUEBA RENDER/](../PRUEBA%20RENDER/README.md): el primer modelo (97 s de video, ~76 m de calle) con un
   visor estilo Street View (`python -m http.server 8000 -d "PRUEBA RENDER"`).
-- El experimento de **fachadas reales** de edificios es de otra sesión en paralelo
-  ([trabajo-en-paralelo.md](trabajo-en-paralelo.md)).
+- [experiments/fachadas/](../experiments/fachadas/README.md): página aparte (`npm run fachadas`, puerto
+  5190, dependencias propias: `three`, `3d-tiles-renderer`, `vite`) que compara formas de darle aspecto
+  real a los edificios de la maqueta. Lee las teselas de `public/maqueta/` con `core/maqueta.ts` y el video
+  de `PRUEBA RENDER/`. Claves opcionales en `experiments/fachadas/.env.local`. Resultados en
+  [RESULTADOS.md](../experiments/fachadas/RESULTADOS.md). No forma parte del build de la app.

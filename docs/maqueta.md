@@ -186,3 +186,8 @@ destino, los peligros y las señales, y suma la pendiente bajo el carro a la inc
   tras las esquinas (MAQUETA.md fase 4).
 - Carriles: ancho de la cinta y `lateral` por tramo según `lanes`/`turn:lanes` (fase 3).
 - Más zonas: Chacao completo (en curso), después el resto.
+- **Aspecto de los edificios**: el experimento de fachadas
+  ([experiments/fachadas/RESULTADOS.md](../experiments/fachadas/RESULTADOS.md)) recomienda fachadas
+  procedurales en la pantalla Maqueta, alturas de Open Buildings 2.5D o 3D-GloBFP en el script (campos
+  opcionales `use` y `heightSource`), y más adelante techos satelitales de OpenAerialMap (CC BY-NC) si el
+  equipo acepta la licencia no comercial. Ninguno está hecho.
