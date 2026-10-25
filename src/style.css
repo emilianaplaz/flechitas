@@ -153,7 +153,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 
 .searchCard {
   position: absolute;
-  top: max(16px, env(safe-area-inset-top));
+  top: calc(max(16px, env(safe-area-inset-top)) + var(--brand, 0px));
   left: 16px;
   right: 16px;
   display: flex;
@@ -171,7 +171,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 
 .modeRow {
   position: absolute;
-  top: calc(max(16px, env(safe-area-inset-top)) + 140px);
+  top: calc(max(16px, env(safe-area-inset-top)) + 140px + var(--brand, 0px));
   left: 16px;
   right: 16px;
   display: flex;
@@ -185,7 +185,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 
 .layerChips {
   position: absolute;
-  top: calc(max(16px, env(safe-area-inset-top)) + 196px);
+  top: calc(max(16px, env(safe-area-inset-top)) + 196px + var(--brand, 0px));
   left: 16px;
   display: flex;
   gap: 8px;
@@ -225,16 +225,16 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .mapHere { width: 20px; height: 20px; border-radius: 50%; background: var(--route); border: 4px solid #fff; box-shadow: 0 0 0 6px rgba(75, 134, 245, 0.28); }
 .mapFrom { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 6px solid var(--origin); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45); cursor: grab; }
 .mapDest { width: 30px; height: 40px; background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 40'%3E%3Cpath d='M15 1C7.3 1 1 7.2 1 14.9 1 25.4 15 39 15 39s14-13.6 14-24.1C29 7.2 22.7 1 15 1z' fill='%232563EB' stroke='%23fff' stroke-width='2'/%3E%3Ccircle cx='15' cy='15' r='5' fill='%23fff'/%3E%3C/svg%3E"); }
-.map .maplibregl-ctrl-top-right { top: calc(max(16px, env(safe-area-inset-top)) + 248px); }
+.map .maplibregl-ctrl-top-right { top: calc(max(16px, env(safe-area-inset-top)) + 248px + var(--brand, 0px)); }
 .map .maplibregl-ctrl-attrib { background: var(--surf); color: var(--muted); }
 .map .maplibregl-ctrl-attrib a { color: var(--muted); }
 
 /* Phone on its side (it usually rides horizontal on the dash): search on the left, destination card on the right. */
 @media (orientation: landscape) and (max-height: 540px) {
-  .searchCard { right: auto; width: min(380px, 48vw); top: max(12px, env(safe-area-inset-top)); padding: 10px; }
+  .searchCard { right: auto; width: min(380px, 48vw); top: calc(max(12px, env(safe-area-inset-top)) + var(--brand, 0px)); padding: 10px; }
   .searchRows { gap: 8px; }
-  .modeRow { right: auto; width: min(380px, 48vw); top: calc(max(12px, env(safe-area-inset-top)) + 122px); }
-  .layerChips { top: calc(max(12px, env(safe-area-inset-top)) + 178px); }
+  .modeRow { right: auto; width: min(380px, 48vw); top: calc(max(12px, env(safe-area-inset-top)) + 122px + var(--brand, 0px)); }
+  .layerChips { top: calc(max(12px, env(safe-area-inset-top)) + 178px + var(--brand, 0px)); }
   .destCard { left: auto; width: min(360px, 44vw); bottom: calc(64px + env(safe-area-inset-bottom) + 12px); padding: 14px; }
   .bottomNav { height: calc(64px + env(safe-area-inset-bottom)); }
   .navItem { flex-direction: row; gap: 8px; }
@@ -1276,3 +1276,9 @@ button.primary { min-height: 52px; border-radius: 14px; font-size: 16px; font-we
   .entry :is(.enLogo *, .enWord, .enTag, .enActions, .enHudRow, .enScreen, #enStep > *) { animation-delay: 0s !important; }
   .entry button[aria-busy='true']::before { animation: enSpin 1.6s linear infinite !important; }
 }
+
+/* ---------- logo on the map, top left; the cards below make room for it ---------- */
+#scrDestino { --brand: 40px; }
+.mapBrand { position: absolute; z-index: 3; top: calc(max(16px, env(safe-area-inset-top)) - 4px); left: 20px; width: 36px; height: 32px; pointer-events: none; }
+@media (orientation: landscape) and (max-height: 540px) { #scrDestino { --brand: 34px; } .mapBrand { top: max(6px, env(safe-area-inset-top)); width: 30px; height: 27px; } }
+@media (min-width: 700px) and (min-height: 541px) { .mapBrand { top: 20px; left: 28px; } }

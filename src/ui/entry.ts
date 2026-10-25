@@ -709,6 +709,8 @@ async function startQuiz() {
   ask = new Set(need.filter((p): p is Perm => p !== null));
   goTo('enQuiz', 'root');
   renderStep();
+  // Shown once: from here on this device opens the map, even if the questions were left half answered.
+  saveOnboarding(store(), answers, Date.now());
 }
 
 /** The progress drawn as a route: one ring per step, filled up to here. Nodes are reused so the fill animates. */
