@@ -41,6 +41,15 @@ export function enqueue(table: Table, row: Record<string, unknown>, id: string, 
   write(OUTBOX, [...pending().filter((e) => e.id !== id), { id, table, row, due: now + delayMs }]);
 }
 
+/** Rewrites a still-queued row in place, keeping its `due` so the undo window is not extended. Does nothing once uploaded. */
+export function amend(id: string, patch: Record<string, unknown>) {
+  const list = pending();
+  const e = list.find((x) => x.id === id);
+  if (!e) return;
+  e.row = { ...e.row, ...patch };
+  write(OUTBOX, list);
+}
+
 export function cancel(id: string) {
   write(OUTBOX, pending().filter((e) => e.id !== id));
 }
@@ -82,7 +91,7 @@ export async function flush(opts: { force?: boolean; now?: number; send?: (e: Ou
   return sent;
 }
 
-type Row = { client_id: string; type: Hazard['type']; lat: number; lon: number; heading: number | null; source: Hazard['source'] | null; created_at: string };
+type Row = { client_id: string; type: Hazard['type']; lat: number; lon: number; heading: number | null; source: Hazard['source'] | null; confirmed: boolean | null; created_at: string };
 
 /** Hazards reported by everyone. Falls back to the copy from the last successful load. */
 export async function fetchShared(timeoutMs = 4000): Promise<Hazard[]> {
@@ -90,7 +99,7 @@ export async function fetchShared(timeoutMs = 4000): Promise<Hazard[]> {
   if (!cloudEnabled) return cached;
   try {
     const res = await Promise.race([
-      fetch(`${URL_BASE}/rest/v1/hazards?select=client_id,type,lat,lon,heading,source,created_at&order=created_at.desc&limit=5000`, {
+      fetch(`${URL_BASE}/rest/v1/hazards?select=client_id,type,lat,lon,heading,source,confirmed,created_at&order=created_at.desc&limit=5000`, {
         headers: authHeaders(),
       }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
@@ -105,6 +114,7 @@ export async function fetchShared(timeoutMs = 4000): Promise<Hazard[]> {
       createdAt: r.created_at,
       ...(r.heading != null ? { heading: r.heading } : {}),
       ...(r.source ? { source: r.source } : {}),
+      ...(r.confirmed != null ? { confirmed: r.confirmed } : {}),
     }));
     write(SHARED, list);
     return list;

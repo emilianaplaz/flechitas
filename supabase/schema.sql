@@ -43,3 +43,7 @@ create policy "anyone adds detections" on detections for insert to anon with che
 revoke all on hazards, detections from anon, authenticated;
 grant select, insert on hazards to anon;
 grant insert on detections to anon;
+
+-- Migration: a detected hit counts half until the driver taps the hole button. Safe to rerun.
+alter table hazards add column if not exists confirmed boolean not null default false;
+update hazards set confirmed = true where source = 'tap';

@@ -1,7 +1,7 @@
 // Road hazards (huecos, policías acostados…). Each one is just a GPS point.
 // Reports made on this phone are kept in localStorage and uploaded to Supabase.
 import type { LatLon } from '../core/geo.ts';
-import { cancel, enqueue, fetchShared } from './cloud.ts';
+import { amend, cancel, enqueue, fetchShared } from './cloud.ts';
 import { clusterHazards } from './cluster.ts';
 
 export type HazardType = 'hueco' | 'policia' | 'alcabala';
@@ -12,6 +12,7 @@ export interface Hazard extends LatLon {
   createdAt: string;
   heading?: number; // travel direction when reported; hazards in the other direction are ignored
   source?: 'tap' | 'detected' | 'osm'; // osm: speed bumps from the maqueta tiles, never uploaded
+  confirmed?: boolean; // the driver said it was a hole; unconfirmed detections weigh half in a cluster
   confirmations?: number; // reports merged into this hazard (set by clusterHazards)
   lastSeen?: string; // newest report merged into it
 }
@@ -56,7 +57,7 @@ export class HazardStore {
     return clusterHazards([...byId.values()]);
   }
 
-  add(type: HazardType, p: LatLon, extra: { heading?: number; source?: Hazard['source'] } = {}): Hazard {
+  add(type: HazardType, p: LatLon, extra: { heading?: number; source?: Hazard['source']; confirmed?: boolean } = {}): Hazard {
     const h: Hazard = {
       id: crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 12),
       type,
@@ -64,10 +65,22 @@ export class HazardStore {
       lon: +p.lon.toFixed(6),
       createdAt: new Date().toISOString(),
       ...extra,
+      confirmed: extra.confirmed ?? extra.source !== 'detected',
     };
     this.local.push(h);
     saveLocal(this.local);
-    enqueue('hazards', { client_id: h.id, type: h.type, lat: h.lat, lon: h.lon, heading: h.heading ?? null, source: h.source ?? null }, h.id);
+    enqueue('hazards', { client_id: h.id, type: h.type, lat: h.lat, lon: h.lon, heading: h.heading ?? null, source: h.source ?? null, confirmed: h.confirmed }, h.id);
+    return h;
+  }
+
+  /** The driver tapped the hole button: this report was a hueco. */
+  confirm(id: string): Hazard | undefined {
+    const h = this.local.find((x) => x.id === id);
+    if (!h) return undefined;
+    h.type = 'hueco';
+    h.confirmed = true;
+    saveLocal(this.local);
+    amend(id, { type: 'hueco', confirmed: true });
     return h;
   }
 

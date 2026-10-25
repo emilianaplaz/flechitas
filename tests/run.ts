@@ -8,9 +8,10 @@ const mem = new Map<string, string>();
   setItem: (k: string, v: string) => void mem.set(k, v),
   removeItem: (k: string) => void mem.delete(k),
 } as Storage;
-import { cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
+import { amend, cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
 import { BumpDetector } from '../src/hazards/bump.ts';
-import { clusterHazards } from '../src/hazards/cluster.ts';
+import { HazardStore } from '../src/hazards/store.ts';
+import { clusterHazards, weightOf } from '../src/hazards/cluster.ts';
 import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
 import { defaultsFor, loadCalib, loadFlip, saveCalib, saveFlip } from '../src/render/calib.ts';
@@ -169,8 +170,32 @@ check('same result with inverted sign convention (iOS)', flippedEv.length === 1 
   check('three nearby huecos become one with 3 confirmations', m.length === 1 && m[0]!.confirmations === 3, JSON.stringify(m));
   m = clusterHazards([H('a', 'hueco', 0, day(1)), H('b', 'hueco', 0.0003, day(1))], now); // ~33 m
   check('far apart stay separate', m.length === 2);
-  m = clusterHazards([H('a', 'hueco', 0, day(1)), H('b', 'policia', 0, day(1))], now);
-  check('different types never merge', m.length === 2);
+  const det = { source: 'detected' as const };
+  const conf = { source: 'detected' as const, confirmed: true };
+  m = clusterHazards([H('a', 'hueco', 0, day(1), conf), H('b', 'policia', 0.00003, day(1), conf)], now);
+  check('nearby hueco and policia merge into one', m.length === 1 && m[0]!.confirmations === 2, JSON.stringify(m));
+  m = clusterHazards([H('a', 'hueco', 0, day(2), det), H('b', 'policia', 0.00003, day(1), det), H('c', 'policia', 0.00004, day(1), det)], now);
+  check('two unconfirmed policia beat one unconfirmed hueco', m.length === 1 && m[0]!.type === 'policia', JSON.stringify(m));
+  m = clusterHazards([H('a', 'hueco', 0, day(2), conf), H('b', 'policia', 0.00003, day(1), det)], now);
+  check('one confirmed hueco beats one unconfirmed policia', m.length === 1 && m[0]!.type === 'hueco', JSON.stringify(m));
+  m = clusterHazards([H('a', 'hueco', 0, day(1), det)], now);
+  check('a lone unconfirmed detection is not shown', m.length === 0);
+  m = clusterHazards([H('a', 'hueco', 0, day(1), det), H('b', 'hueco', 0.00003, day(1), det)], now);
+  check('two unconfirmed reports are shown', m.length === 1 && m[0]!.confirmations === 2);
+  m = clusterHazards([H('a', 'hueco', 0, day(1), conf)], now);
+  check('a confirmed single report is shown', m.length === 1);
+  m = clusterHazards([H('a', 'hueco', 0, day(2), { source: 'tap' }), H('b', 'policia', 0.00003, day(1), { source: 'tap' })], now);
+  check('a weight tie goes to the newest report', m.length === 1 && m[0]!.type === 'policia', JSON.stringify(m));
+  m = clusterHazards([H('o', 'policia', 0, '', { source: 'osm' }), H('a', 'hueco', 0.00003, day(2), { source: 'tap' }), H('b', 'hueco', 0.00004, day(1), conf)], now);
+  check('a mapped bump outweighs a couple of hueco reports', m.length === 1 && m[0]!.type === 'policia' && m[0]!.id === 'o', JSON.stringify(m));
+  m = clusterHazards([H('o', 'policia', 0, '', { source: 'osm' })], now);
+  check('a mapped bump alone is shown', m.length === 1);
+  m = clusterHazards([H('a', 'hueco', 0, day(100), { source: 'tap' }), H('b', 'policia', 0.00003, day(100), { source: 'tap' }), H('c', 'policia', 0.00004, day(100), { source: 'tap' })], now);
+  check('the winning type sets the TTL (policia outlives 90 days)', m.length === 1 && m[0]!.type === 'policia');
+  m = clusterHazards([{ ...H('a', 'alcabala', 0, day(1)), source: 'tap' as const }, H('b', 'hueco', 0, day(1), { source: 'tap' })], now);
+  check('alcabala never merges with road hazards', m.length === 2, JSON.stringify(m));
+  check('weights: osm 3, tap 1, confirmed 1, detected 0.5, legacy 1',
+    [H('a', 'hueco', 0, '', { source: 'osm' }), H('a', 'hueco', 0, '', { source: 'tap' }), H('a', 'hueco', 0, '', conf), H('a', 'hueco', 0, '', det), H('a', 'hueco', 0, '')].map(weightOf).join() === '3,1,1,0.5,1');
   m = clusterHazards([H('a', 'policia', 0, day(1), { heading: 0 }), H('b', 'policia', 0, day(1), { heading: 180 })], now);
   check('opposite directions stay separate', m.length === 2);
   m = clusterHazards([H('a', 'policia', 0, day(1), { heading: 10 }), H('b', 'policia', 0.00003, day(1))], now);
@@ -211,6 +236,25 @@ await (async () => {
   enqueue('hazards', { client_id: 'd' }, 'd', 9000);
   await flush({ send: ok, now: 9100, force: true });
   check('force flush ignores the undo window (drive ended)', sent.at(-1) === 'd' && pending().length === 0);
+
+  enqueue('hazards', { client_id: 'e', type: 'policia', confirmed: false }, 'e', 20_000);
+  amend('e', { type: 'hueco', confirmed: true });
+  const amended = pending().find((x) => x.id === 'e')!;
+  check('amend rewrites the pending row in place and keeps its due', amended.due === 80_000 && amended.row.type === 'hueco' && amended.row.confirmed === true, JSON.stringify(amended));
+  amend('gone', { confirmed: true });
+  check('amend on an unknown or uploaded row does nothing', pending().length === 1);
+  cancel('e');
+
+  const store = new HazardStore();
+  store.local = [];
+  const det = store.add('policia', { lat: 10.5, lon: -66.9 }, { source: 'detected' });
+  const tapped = store.add('hueco', { lat: 10.5, lon: -66.9 }, { source: 'tap' });
+  check('detected starts unconfirmed, tap starts confirmed', det.confirmed === false && tapped.confirmed === true);
+  check('queued row carries confirmed', pending().find((x) => x.id === det.id)!.row.confirmed === false);
+  const dueBefore = pending().find((x) => x.id === det.id)!.due;
+  const c = store.confirm(det.id);
+  check('confirm makes it a confirmed hueco and amends the queued row', c?.type === 'hueco' && c.confirmed === true && pending().find((x) => x.id === det.id)!.row.type === 'hueco' && pending().find((x) => x.id === det.id)!.due === dueBefore);
+  check('confirm of an unknown id returns undefined', store.confirm('nope') === undefined);
 
   // ---- HUD & Calib profile tests ----
   const camDef = defaultsFor('landscape', 'camera');
