@@ -191,20 +191,30 @@ function refreshHazards() {
   setData('bumps', { type: 'FeatureCollection', features: [...bumpsFromMaqueta, ...all.filter((h) => h.type === 'policia' && h.source !== 'osm').map((h) => point(h, { rot: roadBearing(h, knownWays) }))] });
 }
 
-function watchHere() {
+/** This phone's position when the GPS has given one. */
+export const getHere = () => here;
+
+function setHere(c: GeolocationCoordinates) {
+  const first = !here;
+  here = { lat: c.latitude, lon: c.longitude };
+  if (!map || !ml) return;
+  hereMarker ??= new ml.Marker({ element: pin('mapHere') }).setLngLat([here.lon, here.lat]).addTo(map);
+  hereMarker.setLngLat([here.lon, here.lat]);
+  if (first && !app.dest) map.easeTo({ center: [here.lon, here.lat], zoom: 15 });
+  if (first) void syncDest();
+}
+
+/** High accuracy first (phones); laptops often have no GPS chip, so on failure other than "denied" retry with normal accuracy. */
+function watchHere(highAccuracy = true) {
   if (!('geolocation' in navigator)) return;
-  navigator.geolocation.watchPosition(
-    (p) => {
-      const first = !here;
-      here = { lat: p.coords.latitude, lon: p.coords.longitude };
-      if (!map || !ml) return;
-      hereMarker ??= new ml.Marker({ element: pin('mapHere') }).setLngLat([here.lon, here.lat]).addTo(map);
-      hereMarker.setLngLat([here.lon, here.lat]);
-      if (first && !app.dest) map.easeTo({ center: [here.lon, here.lat], zoom: 15 });
-      if (first) void syncDest();
+  const id = navigator.geolocation.watchPosition(
+    (p) => setHere(p.coords),
+    (e) => {
+      if (e.code === e.PERMISSION_DENIED || !highAccuracy) return;
+      navigator.geolocation.clearWatch(id);
+      watchHere(false);
     },
-    () => {},
-    { enableHighAccuracy: true, maximumAge: 10000 },
+    { enableHighAccuracy: highAccuracy, maximumAge: 10000, timeout: 15000 },
   );
 }
 
