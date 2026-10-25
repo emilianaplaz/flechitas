@@ -3,3 +3,5 @@ dist
 .vercel
 *.local
 __pycache__/
+.env*
+!.env.example

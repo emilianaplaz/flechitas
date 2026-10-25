@@ -1,16 +1,17 @@
 // Destino: the real 2D map seen from above (MapLibre + OpenFreeMap vector tiles, drawn in the app's
 // palette). Shows where you are, the demo zone of the maqueta, hazards and speed bumps, the chosen
-// destination and a preview of the route. Tapping the map picks the destination.
+// destination and a preview of the route. Tapping the map picks the destination, or the origin right
+// after tapping the Desde field.
 // MapLibre (~800 KB) is loaded only when this screen first opens.
 import type { FilterSpecification, GeoJSONSource, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
-import type { LatLon } from '../core/geo.ts';
-import type { MaquetaIndex, Tile } from '../core/maqueta.ts';
+import { bearing, type LatLon } from '../core/geo.ts';
+import type { MaquetaIndex, Tile, TileWay } from '../core/maqueta.ts';
 import { resolveDestination } from '../core/links.ts';
 import { fetchRoute, formatDistance, type Route } from '../core/route.ts';
 import { app } from '../core/state.ts';
 import { $, setText, toast } from '../core/ui.ts';
 import { allHazards, loadHazards } from '../hazards/ui.ts';
-import { onDest, setDestination } from '../setup.ts';
+import { onDest, setDestination, useSimulation } from '../setup.ts';
 
 type Theme = 'dark' | 'light';
 const PALETTE = {
@@ -31,6 +32,9 @@ let zones: Zone[] = [];
 let here: LatLon | null = null; // this phone's position, when the GPS gives it
 let hereMarker: Marker | null = null;
 let destMarker: Marker | null = null;
+let fromMarker: Marker | null = null;
+let pickFrom = false; // the Desde field was tapped last: the next tap on the map places the origin
+let pickHintShown = false;
 let preview: Route | null = null;
 let previewSeq = 0;
 const empty = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] });
@@ -86,7 +90,12 @@ function style(t: Theme): StyleSpecification {
       { id: 'route-case', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': c.bg, 'line-width': 10 } },
       { id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': c.route, 'line-width': 6 } },
       { id: 'holes', type: 'circle', source: 'holes', layout: { visibility: visible.holes ? 'visible' : 'none' }, paint: { 'circle-color': c.haz, 'circle-radius': 6, 'circle-stroke-color': c.bg, 'circle-stroke-width': 2 } },
-      { id: 'bumps', type: 'circle', source: 'bumps', layout: { visibility: visible.bumps ? 'visible' : 'none' }, paint: { 'circle-color': c.bump, 'circle-radius': 5, 'circle-stroke-color': c.bg, 'circle-stroke-width': 2 } },
+      {
+        id: 'bumps',
+        type: 'symbol',
+        source: 'bumps',
+        layout: { visibility: visible.bumps ? 'visible' : 'none', 'icon-image': 'bump-bar', 'icon-rotate': ['coalesce', ['get', 'rot'], 0], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.35, 16, 1] },
+      },
       {
         id: 'road-names',
         type: 'symbol',
@@ -142,7 +151,8 @@ async function loadZones() {
   for (const key of new Set(zones.flatMap((z) => z.tiles))) {
     try {
       const t = (await (await fetch(`/maqueta/16/${key}.json`)).json()) as Tile;
-      for (const s of t.signs) if (s.type === 'bump' || s.type === 'hump' || s.type === 'table') bumps.push(point(s));
+      for (const s of t.signs) if (s.type === 'bump' || s.type === 'hump' || s.type === 'table') bumps.push(point(s, { rot: s.dir ?? roadBearing(s, t.ways) }));
+      knownWays.push(...t.ways);
     } catch {
       /* tile missing: skip */
     }
@@ -152,11 +162,33 @@ async function loadZones() {
   syncDest(); // a destination typed before the zones arrived
 }
 let bumpsFromMaqueta: GeoJSON.Feature[] = [];
+const knownWays: TileWay[] = [];
+
+/** Compass bearing of the road under `p` (its nearest way segment), 0 where no way is known. The bar icon lies east-west, so rotating it by this bearing lays it across the road. */
+function roadBearing(p: LatLon, ways: TileWay[]): number {
+  const kx = Math.cos((p.lat * Math.PI) / 180);
+  let best = 0;
+  let bestD = Infinity;
+  for (const w of ways) {
+    for (let i = 0; i + 1 < w.pts.length; i++) {
+      const [a, b] = [w.pts[i], w.pts[i + 1]];
+      const [ax, ay, bx, by] = [(a[1] - p.lon) * kx, a[0] - p.lat, (b[1] - p.lon) * kx, b[0] - p.lat];
+      const [dx, dy] = [bx - ax, by - ay];
+      const t = dx || dy ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / (dx * dx + dy * dy))) : 0;
+      const d = Math.hypot(ax + t * dx, ay + t * dy);
+      if (d < bestD) {
+        bestD = d;
+        best = bearing({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] });
+      }
+    }
+  }
+  return best;
+}
 
 function refreshHazards() {
   const all = allHazards();
   setData('holes', { type: 'FeatureCollection', features: all.filter((h) => h.type === 'hueco').map((h) => point(h)) });
-  setData('bumps', { type: 'FeatureCollection', features: [...bumpsFromMaqueta, ...all.filter((h) => h.type === 'policia' && h.source !== 'osm').map((h) => point(h))] });
+  setData('bumps', { type: 'FeatureCollection', features: [...bumpsFromMaqueta, ...all.filter((h) => h.type === 'policia' && h.source !== 'osm').map((h) => point(h, { rot: roadBearing(h, knownWays) }))] });
 }
 
 function watchHere() {
@@ -176,14 +208,43 @@ function watchHere() {
   );
 }
 
-/** Where a drive would start: the typed origin in a simulation, else this phone's GPS. */
+/** Where a drive would start: the chosen origin in a simulation, else this phone's GPS. */
 async function origin(): Promise<LatLon | null> {
-  return app.mode === 'sim' && simFrom ? simFrom : here;
+  return app.mode === 'sim' && app.from ? app.from : here;
 }
-let simFrom: LatLon | null = null;
 export function setSimOrigin(p: LatLon | null) {
-  simFrom = p;
+  app.from = p;
   void syncDest();
+}
+
+/** Origin picked on the map (tap or dragged pin): the drive becomes a simulation from that exact point. */
+async function placeOrigin(p: LatLon) {
+  pickFrom = false;
+  const from = $<HTMLInputElement>('from');
+  from.value = 'Punto en el mapa';
+  app.from = p;
+  useSimulation();
+  void syncDest();
+  const name = await placeName(p);
+  if (app.from === p) from.value = name;
+}
+
+/** The origin pin, shown while a simulation starts somewhere other than here. Drag it to move the origin. */
+function syncFromMarker() {
+  if (!map || !ml) return;
+  const p = app.mode === 'sim' ? app.from : null;
+  if (!p) {
+    fromMarker?.remove();
+    return;
+  }
+  if (!fromMarker) {
+    fromMarker = new ml.Marker({ element: pin('mapFrom'), draggable: true });
+    fromMarker.on('dragend', () => {
+      const ll = fromMarker!.getLngLat();
+      void placeOrigin({ lat: ll.lat, lon: ll.lng });
+    });
+  }
+  fromMarker.setLngLat([p.lon, p.lat]).addTo(map);
 }
 
 /** Destination changed (typed, pasted, shared or tapped): pin, zone, route preview, bottom card. */
@@ -191,6 +252,7 @@ async function syncDest() {
   const d = app.dest;
   const zone = destZone();
   setText('startLabel', zone && !app.arrival ? 'Elegir punto exacto' : 'Conducir');
+  syncFromMarker();
   if (!d) {
     destMarker?.remove();
     destMarker = null;
@@ -244,6 +306,23 @@ async function placeName(p: LatLon): Promise<string> {
   }
 }
 
+/** The speed-bump marker: a rounded bar, laid across the road when the sign knows its direction. */
+function bumpIcon(): ImageData {
+  const [w, h] = [56, 24];
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const g = cv.getContext('2d')!;
+  g.beginPath();
+  g.roundRect(3, 3, w - 6, h - 6, (h - 6) / 2);
+  g.fillStyle = PALETTE[theme()].bump;
+  g.fill();
+  g.lineWidth = 3;
+  g.strokeStyle = PALETTE[theme()].bg;
+  g.stroke();
+  return g.getImageData(0, 0, w, h);
+}
+
 function applyTheme() {
   map?.setStyle(style(theme()), { diff: false });
 }
@@ -275,8 +354,16 @@ export function showDestinoMap(): Promise<void> {
     map.addControl(new ml.AttributionControl({ compact: true }), 'top-right');
     if (import.meta.env.DEV) (window as unknown as { __map: MlMap }).__map = map; // for debugging in the browser
     map.touchZoomRotate.disableRotation();
+    // Data that arrived before the style finished loading had no source to go into yet.
+    map.once('load', () => {
+      for (const k of Object.keys(data) as (keyof typeof data)[]) (map!.getSource(k) as GeoJSONSource | undefined)?.setData(data[k]);
+    });
+    map.on('styleimagemissing', (e) => {
+      if (e.id === 'bump-bar' && !map!.hasImage(e.id)) map!.addImage(e.id, bumpIcon(), { pixelRatio: 2 });
+    });
     map.on('click', async (e) => {
       const p = { lat: e.lngLat.lat, lon: e.lngLat.lng };
+      if (pickFrom) return placeOrigin(p);
       setDestination({ point: p, label: 'Punto en el mapa' });
       setDestination({ point: p, label: await placeName(p) }, true);
     });
@@ -293,13 +380,24 @@ export function initDestino() {
   onDest(() => void syncDest());
   // Simulation from a typed origin: the preview starts there too.
   const from = $<HTMLInputElement>('from');
+  from.addEventListener('focus', () => {
+    pickFrom = true;
+    if (!pickHintShown) toast('Escribe el origen o toca el mapa para ponerlo ahí', 3500);
+    pickHintShown = true;
+  });
+  $('dest').addEventListener('focus', () => (pickFrom = false));
   from.addEventListener('change', async () => {
+    pickFrom = false;
     const raw = from.value.trim();
     if (!raw) return setSimOrigin(null);
+    app.from = null; // until the new text is found, so a drive started meanwhile looks it up itself
     try {
-      setSimOrigin((await resolveDestination(raw)).point);
-    } catch {
+      const p = (await resolveDestination(raw)).point;
+      if (from.value.trim() === raw) setSimOrigin(p); // not replaced by a pin meanwhile
+    } catch (e) {
+      if (from.value.trim() !== raw) return;
       setSimOrigin(null);
+      toast(`No encontré el origen: ${(e as Error).message}`, 4000);
     }
   });
   document.querySelectorAll<HTMLInputElement>('input[name=mode]').forEach((r) => r.addEventListener('change', () => void syncDest()));

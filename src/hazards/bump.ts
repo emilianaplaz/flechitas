@@ -1,5 +1,6 @@
 // Detects potholes and speed bumps from the phone's accelerometer.
-// Heuristic, tuned by reasoning rather than field data: the app asks the driver to confirm each hit.
+// Heuristic, tuned by reasoning rather than field data. Nobody confirms a hit, so a jolt is reported only when
+// it is hard AND its shape is unmistakably one or the other; anything in between is dropped.
 import type { HazardType } from './store.ts';
 
 export interface BumpEvent {
@@ -9,11 +10,13 @@ export interface BumpEvent {
   speed: number; // m/s when the jolt began
 }
 
-const START = 2.5; // m/s²: vertical jolt that opens an event
+const START = 3.5; // m/s²: vertical jolt that opens an event (rough asphalt stays below this)
 const QUIET = 1.5; // below this the event is over once it stays there for QUIET_MS
 const QUIET_MS = 120;
 const MAX_EVENT_MS = 600;
-const MIN_PEAK = 4;
+const MIN_PEAK = 5.5; // m/s²: the hardest lobe must reach this, so mild movement is never reported
+const MIN_COUNTER = 2.5; // m/s²: a bump needs a real descent after the lift
+const SHORT_MS = 250; // a pothole is over in less than this; a speed bump (front then rear axle) lasts longer
 const MIN_SPEED = 4; // m/s (~14 km/h): rules out footsteps and a phone being handled
 const REFRACTORY_MS = 3000;
 const GRAVITY_TAU_MS = 1000;
@@ -22,7 +25,7 @@ const GRAVITY_TAU_MS = 1000;
 export class BumpDetector {
   private g: [number, number, number] | null = null;
   private lastT = 0;
-  private open: { t0: number; sign: 1 | -1; peak: number; lastLoud: number; speed: number } | null = null;
+  private open: { t0: number; sign: 1 | -1; up: number; down: number; lastLoud: number; speed: number } | null = null;
   private lastEventT = -Infinity;
 
   feed(tMs: number, ax: number, ay: number, az: number, speed: number): BumpEvent | null {
@@ -43,19 +46,27 @@ export class BumpDetector {
     const mag = Math.abs(v);
 
     if (!this.open) {
-      if (mag >= START) this.open = { t0: tMs, sign: v > 0 ? 1 : -1, peak: mag, lastLoud: tMs, speed };
+      if (mag >= START) this.open = { t0: tMs, sign: v > 0 ? 1 : -1, up: Math.max(v, 0), down: Math.max(-v, 0), lastLoud: tMs, speed };
       return null;
     }
     const e = this.open;
-    e.peak = Math.max(e.peak, mag);
+    e.up = Math.max(e.up, v);
+    e.down = Math.max(e.down, -v);
     if (mag >= QUIET) e.lastLoud = tMs;
     if (tMs - e.lastLoud < QUIET_MS && tMs - e.t0 < MAX_EVENT_MS) return null;
 
     this.open = null;
-    if (e.peak < MIN_PEAK || e.speed < MIN_SPEED || tMs - this.lastEventT < REFRACTORY_MS) return null;
+    const peak = Math.max(e.up, e.down);
+    const dur = e.lastLoud - e.t0;
+    if (peak < MIN_PEAK || e.speed < MIN_SPEED || tMs - this.lastEventT < REFRACTORY_MS) return null;
+    // A pothole drops the phone first and then slams up, all within a quarter second.
+    // A speed bump lifts it first, comes back down, and lasts longer. Mixed shapes are not reported.
+    let type: BumpEvent['type'];
+    if (e.sign < 0 && dur < SHORT_MS && e.up >= MIN_PEAK && e.up > e.down) type = 'hueco';
+    else if (e.sign > 0 && dur >= SHORT_MS && e.down >= MIN_COUNTER) type = 'policia';
+    else return null;
     this.lastEventT = tMs;
-    // A pothole drops the phone first and then slams up; a bump lifts it first.
-    return { type: e.sign > 0 ? 'policia' : 'hueco', peak: e.peak, durationMs: e.lastLoud - e.t0, speed: e.speed };
+    return { type, peak, durationMs: dur, speed: e.speed };
   }
 }
 

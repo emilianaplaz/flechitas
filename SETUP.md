@@ -58,22 +58,12 @@ Then fine-tune the rest by hand:
 
 ## Hazards
 
-Three ways to get a hazard on the map:
+Two ways to get a hazard on the map:
 
 1. **Tap** **⚠ Hueco** or **Policía acostado**. The point is placed about 1.5 s behind you, since you tap after hitting it.
 2. **Automatic detection.** With **Detectar huecos y policías acostados** ticked, the accelerometer notices a jolt above ~14 km/h and asks "¿Qué fue eso?" with a guess selected. Pick Hueco, Policía acostado, or Nada. Needs the phone mounted firmly; on iPhone, accept the motion permission. In Simulación you can shake the phone to test it.
-3. **Demo data you write by hand.** Add entries to `public/hazards.json`:
 
-```json
-[
-  { "id": "demo1", "type": "hueco", "lat": 10.4812, "lon": -66.9021, "createdAt": "2026-10-24T00:00:00Z", "heading": 80 },
-  { "id": "demo2", "type": "policia", "lat": 10.4820, "lon": -66.9005, "createdAt": "2026-10-24T00:00:00Z" }
-]
-```
-
-`type` is `hueco`, `policia` or `alcabala`. `heading` (degrees from north, optional) is the travel direction; without it the hazard shows in both directions. Hazards more than 20 m from the route are ignored.
-
-Reports made with taps or detection stay on that phone. To share them, ⚙ → **Exportar reportes**, then save the file as `public/hazards.json` and deploy.
+Reports upload to the shared database automatically (below) and are also kept on the phone. Hazards more than 20 m from the route are ignored.
 
 ## Shared hazard database (Supabase)
 
@@ -87,6 +77,15 @@ Taps and confirmed detections upload automatically, and everyone's hazards load 
 How it behaves: a reported hazard waits 60 s (so **Deshacer reporte** still works), then uploads. No signal means it stays queued on the phone and retries every 20 s, when the connection returns, and when you end the drive. Every answer to "¿Qué fue eso?" including **Nada** goes to a `detections` table with the sensor numbers, for tuning the detector. With no keys set the app works as before.
 
 The app can add hazards but not edit or delete them. Fix or remove one in the Supabase table editor. The key is public, so anyone with the link can add reports.
+
+## Encontrar: find a place or a person (GPS only)
+
+The **+** button in the bottom bar opens the camera with a marker over each place you want to find, drawn from GPS and the phone's compass. Hold the phone upright; it needs the motion permission on iPhone.
+
+- **Guardar este lugar** drops a pin where you stand ("Lugar 1", …, kept on this phone, up to 8). Walk back toward it by following the marker; ✕ in the list deletes it.
+- **Ver a alguien** shows a 6-digit code and **Enviar enlace**. The other person opens the link (or types the code under **Compartir la mía**) and taps **Compartir mi ubicación**; you then see them as "Persona" on the camera, with their distance. They must keep that screen open: a sleeping screen stops their GPS.
+
+Accuracy is that of GPS, about 3–10 m in the open and worse between tall buildings or indoors; the marker says "±N m" when a fix is poor. Indoors and in garages it won't work. The link uses PeerJS's public broker like the iPad HUD, with no TURN server, so two phones on some mobile networks may not connect.
 
 ## Share from Google Maps / Waze (Android)
 
@@ -106,6 +105,7 @@ Source is split by module so teammates can work in parallel. Each folder has one
 - `src/remote/`: phone ↔ iPad link. `protocol.ts` code and messages, `phoneLink.ts` the phone side (route, fixes, tilt), `hudLink.ts` the iPad side, `orient.ts` tilt relative to the mounted phone
 - `src/signs/`: road signs from the maqueta. `store.ts` signs of the current route, `ahead.ts` which ones apply to our street and direction. Navigation only calls `setSigns`, `signsAheadOf`, `clearSigns`
 - `src/hazards/`: hazard mapping. `store.ts`, `cloud.ts` sync, `bump.ts` accelerometer detection, `ahead.ts` hazards along a route, `ui.ts` reporting UI. Navigation only calls `reindexHazards`, `aheadOf`, `trackPosition`
+- `src/find/`: Encontrar (the + button). `aim.ts` where a place lands on the camera from GPS + compass + tilt, `pins.ts` saved places, `protocol.ts` + `link.ts` sharing a live location by 6-digit code over PeerJS, `ui.ts` the screen
 - `api/expand.ts`: serverless function that expands `maps.app.goo.gl` links
 - `scripts/maqueta/`: builds the map tiles in `public/maqueta/` (see below and [MAQUETA.md](MAQUETA.md))
 - `pipeline3d/`: phone video → textured 3D street model (COLMAP + OpenMVS), step by step in [pipeline3d/README.md](pipeline3d/README.md)

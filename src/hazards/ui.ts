@@ -4,17 +4,16 @@
 import type { LatLon } from '../core/geo.ts';
 import type { TileSign } from '../core/maqueta.ts';
 import { app } from '../core/state.ts';
-import { $, download, toast } from '../core/ui.ts';
+import { $, toast } from '../core/ui.ts';
 import { hazardsAhead, indexOnRoute, type RouteHazard } from './ahead.ts';
 import { BumpWatcher, type BumpEvent } from './bump.ts';
-import { cloudEnabled, enqueue, flush } from './cloud.ts';
+import { cloudEnabled, flush } from './cloud.ts';
 import { HAZARD_LABEL, HazardStore, type HazardType } from './store.ts';
 
 const hazards = new HazardStore();
 let onRoute: RouteHazard[] = [];
 let watcher: BumpWatcher | null = null;
 let trail: { t: number; p: LatLon }[] = [];
-let detectTimer = 0;
 let syncTimer = 0;
 
 /** Recompute which hazards lie on the current route. Call after the route or the store changes. */
@@ -33,11 +32,10 @@ export function setOsmHazards(signs: TileSign[]) {
   reindexHazards();
 }
 
-/** Every known hazard (seeds, shared, this phone's), for the map. */
+/** Every known hazard (shared, this phone's), for the map. */
 export const allHazards = () => hazards.all();
 
 export async function loadHazards() {
-  await hazards.loadSeeds();
   await hazards.loadShared();
 }
 
@@ -55,41 +53,15 @@ function positionAgo(ms: number): LatLon | null {
   return found;
 }
 
-function closeDetect() {
-  clearTimeout(detectTimer);
-  $('detect').hidden = true;
-}
-
+/** Nobody answers a prompt while driving: a hit that clears the detector's thresholds is saved as is. */
 function onBump(e: BumpEvent) {
-  if (!$('detect').hidden) return;
-  const here = app.source?.current(performance.now())?.p;
+  // The event ends after the hit; the hazard sits about half its length (plus the quiet wait) behind us.
+  const here = positionAgo(e.durationMs / 2 + 120) ?? app.source?.current(performance.now())?.p;
   if (!here) return;
-  const heading = Math.round(app.yaw);
-  $('detect').querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('suggested', b.dataset.detect === e.type));
-  $('detect').hidden = false;
+  hazards.add(e.type, here, { heading: Math.round(app.yaw), source: 'detected' });
+  reindexHazards();
   navigator.vibrate?.(40);
-  const answer = (choice: string) => {
-    closeDetect();
-    // Every answer, including "Nada", is a labelled example for tuning the detector.
-    const cid = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
-    enqueue(
-      'detections',
-      { client_id: cid, guess: e.type, answer: choice, peak: +e.peak.toFixed(2), duration_ms: Math.round(e.durationMs), speed: +e.speed.toFixed(2), lat: +here.lat.toFixed(6), lon: +here.lon.toFixed(6), heading },
-      cid,
-      Date.now(),
-      0,
-    );
-    if (choice === 'hueco' || choice === 'policia') {
-      hazards.add(choice, here, { heading, source: 'detected' });
-      reindexHazards();
-      toast(`${HAZARD_LABEL[choice]} guardado. ¡Gracias!`);
-    }
-  };
-  $('detect').onclick = (ev) => {
-    const choice = (ev.target as HTMLElement).closest<HTMLElement>('[data-detect]')?.dataset.detect;
-    if (choice) answer(choice);
-  };
-  detectTimer = window.setTimeout(closeDetect, 8000);
+  toast(`${HAZARD_LABEL[e.type]} guardado`);
 }
 
 /** Call inside the tap handler: iOS only shows the motion permission prompt there. */
@@ -112,7 +84,6 @@ export function startCloudSync() {
 
 export function stopHazards() {
   stopBumpWatcher();
-  closeDetect();
   clearInterval(syncTimer);
   void flush({ force: true });
   trail = [];
@@ -131,10 +102,6 @@ export function initHazardUi() {
       navigator.vibrate?.(60);
     }),
   );
-  $('exportHazards').onclick = () => {
-    download(new Blob([hazards.exportJson()], { type: 'application/json' }), 'hazards.json');
-    toast('Copia ese archivo a public/hazards.json para que todos lo vean');
-  };
   $('undoReport').onclick = () => {
     const h = hazards.undoLast();
     reindexHazards();

@@ -56,7 +56,7 @@
         </div>
         <div class="layerChips" role="group" aria-label="Capas del mapa">
           <button id="layerHoles" class="layerChip haz" type="button" aria-pressed="true"><span class="dot" aria-hidden="true"></span>Huecos</button>
-          <button id="layerBumps" class="layerChip bump" type="button" aria-pressed="true"><span class="bar" aria-hidden="true"></span>Reductores</button>
+          <button id="layerBumps" class="layerChip bump" type="button" aria-pressed="true"><span class="bar" aria-hidden="true"></span>Policías acostados</button>
         </div>
         <div class="destCard surface">
           <div class="dcText">
@@ -83,7 +83,10 @@
             <span class="mqTitleTop">Maqueta</span>
             <span id="mqZone" class="muted">Zona demo · toca un edificio</span>
           </div>
-          <button id="mqRotate" class="roundBtn" type="button" aria-label="Girar la maqueta">
+          <button id="mqCompass" class="roundBtn" type="button" aria-label="Poner el norte arriba" title="Norte arriba">
+            <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><g id="mqNorth" class="mqNorth"><path d="M12 3 L15.5 12 H8.5 Z" class="needleN" /><path d="M12 21 L8.5 12 H15.5 Z" class="needleS" /></g></svg>
+          </button>
+          <button id="mqRotate" class="roundBtn" type="button" aria-label="Girar la maqueta 90 grados" title="Girar 90°">
             <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" class="icoLink"><path d="M20 12 A8 8 0 1 1 15 4.6 M20 4 V9 H15" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </button>
         </header>
@@ -167,7 +170,7 @@
         <h2 class="secTitle">OPCIONES</h2>
         <label class="check">
           <input id="detectBumps" type="checkbox" checked />
-          <span><b>Detectar huecos y policías acostados</b><small>Con el acelerómetro. Te pregunta qué fue para confirmar.</small></span>
+          <span><b>Detectar huecos y policías acostados</b><small>Con el acelerómetro. Se guarda solo, sin preguntarte; ignora los baches leves.</small></span>
         </label>
         <input id="useSensors" type="checkbox" hidden />
 
@@ -195,11 +198,47 @@
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="12" height="14" rx="2.5" fill="none" stroke-width="2" /><rect x="15" y="8" width="6" height="11" rx="1.5" fill="none" stroke-width="2" /></svg>
           Dispositivos
         </button>
-        <button type="button" class="fab" disabled aria-label="Registrar un lugar (pronto)">
+        <button id="findOpen" type="button" class="fab" aria-label="Encontrar: guardar un lugar o ver a alguien">
           <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 4 V22 M4 13 H22" stroke-width="3.2" stroke-linecap="round" /></svg>
         </button>
-        <span class="fabLabel" aria-hidden="true">Registrar</span>
+        <span class="fabLabel" aria-hidden="true">Encontrar</span>
       </nav>
+    </section>
+
+    <!-- Encontrar: camera with a marker on saved places and on one person sharing their location -->
+    <section id="find" hidden>
+      <div id="fMarks" class="fMarks" aria-hidden="true"></div>
+      <div class="fTop">
+        <button id="fClose" class="roundBtn dark" type="button" aria-label="Cerrar">
+          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </button>
+        <span id="fGps" class="chip">Buscando GPS…</span>
+        <span id="fCompass" class="chip warn" hidden>Sin brújula</span>
+      </div>
+      <div id="fWatchBox" class="fWatch surface" hidden>
+        <div class="fWatchHead">
+          <div>
+            <span class="muted">Código para compartir</span>
+            <output id="fCode" class="fCode">··· ···</output>
+          </div>
+          <button id="fInvite" class="ghost" type="button">Enviar enlace</button>
+        </div>
+        <p id="fWatchState" class="fState"></p>
+      </div>
+      <div id="fBottom" class="fBottom surface">
+        <div id="fList" class="fList" hidden></div>
+        <div id="fShareBox" class="fBox" hidden>
+          <label for="fShareCode" class="muted">Código de quien te busca</label>
+          <input id="fShareCode" type="text" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="000 000" />
+          <p id="fShareState" class="fState"></p>
+          <button id="fShareBtn" class="primary" type="button">Compartir mi ubicación</button>
+        </div>
+        <div class="fActions">
+          <button id="fDrop" class="primary" type="button">Guardar este lugar</button>
+          <button id="fSee" class="ghost" type="button">Ver a alguien</button>
+          <button id="fShareOpen" class="ghost" type="button">Compartir la mía</button>
+        </div>
+      </div>
     </section>
 
     <!-- iPad as the windshield HUD: shows a code, the phone does the rest -->
@@ -241,15 +280,6 @@
         </div>
         <div id="hazardBanner" hidden></div>
         <div id="arrived" hidden>Llegaste</div>
-      </div>
-
-      <div id="detect" class="card" hidden>
-        <div id="detectTitle">¿Qué fue eso?</div>
-        <div class="row">
-          <button data-detect="hueco">Hueco</button>
-          <button data-detect="policia">Policía acostado</button>
-          <button data-detect="none" class="ghost">Nada</button>
-        </div>
       </div>
 
       <div id="rightBtns">
@@ -333,7 +363,6 @@
           <summary>Más</summary>
           <div class="moreBtns">
             <button id="undoReport" class="ghost">Deshacer reporte</button>
-            <button id="exportHazards" class="ghost">Exportar reportes</button>
           </div>
         </details>
         <button id="calibClose" class="primary">Listo</button>

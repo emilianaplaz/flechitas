@@ -25,6 +25,7 @@ import { normalizeCode } from './remote/protocol.ts';
 import { resolveDestInput, initSetupScreen } from './setup.ts';
 import { destZone, initDestino } from './ui/destino.ts';
 import { initMaqueta, prepareMaqueta } from './ui/maqueta.ts';
+import { initFind } from './find/ui.ts';
 import { go, initShell } from './ui/shell.ts';
 import { setDestination } from './setup.ts';
 import { clearSigns, setSigns, signsAheadOf } from './signs/store.ts';
@@ -102,6 +103,7 @@ if (hudRole) {
   // Phone: link to the iPad by the code it shows; the HUD then follows every drive.
   initShell();
   initDestino();
+  initFind();
   // Maqueta: "Confirmar punto y conducir" sets the exact arrival point and starts the drive.
   initMaqueta(({ arrival, label }) => {
     setDestination({ point: { lat: arrival.lat, lon: arrival.lon }, label }, false, arrival);
@@ -345,6 +347,8 @@ function frame(now: number) {
     elevAlong: maqueta?.profile?.at ?? null,
     signs: signsAheadOf(nav.along),
     arrival: app.arrival ? { p: { lat: app.arrival.lat, lon: app.arrival.lon }, outline: app.arrival.outline, height: app.arrival.height } : null,
+    // Simulación: the street in 3D from the maqueta wherever there is one, instead of the camera.
+    scenery: app.mode === 'sim' ? (maqueta?.tiles ?? null) : null,
   });
   renderHud({
     route,

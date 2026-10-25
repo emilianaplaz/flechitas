@@ -10,6 +10,7 @@ const mem = new Map<string, string>();
 } as Storage;
 import { cancel, enqueue, flush, pending } from '../src/hazards/cloud.ts';
 import { BumpDetector } from '../src/hazards/bump.ts';
+import { clusterHazards } from '../src/hazards/cluster.ts';
 import { poseFromEuler } from '../src/walk/orientation.ts';
 import { describe, formatDistance } from '../src/core/route.ts';
 import { defaultsFor, loadCalib, loadFlip, saveCalib, saveFlip } from '../src/render/calib.ts';
@@ -20,6 +21,9 @@ import { Vector3, Vector4 } from 'three';
 import { FORTUNER_2015, applyHomography, buildOptics, mirrorCamera, panelTransform, placementAdvice, reflectMatrix, virtualImage, worldToCss } from '../src/render/optics.ts';
 import { RouteProfile, gridPoint, limitAt, speedLimits, tileElevation, tileOf, tileToLatLon, tileXY, type Tile, type TileSign, type TileWay } from '../src/core/maqueta.ts';
 import { indexSigns, signsAhead } from '../src/signs/ahead.ts';
+import { aim, lensOnScreen, onEdge } from '../src/find/aim.ts';
+import { ageLabel, codeFromSearch, findPeerId, parsePos, shareLink } from '../src/find/protocol.ts';
+import { MAX_PINS, addPin, loadPins, removePin } from '../src/find/pins.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -133,23 +137,55 @@ function drive(profile: (t: number) => number, speed = 10, seconds = 3): ReturnT
 }
 const events = (r: ReturnType<typeof drive>) => r.filter((e) => e !== null);
 const pulse = (t: number, at: number, len: number, amp: number) => (t >= at && t < at + len ? amp : 0);
-let ev = events(drive((t) => pulse(t, 1000, 60, -3.5) + pulse(t, 1060, 60, 7)));
+const hole = (at = 1000) => (t: number) => pulse(t, at, 60, -4) + pulse(t, at + 60, 60, 8);
+const speedBump = (t: number) => pulse(t, 1000, 150, 4) + pulse(t, 1150, 150, -4) + pulse(t, 1300, 80, 6);
+let ev = events(drive(hole()));
 check('pothole: drop then hard hit', ev.length === 1 && ev[0]!.type === 'hueco', JSON.stringify(ev));
-ev = events(drive((t) => pulse(t, 1000, 100, 3.2) + pulse(t, 1100, 100, -3.2) + pulse(t, 1200, 60, 5)));
-check('speed bump: rise first', ev.length === 1 && ev[0]!.type === 'policia', JSON.stringify(ev));
+ev = events(drive(speedBump));
+check('speed bump: lift first, longer', ev.length === 1 && ev[0]!.type === 'policia', JSON.stringify(ev));
 check('road noise is ignored', events(drive((t) => 1.2 * Math.sin(t / 40))).length === 0);
-check('too slow (walking) is ignored', events(drive((t) => pulse(t, 1000, 60, -3.5) + pulse(t, 1060, 60, 7), 1.4)).length === 0);
+check('rough asphalt (peaks ~4) is ignored', events(drive((t) => pulse(t, 1000, 60, -3.6) + pulse(t, 1060, 60, 4.2))).length === 0);
+check('too slow (walking) is ignored', events(drive(hole(), 1.4)).length === 0);
 check('weak bump below threshold is ignored', events(drive((t) => pulse(t, 1000, 100, 3))).length === 0);
-ev = events(drive((t) => pulse(t, 1000, 60, -3.5) + pulse(t, 1060, 60, 7) + pulse(t, 1700, 60, -3.5) + pulse(t, 1760, 60, 7), 10, 4));
+check('short lift-first jolt is neither, not reported', events(drive((t) => pulse(t, 1000, 60, 4) + pulse(t, 1060, 60, -3) + pulse(t, 1120, 60, 6))).length === 0);
+check('long drop-first jolt is neither, not reported', events(drive((t) => pulse(t, 1000, 150, -4) + pulse(t, 1150, 150, 4) + pulse(t, 1300, 80, 8))).length === 0);
+ev = events(drive((t) => hole(1000)(t) + hole(1700)(t), 10, 4));
 check('two hits within 3 s count once', ev.length === 1, String(ev.length));
 const flipped = new BumpDetector();
 let flippedEv: unknown[] = [];
 for (let t = 0; t <= 3000; t += 16) {
-  const a = -(9.81 + pulse(t, 1000, 60, -3.5) + pulse(t, 1060, 60, 7)); // iOS reports the opposite sign
+  const a = -(9.81 + hole()(t)); // iOS reports the opposite sign
   const e = flipped.feed(t, 0, 0, a, 10);
   if (e) flippedEv.push(e);
 }
 check('same result with inverted sign convention (iOS)', flippedEv.length === 1 && (flippedEv[0] as { type: string }).type === 'hueco', JSON.stringify(flippedEv));
+
+// ---- merging reports of the same hazard ----
+{
+  const H = (id: string, type: 'hueco' | 'policia', dLat: number, createdAt: string, extra: Record<string, unknown> = {}) => ({ id, type, lat: 10.5 + dLat, lon: -66.9, createdAt, ...extra });
+  const now = Date.parse('2026-10-24T00:00:00Z');
+  const day = (n: number) => new Date(now - n * 86_400_000).toISOString();
+  let m = clusterHazards([H('a', 'hueco', 0, day(3)), H('b', 'hueco', 0.00005, day(2)), H('c', 'hueco', 0.0001, day(1))], now); // ~5.5 m apart
+  check('three nearby huecos become one with 3 confirmations', m.length === 1 && m[0]!.confirmations === 3, JSON.stringify(m));
+  m = clusterHazards([H('a', 'hueco', 0, day(1)), H('b', 'hueco', 0.0003, day(1))], now); // ~33 m
+  check('far apart stay separate', m.length === 2);
+  m = clusterHazards([H('a', 'hueco', 0, day(1)), H('b', 'policia', 0, day(1))], now);
+  check('different types never merge', m.length === 2);
+  m = clusterHazards([H('a', 'policia', 0, day(1), { heading: 0 }), H('b', 'policia', 0, day(1), { heading: 180 })], now);
+  check('opposite directions stay separate', m.length === 2);
+  m = clusterHazards([H('a', 'policia', 0, day(1), { heading: 10 }), H('b', 'policia', 0.00003, day(1))], now);
+  check('a report without heading merges with one that has it', m.length === 1 && m[0]!.heading === 10);
+  m = clusterHazards([H('a', 'hueco', 0, day(100))], now);
+  check('hueco expires after 90 days unseen', m.length === 0);
+  m = clusterHazards([H('a', 'hueco', 0, day(100)), H('b', 'hueco', 0.00003, day(5))], now);
+  check('a fresh report keeps an old hueco alive', m.length === 1 && m[0]!.confirmations === 2);
+  m = clusterHazards([H('a', 'policia', 0, day(200))], now);
+  check('bump still valid after 200 days', m.length === 1);
+  m = clusterHazards([H('a', 'policia', 0, day(400))], now);
+  check('bump expires after a year unseen', m.length === 0);
+  m = clusterHazards([H('osm1', 'policia', 0, '', { source: 'osm' }), H('r', 'policia', 0.00005, day(400))], now);
+  check('mapped bump never expires, keeps its exact point and absorbs reports', m.length === 1 && m[0]!.id === 'osm1' && m[0]!.lat === 10.5 && m[0]!.confirmations === 2, JSON.stringify(m));
+}
 
 // ---- upload queue ----
 await (async () => {
@@ -489,6 +525,99 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
   const box: [number, number, number, number] = [base.lat - 0.0001, base.lon - 0.0001, near1.lat, near1.lon];
   const found = buildingsIn([t(list), t([list[0]]), t()], box).map((b) => b.id).join();
   check('buildings: buildingsIn by bbox, each once, old tiles ok', found === 'osm:w1,ms:a', found);
+}
+
+// ---- find: where a place lands on the camera picture ----
+{
+  const me = caracas;
+  const screen = { w: 400, h: 800 };
+  const lens = { hfov: 60, vfov: 90 };
+  const level = { yaw: 0, pitch: 0 };
+  const ahead = aim(me, offset(me, 0, 20), level, lens, screen);
+  check('aim: straight ahead is centred and visible', near(ahead.x, 200, 0.5) && ahead.visible && near(ahead.dist, 20, 0.2));
+  check('aim: a spot on the floor sits below the horizon', ahead.y > 400, String(ahead.y));
+  const far = aim(me, offset(me, 0, 200), level, lens, screen);
+  check('aim: farther spots climb toward the horizon', far.y < ahead.y && far.y > 400);
+  const right = aim(me, offset(me, 20, 20), level, lens, screen);
+  check('aim: 20° to the right lands right of centre', right.x > 200 && near(right.rel, 20, 0.5));
+  const edge = aim(me, offset(me, 30, 20), level, lens, screen);
+  check('aim: half the field of view lands on the screen edge', near(edge.x, 400, 1), String(edge.x));
+  const side = aim(me, offset(me, 60, 20), level, lens, screen);
+  check('aim: outside the field of view is not visible', !side.visible && side.x > 400);
+  const behind = aim(me, offset(me, 180, 20), level, lens, screen);
+  check('aim: behind the camera is not visible, and far off', !behind.visible && Math.abs(behind.x) > 2000);
+  const down = aim(me, offset(me, 0, 20), { yaw: 0, pitch: 30 }, lens, screen);
+  check('aim: looking further down pushes the floor spot up the screen', down.y < ahead.y);
+  const turned = aim(me, offset(me, 0, 20), { yaw: 350, pitch: 0 }, lens, screen);
+  check('aim: turning the phone left moves the spot right', turned.x > ahead.x && near(turned.rel, 10, 0.5));
+  check('aim: standing on the spot is not a division by zero', Number.isFinite(aim(me, me, level, lens, screen).y));
+  const pinned = onEdge(side, screen, 50);
+  check('onEdge: clamps inside the margin', pinned.x === 350 && pinned.y >= 50 && pinned.y <= 750);
+  const portrait = lensOnScreen(1080, 1920, { w: 390, h: 844 }, 63);
+  check('lensOnScreen: portrait phone sees less across than up', portrait.hfov < portrait.vfov && portrait.hfov > 30 && portrait.vfov < 100, JSON.stringify(portrait));
+}
+
+// ---- find: sharing a position ----
+{
+  check('parsePos: accepts a position', parsePos({ t: 'pos', lat: 10.5, lon: -66.9, acc: 8 })?.acc === 8);
+  check('parsePos: accuracy is optional', parsePos({ t: 'pos', lat: 10.5, lon: -66.9, acc: null })?.acc === null);
+  check('parsePos: rejects other messages', parsePos({ t: 'ping' }) === null && parsePos(null) === null && parsePos('x') === null);
+  check('parsePos: rejects strings and out-of-range numbers', parsePos({ t: 'pos', lat: '10', lon: 5 }) === null && parsePos({ t: 'pos', lat: 91, lon: 0 }) === null && parsePos({ t: 'pos', lat: 0, lon: NaN }) === null);
+  check('share link round trip', codeFromSearch(new URL(shareLink('https://x.app', '123456')).search) === '123456');
+  check('share link: ignores a malformed code', codeFromSearch('?comparte=12') === null && codeFromSearch('') === null);
+  check('findPeerId differs from the HUD ids', findPeerId('123456') === 'viaar-find-123456' && findPeerId('123456') !== hudPeerId('123456'));
+  check('ageLabel', ageLabel(12_000) === 'hace 12 s' && ageLabel(180_000) === 'hace 3 min');
+}
+
+// ---- find: saved places ----
+{
+  mem.clear();
+  const a = addPin({ lat: 1, lon: 2 }, 5, 1000);
+  const b = addPin({ lat: 3, lon: 4 }, null, 2000);
+  check('pins: saved and numbered', a.label === 'Lugar 1' && b.label === 'Lugar 2' && loadPins().length === 2);
+  removePin(a.id);
+  check('pins: removing keeps the others and the next number moves on', loadPins().length === 1 && addPin({ lat: 5, lon: 6 }, 1, 3000).label === 'Lugar 3');
+  for (let i = 0; i < MAX_PINS + 3; i++) addPin({ lat: i, lon: i }, 1, 4000 + i);
+  check('pins: capped, oldest dropped', loadPins().length === MAX_PINS);
+  mem.set('ar-nav.pins', '{not json');
+  check('pins: unreadable storage means none', loadPins().length === 0);
+  mem.set('ar-nav.pins', JSON.stringify([{ id: 'x', label: 'a', p: { lat: 'bad' } }]));
+  check('pins: drops malformed entries', loadPins().length === 0);
+}
+
+// ---- elevation across tile edges: neighbours that disagree are blended, no step ----
+{
+  const { elevationIn } = await import('../src/core/maqueta.ts');
+  const flat = (x: number, h: number): Tile => ({ v: 1, tile: [16, x, 30843], built: '', sources: [], elev: { rows: 3, cols: 3, z: Array(9).fill(h) }, signs: [], ways: [] });
+  const elev = elevationIn([flat(20597, 0), flat(20598, 10)]);
+  const at = (x: number) => elev(tileToLatLon(x, 30843.5))!;
+  check('seam: each tile keeps its height away from the edge', near(at(20597.2), 0, 1e-6) && near(at(20598.8), 10, 1e-6));
+  check('seam: halfway on the shared edge', near(at(20598), 5, 1e-6), String(at(20598)));
+  let jump = 0;
+  for (let x = 20597.5; x < 20598.5; x += 0.001) jump = Math.max(jump, Math.abs(at(x + 0.001) - at(x)));
+  check('seam: continuous across the edge', jump < 0.05, String(jump));
+  check('seam: nothing far from every tile', elev(tileToLatLon(20600, 30843.5)) === null);
+}
+
+// ---- scenery: the maqueta as the 3D street in Simulación ----
+{
+  const { readFileSync } = await import('node:fs');
+  const { Scenery } = await import('../src/render/scenery.ts');
+  const tiles = ['20597/30843', '20598/30843'].map((k) => JSON.parse(readFileSync(`public/maqueta/16/${k}.json`, 'utf8')) as Tile);
+  const sc = new Scenery();
+  check('scenery: builds from real tiles', sc.set(tiles) && sc.set(tiles));
+  const at = { lat: 10.5108, lon: -66.8519 }; // San Juan Bosco, inside 20597/30843
+  check('scenery: covers its tiles only', sc.covers(at) && !sc.covers(caracas));
+  const meshes: { geometry: { getAttribute(n: string): { count: number } } }[] = [];
+  sc.scene.traverse((o) => 'geometry' in o && meshes.push(o as never));
+  check('scenery: terrain, streets, lines and buildings', meshes.length === 4 && meshes.every((m) => m.geometry.getAttribute('position').count > 0), String(meshes.length));
+  // Placed under the car, the ground there is at height 0 (terrain's own height when no profile).
+  sc.place(at, null);
+  const { Raycaster, Vector3 } = await import('three');
+  sc.scene.updateMatrixWorld();
+  const hit = new Raycaster(new Vector3(0, 200, 0), new Vector3(0, -1, 0)).intersectObject(sc.scene.children.at(-1)!, true).at(-1);
+  check('scenery: ground under the car at 0', !!hit && near(hit.point.y, 0, 0.3), String(hit?.point.y));
+  check('scenery: no tiles, nothing to draw', !sc.set(null) && !sc.covers(at));
 }
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');

@@ -12,6 +12,7 @@
   --link: #7db2ff;
   --sel: #10346b;
   --route: #4b86f5;
+  --origin: #22e07a; /* where a drive starts, on the map and in the search card; the destination is --pri */
   --haz: #ffe14d;
   --bump: #ff6fb5;
   --mbg: #031017;
@@ -45,6 +46,7 @@
     --link: #1457c7;
     --sel: #dce8fb;
     --route: #1a56c4;
+    --origin: #14a356;
     --haz: #a87c00;
     --bump: #c71f6e;
     --mbg: #e6eef3;
@@ -184,10 +186,9 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .searchRows { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .sRow { display: flex; gap: 10px; align-items: center; }
 .sRow svg { flex: none; }
-.icoOrigin { fill: none; stroke: var(--route); }
+.icoOrigin { fill: none; stroke: var(--origin); }
 .icoDest { fill: var(--pri); stroke: none; }
 .icoDestDot { fill: var(--onpri); stroke: none; }
-#from:disabled { opacity: 1; border-style: dashed; }
 
 .modeRow {
   position: absolute;
@@ -243,6 +244,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 
 /* map markers and attribution */
 .mapHere { width: 20px; height: 20px; border-radius: 50%; background: var(--route); border: 4px solid #fff; box-shadow: 0 0 0 6px rgba(75, 134, 245, 0.25); }
+.mapFrom { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 6px solid var(--origin); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45); cursor: grab; }
 .mapDest { width: 30px; height: 40px; background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 40'%3E%3Cpath d='M15 1C7.3 1 1 7.2 1 14.9 1 25.4 15 39 15 39s14-13.6 14-24.1C29 7.2 22.7 1 15 1z' fill='%232563EB' stroke='%23fff' stroke-width='2'/%3E%3Ccircle cx='15' cy='15' r='5' fill='%23fff'/%3E%3C/svg%3E"); }
 .map .maplibregl-ctrl-top-right { top: calc(max(16px, env(safe-area-inset-top)) + 248px); }
 .map .maplibregl-ctrl-attrib { background: var(--surf); color: var(--muted); }
@@ -269,6 +271,9 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .mqLabels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .mqHead { position: absolute; top: max(16px, env(safe-area-inset-top)); left: 16px; right: 16px; display: flex; align-items: center; gap: 12px; }
 .mqHead .phText { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.mqNorth { transform-origin: 12px 12px; transform-box: view-box; }
+.needleN { fill: var(--warn); }
+.needleS { fill: var(--muted); }
 .mqTitleTop { font-size: 18px; font-weight: 800; line-height: 1.1; }
 .mqHead .muted { font-size: 13px; }
 .mqCard { position: absolute; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom) + 14px); padding: 16px; border-radius: 28px; display: flex; flex-direction: column; gap: 12px; }
@@ -529,20 +534,6 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .etaKm { font-size: 15px; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .etaBtns { display: flex; gap: 10px; }
 
-#detect {
-  left: 50%;
-  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 150px);
-  transform: translateX(-50%);
-  padding: 12px 14px;
-  text-align: center;
-  pointer-events: auto;
-}
-#detectTitle { font-size: 15px; font-weight: 800; margin-bottom: 8px; }
-#detect button { background: var(--amber); color: #2a1a00; padding: 10px 12px; font-size: 14px; }
-#detect button[data-detect='hueco'] { background: var(--warn); color: #fff; }
-#detect button.ghost { background: transparent; color: var(--text); }
-#detect button.suggested { outline: 3px solid var(--text); }
-
 @media (orientation: portrait) {
   .driveBottom { flex-direction: column; align-items: stretch; }
   .reportRow { margin-right: 0; }
@@ -552,8 +543,6 @@ h2 { margin: 0 0 4px; font-size: 20px; }
   #maneuver { right: max(12px, env(safe-area-inset-right)); max-width: none; }
   #stats { top: calc(max(12px, env(safe-area-inset-top)) + 150px); }
   #hazardBanner { top: calc(max(12px, env(safe-area-inset-top)) + 150px); }
-  #detect { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 260px); width: calc(100vw - 24px); }
-  #detect .row { flex-wrap: wrap; justify-content: center; }
 }
 @media (max-width: 520px) {
   .modes { grid-template-columns: 1fr; }
@@ -607,7 +596,7 @@ body.hud-mode .etaBtns button { min-height: 44px; padding: 8px 16px; opacity: 0.
 @media (orientation: landscape) {
   .dock { left: auto; right: max(10px, env(safe-area-inset-right)); transform: none; width: min(340px, 44vw); }
 }
-body.calibrating #driveBottom, body.calibrating #rightBtns, body.calibrating #detect { display: none; }
+body.calibrating #driveBottom, body.calibrating #rightBtns { display: none; }
 .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
 .dock .chip { background: transparent; color: var(--text); border: 2px solid var(--line); }
@@ -695,3 +684,78 @@ body:has(#hud:not([hidden])) #toast { bottom: auto; top: 40%; }
 .hgReadout p { margin: 0 0 6px; }
 .hgReadout b { color: var(--text); }
 .hgFine { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+
+/* ---------- Encontrar: markers over the camera, saved places, a person sharing ---------- */
+#find { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+#find button, #find input { pointer-events: auto; }
+#find.shareOnly { background: var(--bg); }
+.fMarks { position: absolute; inset: 0; overflow: hidden; }
+.fMark { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+.fTag {
+  position: absolute;
+  bottom: 30px;
+  left: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 800;
+  background: rgba(3, 16, 23, 0.82);
+  color: #fff;
+  border: 2px solid var(--glass);
+}
+.fMark.person .fTag { border-color: var(--amber); }
+.fPole { position: absolute; left: -1.5px; bottom: 0; width: 3px; height: 30px; background: var(--glass); border-radius: 2px; box-shadow: 0 0 10px var(--glass); }
+.fMark.person .fPole { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+.fMark.off .fPole { display: none; }
+.fMark.off .fTag { bottom: 0; transform: translate(-50%, 50%); }
+.fMark.stale { opacity: 0.55; }
+.fTop {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.chip.warn { border-color: var(--amber); color: var(--amber); }
+.fBottom {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  max-height: 60dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 24px;
+}
+.fList { display: flex; flex-direction: column; gap: 4px; }
+.fRow { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.fName { flex: 1; font-weight: 800; }
+.fDist { font-weight: 700; }
+.fX { padding: 8px 12px; color: var(--muted); }
+.fBox { display: flex; flex-direction: column; gap: 6px; }
+.fWatch {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 58px);
+  left: 12px;
+  right: 12px;
+  padding: 12px 14px;
+  border-radius: 20px;
+}
+.fWatchHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fWatchHead .muted { font-size: 13px; }
+.fWatchHead button { flex: none; min-height: 44px; padding: 8px 14px; }
+.fCode { display: block; font-size: 30px; font-weight: 800; letter-spacing: 0.08em; }
+.fState { margin: 0; font-size: 14px; color: var(--muted); min-height: 1.2em; }
+#fShareCode { padding: 12px 14px; font-size: 22px; font-weight: 800; letter-spacing: 0.08em; border-radius: 14px; border: 2px solid var(--line); background: transparent; }
+.fActions { display: flex; gap: 8px; }
+.fActions button { flex: 1; min-height: 48px; padding: 8px; font-size: 14px; }
+.fActions button.primary { flex: 1.3; font-size: 14px; }
+#find.shareOnly .fActions, #find.shareOnly .fList, #find.shareOnly .fMarks { display: none; }
+body:has(#find:not([hidden])) #toast { bottom: auto; top: 40%; }
