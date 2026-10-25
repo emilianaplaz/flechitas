@@ -20,7 +20,7 @@ Out of scope for now: native apps, dedicated HUD hardware, combiner film, lane d
 Primary user: a driver in a city with poor road data and poor road surface (the current hazard set — *huecos*, *policías acostados*, *alcabalas* — is Venezuelan; UI copy is Spanish).
 
 1. **Set destination before driving.** Paste/share a Google Maps or Waze link, type an address, or enter coordinates.
-2. **Drive with camera AR.** Phone mounted on the windshield, landscape, pointing at the road. Guide ribbon + chevrons on the asphalt, a standing 3D arrow at the next turn, red markers on hazards.
+2. **Drive with camera AR.** Phone mounted on the windshield, landscape, pointing at the road. Guide ribbon + chevrons on the asphalt, a standing 3D arrow at the next turn, red cones on potholes and checkpoints, and speed bumps drawn as the bump itself (a yellow-and-black striped hump across the lane, amber label).
 3. **Walk with camera AR.** Hold the phone up toward the street; the ribbon and turn arrow follow a walking route. Heading comes from the compass/gyro, not the route.
 4. **Drive with the windshield HUD.** Phone lies flat on the dashboard, screen up. Driver sees the arrow, distance and speed floating over the road, with no video competing for attention.
 5. **Report a hazard** with one tap while driving.
@@ -121,7 +121,7 @@ This is a cheap, robust trick for a rigidly mounted phone. It is also why the HU
 | Element | Camera style | HUD style |
 |---|---|---|
 | Background | Video | `#000` |
-| Ribbon | 3 m wide, cyan, α ≤ 0.45 fading | Two solid edge lines (or outline) + chevrons, α ≥ 0.85, shorter range (~100 m) to cut clutter |
+| Ribbon | One lane wide (3 m), 90 m long, uniform cyan (α 0.5) fading only at its far end, which a ring on the road marks; wide chevrons painted flat on it every 5 m, which fade out where the road goes sideways to the view (the turn arrow shows the way there); corners rounded over 10 m. Where the route ends inside the band, band and chevrons turn green over the last 40 m, the band stops sharp and a raised chequered block (30 cm) crosses it. Zebra crossings from the maqueta aren't drawn: the real paint is visible | Two solid edge lines (or outline) + chevrons, α ≥ 0.85, shorter range (~100 m) to cut clutter |
 | Turn arrow | Standing arrow at maneuver point, scales to 2.2× when far | Same, plus a fixed screen-space glyph and distance, so the cue survives a bad registration |
 | Hazards | Red cone + ring + sprite label | Larger, amber/red, label always facing the driver, only the nearest 2 within 150 m |
 | Text | HUD cards with backdrops | Large type directly on black, no card backdrops |
@@ -222,7 +222,7 @@ From the "MapZ App UI" canvas: blue `#2563EB` / `#1A56C4`, Manrope, dark and lig
 
 ### 6.4 Exact arrival point — built
 
-The chosen entrance travels as `app.arrival` `{lat, lon, label, outline, height}`. The route goes to it (OSRM snaps to the street); in the AR scene the green pin and beam stand on the entrance itself, at the maqueta's elevation, and the building's edges (ground, roof, corners) light up in green when less than 300 m of route are left. The iPad gets the same through the route message, so the HUD optics draw it in the glass. Code: `updateOutline` in [src/render/ar.ts](src/render/ar.ts).
+The chosen entrance travels as `app.arrival` `{lat, lon, label, outline, height}`. The route goes to it (OSRM snaps to the street); in the AR scene the destination marker stands on the entrance itself, at the maqueta's elevation: a green glow and expanding rings on the ground, a floating pin with a flag that faces the driver, and over the camera a card with the arrival label and the distance left ("Llegada · 120 m", then "Llegaste"). The building itself isn't outlined: drawn over the overlay it showed through the buildings in front. The iPad gets the same through the route message; the card is a sprite, so the windshield HUD (mirrored optics) shows the rest without it. Code: `updateDest` in [src/render/ar.ts](src/render/ar.ts).
 
 In **Simulación** (camera display), wherever the car is inside a maqueta tile, the overlay is drawn over the street in 3D instead of the camera picture: terrain from the tiles' elevation grids, streets from their ways (tilted with the slope) and the buildings extruded from their footprints, seen from the same camera pose as the AR. Outside the tiles the camera picture comes back. Tiles are blended near their shared edges (`elevationIn` in [src/core/maqueta.ts](src/core/maqueta.ts)), since each tile's grid is smoothed on its own and neighbours can differ by metres; the route profile uses the same ground. Code: [src/render/scenery.ts](src/render/scenery.ts).
 

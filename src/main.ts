@@ -346,7 +346,8 @@ function frame(now: number) {
     attitude: app.display === 'hud' ? carAttitude(now, dt, calib.pitch, getMountRoll()) : undefined,
     elevAlong: maqueta?.profile?.at ?? null,
     signs: signsAheadOf(nav.along),
-    arrival: app.arrival ? { p: { lat: app.arrival.lat, lon: app.arrival.lon }, outline: app.arrival.outline, height: app.arrival.height } : null,
+    arrival: app.arrival ? { p: { lat: app.arrival.lat, lon: app.arrival.lon } } : null,
+    destLabel: app.arrival?.label ?? app.dest?.label ?? null,
     // Simulación: the street in 3D from the maqueta wherever there is one, instead of the camera.
     scenery: app.mode === 'sim' ? (maqueta?.tiles ?? null) : null,
   });
