@@ -88,3 +88,34 @@ create policy "users update own profile" on profiles for update to authenticated
 
 revoke all on profiles from anon, authenticated;
 grant select, update on profiles to authenticated;
+
+-- Saved places ("Lugares guardados"): follow the account across devices.
+create table if not exists saved_places (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  client_id text not null,                      -- the pin id made on the phone, makes retries and merges idempotent
+  label text not null check (char_length(label) between 1 and 40),
+  lat double precision not null check (lat between -90 and 90),
+  lon double precision not null check (lon between -180 and 180),
+  acc real,
+  created_at timestamptz not null,              -- when the phone saved it
+  updated_at timestamptz not null default now(),
+  unique (user_id, client_id)
+);
+
+create index if not exists saved_places_user_id_idx on saved_places (user_id);
+
+alter table saved_places enable row level security;
+
+drop policy if exists "users read own places" on saved_places;
+drop policy if exists "users insert own places" on saved_places;
+drop policy if exists "users update own places" on saved_places;
+drop policy if exists "users delete own places" on saved_places;
+create policy "users read own places" on saved_places for select to authenticated using (user_id = (select auth.uid()));
+create policy "users insert own places" on saved_places for insert to authenticated with check (user_id = (select auth.uid()));
+create policy "users update own places" on saved_places for update to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+create policy "users delete own places" on saved_places for delete to authenticated using (user_id = (select auth.uid()));
+
+revoke all on saved_places from anon, authenticated;
+grant select, insert, update, delete on saved_places to authenticated;
