@@ -109,18 +109,57 @@
           </button>
           <div class="phText">
             <h1>Ajustes</h1>
-            <span class="muted">Dispositivos y lugares guardados</span>
+            <span class="muted">Dispositivos, lugares guardados y tu cuenta</span>
           </div>
         </header>
 
         <div class="seg setTabs" role="tablist" aria-label="Secciones de ajustes">
           <button id="tabDev" type="button" role="tab" aria-pressed="true">Dispositivos</button>
           <button id="tabPlaces" type="button" role="tab" aria-pressed="false">Lugares guardados</button>
+          <button id="tabAccount" type="button" role="tab" aria-pressed="false">Cuenta</button>
         </div>
 
         <div id="panPlaces" hidden>
           <div id="placesList" class="listCard surface"></div>
           <p id="placesEmpty" class="sub placesEmpty">Aún no guardaste ningún lugar. En el mapa, toca el botón del marcador para guardar donde estás.</p>
+        </div>
+
+        <div id="panAccount" hidden>
+          <p id="acctOff" class="sub" hidden>Las cuentas necesitan el servidor configurado. Mientras tanto la app funciona igual, sin cuenta.</p>
+          <div id="acctOut" class="listCard surface acctView">
+            <div class="seg acctSeg" role="tablist" aria-label="Entrar o crear cuenta">
+              <button id="acctModeIn" type="button" role="tab" aria-pressed="true">Entrar</button>
+              <button id="acctModeUp" type="button" role="tab" aria-pressed="false">Crear cuenta</button>
+            </div>
+            <form id="acctForm" novalidate>
+              <fieldset id="acctFields">
+                <label class="acctField" id="acctNameRow" hidden><span>Nombre</span><input id="acctName" type="text" autocomplete="name" maxlength="40" placeholder="Cómo te llamamos" /></label>
+                <label class="acctField"><span>Correo</span><input id="acctEmail" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="tu@correo.com" /></label>
+                <label class="acctField"><span>Contraseña</span><input id="acctPass" type="password" autocomplete="current-password" placeholder="Mínimo 8 caracteres" /></label>
+              </fieldset>
+              <button id="acctSubmit" class="primary" type="submit">Entrar</button>
+              <p id="acctMsg" class="acctMsg" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+          <div id="acctWait" class="listCard surface acctView" hidden>
+            <div class="devRow">
+              <div class="devText">
+                <span class="devTitle">Revisa tu correo para confirmar la cuenta</span>
+                <span class="muted">Enviamos un enlace a <b id="acctWaitMail"></b>. Después de confirmar, vuelve y entra.</span>
+              </div>
+            </div>
+            <button id="acctBack" class="ghost acctWide" type="button">Volver a entrar</button>
+          </div>
+          <div id="acctIn" class="listCard surface acctView" hidden>
+            <div class="devRow">
+              <span id="acctAvatar" class="acctAvatar" aria-hidden="true"></span>
+              <div class="devText">
+                <span id="acctDisplay" class="devTitle"></span>
+                <span id="acctMail" class="muted"></span>
+              </div>
+            </div>
+            <button id="acctOutBtn" class="ghost acctWide" type="button">Cerrar sesión</button>
+          </div>
         </div>
 
         <div id="panDev">

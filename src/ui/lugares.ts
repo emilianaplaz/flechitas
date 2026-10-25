@@ -100,15 +100,19 @@ function editName(row: HTMLElement) {
 
 /** `onGo`: leave Ajustes for the map once a place is chosen as the destination. */
 export function initLugares(onGo: () => void) {
-  const tab = (places: boolean) => {
-    $('tabDev').setAttribute('aria-pressed', String(!places));
-    $('tabPlaces').setAttribute('aria-pressed', String(places));
-    $('panDev').hidden = places;
-    $('panPlaces').hidden = !places;
-    if (places) renderLugares();
+  const tabs = [
+    ['tabDev', 'panDev'],
+    ['tabPlaces', 'panPlaces'],
+    ['tabAccount', 'panAccount'],
+  ] as const;
+  const tab = (active: string) => {
+    for (const [t, p] of tabs) {
+      $(t).setAttribute('aria-pressed', String(t === active));
+      $(p).hidden = t !== active;
+    }
+    if (active === 'tabPlaces') renderLugares();
   };
-  $('tabDev').onclick = () => tab(false);
-  $('tabPlaces').onclick = () => tab(true);
+  for (const [t] of tabs) $(t).onclick = () => tab(t);
   setInterval(() => {
     if (!$('panPlaces').hidden && !$('scrDispositivos').hidden) updateDistances();
   }, 3000);

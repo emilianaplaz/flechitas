@@ -3,6 +3,7 @@
 import { $ } from '../core/ui.ts';
 import { getCalib, onCalibChange, setCalibValue } from '../render/calibDock.ts';
 import type { Calib } from '../render/calib.ts';
+import { initAccount } from '../auth/ui.ts';
 import { showDestinoMap } from './destino.ts';
 import { initDestShortcut, initLugares, renderLugares } from './lugares.ts';
 import { showMaqueta } from './maqueta.ts';
@@ -51,5 +52,6 @@ export function initShell() {
   onCalibChange(renderCalib);
   initLugares(() => go('destino'));
   initDestShortcut();
+  initAccount();
   go('destino');
 }

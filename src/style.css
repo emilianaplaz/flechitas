@@ -109,7 +109,7 @@ button.big { min-height: 54px; flex: 1; font-size: 16px; }
 .roundBtn.dark { background: rgba(12, 12, 14, 0.72); border-color: rgba(255, 255, 255, 0.16); color: #fff; }
 .iconBtn { width: 46px; height: 46px; padding: 0; display: grid; place-items: center; border-radius: 14px; color: var(--muted); flex: none; }
 
-input[type='text'] {
+input[type='text'], input[type='email'], input[type='password'] {
   flex: 1;
   min-width: 0;
   height: 46px;
@@ -120,8 +120,8 @@ input[type='text'] {
   outline: none;
   font-weight: 700;
 }
-input[type='text']::placeholder { color: var(--muted); font-weight: 500; }
-input[type='text']:focus, input[type='text'].accent { border-color: var(--pri); }
+input[type='text']::placeholder, input[type='email']::placeholder, input[type='password']::placeholder { color: var(--muted); font-weight: 500; }
+input[type='text']:focus, input[type='email']:focus, input[type='password']:focus, input[type='text'].accent { border-color: var(--pri); }
 input[type='file'] { width: 100%; font-size: 13px; color: var(--muted); }
 input[type='range'] { width: 100%; accent-color: var(--pri); }
 select { width: 100%; padding: 10px; border-radius: 12px; background: transparent; border: 2px solid var(--line); }
@@ -879,12 +879,12 @@ input[type='range']:active::-webkit-slider-thumb { scale: 1.18; }
    Sleek pass: filled fields instead of outlines, thinner chrome, floating
    side panel on wide screens (the Tesla layout), smaller type.
    ========================================================================== */
-input[type='text'], select, #fShareCode, .hgField input {
+input[type='text'], input[type='email'], input[type='password'], select, #fShareCode, .hgField input {
   border: 1px solid transparent;
   background: rgba(255, 255, 255, 0.06);
   transition: border-color 0.25s var(--ease), box-shadow 0.25s var(--ease), background-color 0.25s var(--ease);
 }
-input[type='text']:focus, input[type='text'].accent { border-color: var(--pri); background: rgba(255, 255, 255, 0.08); box-shadow: 0 0 0 4px color-mix(in srgb, var(--pri) 22%, transparent); }
+input[type='text']:focus, input[type='email']:focus, input[type='password']:focus, input[type='text'].accent { border-color: var(--pri); background: rgba(255, 255, 255, 0.08); box-shadow: 0 0 0 4px color-mix(in srgb, var(--pri) 22%, transparent); }
 input[type='text'].accent:not(:focus) { border-color: transparent; }
 button.ghost, .statusChip, .step, .modes label, .layerChip, .mqChips button, .dock .chip { border-width: 1px; }
 .layerChip[aria-pressed='true'].haz, .layerChip[aria-pressed='true'].bump { box-shadow: inset 0 0 0 1px currentColor, var(--shadow); }
@@ -942,8 +942,9 @@ button.primary { min-height: 52px; border-radius: 14px; font-size: 16px; font-we
 }
 
 /* ---------- Ajustes: tabs and saved places ---------- */
-.setTabs { align-self: flex-start; margin-bottom: 18px; width: fit-content; }
-.setTabs button { padding: 9px 16px; }
+.setTabs { align-self: stretch; margin-bottom: 18px; max-width: 460px; }
+.setTabs button { flex: 1 1 auto; justify-content: center; min-width: 0; padding: 9px 8px; white-space: nowrap; }
+@media (min-width: 420px) { .setTabs button { padding: 9px 16px; } }
 .placeRow .devText { gap: 2px; }
 .placeRow .ghost { padding: 0 18px; height: 40px; flex: none; }
 .placeRow .fX { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; }
@@ -986,3 +987,17 @@ button.primary { min-height: 52px; border-radius: 14px; font-size: 16px; font-we
 @media (hover: hover) { .placeMenu button:hover { background: color-mix(in srgb, var(--text) 8%, transparent); } }
 #placesBtn { color: var(--muted); transition: color 0.25s var(--ease), background-color 0.25s var(--ease); }
 #placesBtn[aria-expanded='true'] { color: var(--link); background: var(--sel); }
+
+/* ---------- Ajustes: cuenta ---------- */
+.acctView { padding: 16px; max-width: 460px; }
+.acctView:not([hidden]) { animation: riseIn 0.45s var(--ease) both; }
+#acctForm { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+#acctFields { display: flex; flex-direction: column; gap: 14px; border: 0; margin: 0; padding: 0; min-width: 0; }
+.acctField { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.acctField[hidden] { display: none; }
+.acctField input { flex: none; width: 100%; font-size: 16px; }
+.acctMsg { margin: 0; min-height: 1.4em; font-size: 14px; line-height: 1.4; color: var(--amber); }
+#acctSubmit[aria-busy='true'] { opacity: 0.7; cursor: progress; }
+.acctView .devRow { padding: 0 0 14px; border: 0; }
+.acctWide { width: 100%; height: 46px; }
+.acctAvatar { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--pri); color: var(--onpri); font-weight: 800; font-size: 18px; }
