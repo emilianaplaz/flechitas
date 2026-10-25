@@ -2,6 +2,21 @@
   {
     "name": "san-juan-bosco",
     "label": "Av. San Juan Bosco, Altamira",
-    "bbox": [10.509, -66.854, 10.5128, -66.8498]
+    "bbox": [
+      10.509,
+      -66.854,
+      10.5128,
+      -66.8498
+    ]
+  },
+  {
+    "name": "altamira-sur",
+    "label": "Altamira sur, La Castellana y Chacao",
+    "bbox": [
+      10.493213,
+      -66.8573,
+      10.504016,
+      -66.846313
+    ]
   }
 ]
