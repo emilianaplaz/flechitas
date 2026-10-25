@@ -24,7 +24,8 @@ import { RouteProfile, gridPoint, limitAt, speedLimits, tileElevation, tileOf, t
 import { indexSigns, signsAhead } from '../src/signs/ahead.ts';
 import { aim, lensOnScreen, onEdge } from '../src/find/aim.ts';
 import { ageLabel, codeFromSearch, findPeerId, parsePos, shareLink } from '../src/find/protocol.ts';
-import { MAX_PINS, addPin, loadPins, removePin } from '../src/find/pins.ts';
+import { MAX_PINS, addPin, adoptUnowned, loadPins, onPinChange, removePin, renamePin, setPinOwner, type Pin } from '../src/find/pins.ts';
+import { OUTBOX_KEY, createPinsSync, mergePins, type PinsSync } from '../src/find/pinsSync.ts';
 
 let failed = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -814,6 +815,190 @@ import { applyBuildingOverrides, buildingHeight, dedupe, overlapShare, stitchRin
       await c.restore();
       check(`auth: corrupted stored session ignored (${junk.slice(0, 14)})`, c.state().kind === 'signedOut' && t.calls.length === 0 && t.store.size === 0);
     }
+  }
+}
+
+// ---- find: saved places in the account ----
+{
+  const pin = (id: string, label: string, at: number, updatedAt?: number): Pin => ({ id, label, p: { lat: 1, lon: 2 }, acc: null, at, ...(updatedAt !== undefined ? { updatedAt } : {}) });
+  const ids = (l: Pin[]) => l.map((x) => x.id).join(',');
+  let m = mergePins([], [pin('r', 'R', 1)], []);
+  check('merge: remote-only is added locally and not uploaded', ids(m.merged) === 'r' && m.upload.length === 0);
+  m = mergePins([pin('l', 'L', 1)], [], []);
+  check('merge: local-only is flagged for upload', ids(m.merged) === 'l' && ids(m.upload) === 'l');
+  m = mergePins([pin('a', 'new', 1, 50)], [pin('a', 'old', 1, 10)], []);
+  check('merge: newer local rename wins and uploads', m.merged[0].label === 'new' && ids(m.upload) === 'a');
+  m = mergePins([pin('a', 'old', 1, 10)], [pin('a', 'new', 1, 50)], []);
+  check('merge: newer remote rename wins and does not upload', m.merged[0].label === 'new' && m.upload.length === 0);
+  m = mergePins([pin('a', 'old', 10)], [pin('a', 'new', 1, 5)], []);
+  check('merge: a missing updatedAt counts as the pin time', m.merged[0].label === 'old' && ids(m.upload) === 'a');
+  m = mergePins([], [pin('gone', 'G', 1), pin('keep', 'K', 2)], ['gone']);
+  check('merge: a pending delete is not resurrected', ids(m.merged) === 'keep');
+  m = mergePins([], [], []);
+  check('merge: empty both', m.merged.length === 0 && m.upload.length === 0 && m.evict.length === 0);
+  const many = Array.from({ length: MAX_PINS + 2 }, (_, i) => pin(`p${i}`, `P${i}`, i));
+  m = mergePins([], many, []);
+  check('merge: capped at MAX_PINS, evicted remote ids reported', m.merged.length === MAX_PINS && m.evict.join() === 'p0,p1');
+
+  mem.clear();
+  setPinOwner(null);
+  const anon = addPin({ lat: 1, lon: 1 }, null, 100);
+  check('privacy: a pin made signed out has no owner', anon.owner === undefined && loadPins().length === 1);
+  setPinOwner('A');
+  check('privacy: unowned pins show to the signed-in user', loadPins().length === 1);
+  check('privacy: the next signed-in user adopts unowned pins', adoptUnowned().length === 1 && loadPins()[0].owner === 'A');
+  setPinOwner(null);
+  check('privacy: owner A pins are invisible signed out', loadPins().length === 0);
+  setPinOwner('B');
+  check('privacy: owner A pins are invisible to B', loadPins().length === 0 && adoptUnowned().length === 0);
+  const bPin = addPin({ lat: 2, lon: 2 }, null, 200);
+  removePin('nope');
+  renamePin(bPin.id, 'Casa B', 300);
+  check('privacy: B edits never touch A pins', loadPins().length === 1 && JSON.parse(mem.get('ar-nav.pins')!).length === 2);
+  setPinOwner('A');
+  check('privacy: A sees their pin again and not B', ids(loadPins()) === 'pin-100');
+  setPinOwner(null);
+  const late = addPin({ lat: 3, lon: 3 }, null, 400);
+  setPinOwner('C');
+  check('privacy: pins made signed out go to the next user only once', adoptUnowned().length === 1 && late.owner === undefined);
+  setPinOwner('A');
+  check('privacy: ...and not to a later one', ids(loadPins()) === 'pin-100');
+  setPinOwner(null);
+
+  const changes: string[] = [];
+  onPinChange((c) => changes.push(c.kind === 'delete' ? `del:${c.id}` : `up:${c.pin.id}`));
+  mem.clear();
+  addPin({ lat: 1, lon: 1 }, null, 1);
+  check('pins: signed-out changes are not announced', changes.length === 0);
+  setPinOwner('U');
+  adoptUnowned();
+  for (let i = 0; i < MAX_PINS; i++) addPin({ lat: 1, lon: 1 }, null, 10 + i);
+  check('pins: dropping the oldest at the cap announces its delete', changes.includes('del:pin-1') && changes.at(-1) === `up:pin-${10 + MAX_PINS - 1}`);
+  setPinOwner(null);
+  onPinChange(() => {});
+}
+
+// ---- find: saved places outbox ----
+{
+  type Call = { url: string; method: string; headers: Record<string, string>; body: unknown };
+  const rig = (reply: (c: Call) => { status: number } | 'offline', start: string | null = 'U') => {
+    const store = new Map<string, string>();
+    const calls: Call[] = [];
+    const tokens = { n: 0 };
+    let user = start;
+    const sync: PinsSync = createPinsSync({
+      config: { url: 'https://x.supabase.co', key: 'sb_publishable_k' },
+      fetch: (async (url: string, init: RequestInit) => {
+        const c = { url, method: init.method ?? 'GET', headers: init.headers as Record<string, string>, body: init.body ? JSON.parse(init.body as string) : undefined };
+        calls.push(c);
+        const r = reply(c);
+        if (r === 'offline') throw new TypeError('offline');
+        return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => [] } as Response;
+      }) as typeof fetch,
+      storage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => void store.set(k, v), removeItem: (k) => void store.delete(k) },
+      user: () => user,
+      token: async () => (user ? `tok${tokens.n}` : null),
+      refresh: async () => void tokens.n++,
+    });
+    return { sync, calls, store, tokens, signOut: () => (user = null), signInAs: (u: string) => (user = u) };
+  };
+  const up = (id: string) => ({ kind: 'upsert' as const, pin: { id, label: id, p: { lat: 1, lon: 2 }, acc: null, at: 1 } });
+  const queued = (t: ReturnType<typeof rig>) => (JSON.parse(t.store.get(OUTBOX_KEY) ?? '[]') as { id: string }[]).map((o) => o.id).join(',');
+
+  {
+    const t = rig(() => ({ status: 201 }));
+    t.sync.change(up('a'));
+    t.sync.change({ kind: 'delete', id: 'b' });
+    t.sync.change(up('c'));
+    await t.sync.flush();
+    check('outbox: ops flush in order and the queue empties', t.calls.map((c) => c.method).join() === 'POST,DELETE,POST' && queued(t) === '' && t.sync.status() === 'synced');
+    const post = t.calls[0];
+    check('outbox: upsert is a merge-duplicates POST on user_id,client_id', post.url.endsWith('/rest/v1/saved_places?on_conflict=user_id,client_id') && post.headers.prefer === 'resolution=merge-duplicates,return=minimal');
+    check('outbox: the body carries user_id explicitly and the user token', (post.body as { user_id: string; client_id: string }).user_id === 'U' && (post.body as { client_id: string }).client_id === 'a' && post.headers.authorization === 'Bearer tok0');
+    check('outbox: delete targets the client_id', t.calls[1].url.endsWith('/rest/v1/saved_places?client_id=eq.b'));
+  }
+  {
+    let down = true;
+    const t = rig(() => (down ? 'offline' : { status: 201 }));
+    t.sync.change(up('a'));
+    t.sync.change(up('b'));
+    await t.sync.flush();
+    check('outbox: a network failure stops at the first op and keeps all', t.calls.length === 1 && queued(t) === 'a,b' && t.sync.status() === 'syncing');
+    down = false;
+    await t.sync.flush();
+    check('outbox: the next flush sends what was kept', queued(t) === '');
+  }
+  {
+    const t = rig((c) => ((c.body as { client_id?: string } | undefined)?.client_id === 'bad' ? { status: 400 } : { status: 201 }));
+    t.sync.change(up('a'));
+    t.sync.change(up('bad'));
+    t.sync.change(up('c'));
+    await t.sync.flush();
+    check('outbox: a 400 drops only that op', t.calls.length === 3 && queued(t) === '');
+  }
+  {
+    const t = rig(() => ({ status: 401 }));
+    t.sync.change(up('a'));
+    t.sync.change(up('b'));
+    await t.sync.flush();
+    check('outbox: a 401 refreshes once, retries once, then stops and keeps the queue', t.tokens.n === 1 && t.calls.length === 2 && t.calls[1].headers.authorization === 'Bearer tok1' && queued(t) === 'a,b');
+  }
+  {
+    const t = rig((c) => (c.headers.authorization === 'Bearer tok0' ? { status: 401 } : { status: 201 }));
+    t.sync.change(up('a'));
+    t.sync.change(up('b'));
+    await t.sync.flush();
+    check('outbox: a 401 followed by a good refreshed token carries on', t.tokens.n === 1 && queued(t) === '');
+  }
+  {
+    const t = rig(() => 'offline');
+    t.sync.change(up('a'));
+    t.sync.change({ kind: 'delete', id: 'a' });
+    check('outbox: upsert then delete leaves only the delete', queued(t) === 'a' && JSON.parse(t.store.get(OUTBOX_KEY)!)[0].kind === 'delete');
+    t.sync.change(up('a'));
+    check('outbox: delete then upsert leaves only the upsert', JSON.parse(t.store.get(OUTBOX_KEY)!).length === 1 && JSON.parse(t.store.get(OUTBOX_KEY)!)[0].kind === 'upsert');
+  }
+  {
+    const t = rig(() => ({ status: 201 }), null);
+    t.sync.change(up('a'));
+    await t.sync.flush();
+    await t.sync.sync();
+    check('outbox: nothing is queued or sent signed out', t.calls.length === 0 && t.store.size === 0 && t.sync.status() === 'signedOut');
+  }
+  {
+    const t = rig(() => 'offline');
+    t.sync.change(up('a'));
+    await t.sync.flush();
+    t.signOut();
+    await t.sync.flush();
+    t.signInAs('V');
+    await t.sync.flush();
+    check('outbox: ops of user U wait and are never sent as V', t.calls.length === 1 && queued(t) === 'a' && t.sync.pending('V') === 0);
+    t.signInAs('U');
+    check('outbox: ...and resume for U', t.sync.pending('U') === 1);
+  }
+  {
+    mem.clear();
+    setPinOwner(null);
+    addPin({ lat: 9, lon: 9 }, null, 777);
+    setPinOwner('A');
+    adoptUnowned();
+    const t = rig(() => ({ status: 201 }), 'B');
+    setPinOwner('B');
+    await t.sync.signedIn();
+    check('account B never receives A pins', t.calls.every((c) => c.method !== 'POST') && loadPins().length === 0);
+    setPinOwner(null);
+  }
+  {
+    mem.clear();
+    setPinOwner(null);
+    addPin({ lat: 9, lon: 9 }, null, 888);
+    const t = rig(() => ({ status: 201 }), 'U');
+    setPinOwner('U');
+    await t.sync.signedIn();
+    const posts = t.calls.filter((c) => c.method === 'POST');
+    check('sign-in adopts signed-out pins and uploads them', posts.length === 1 && (posts[0].body as { client_id: string }).client_id === 'pin-888' && loadPins()[0].owner === 'U');
+    setPinOwner(null);
   }
 }
 
