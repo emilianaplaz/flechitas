@@ -192,15 +192,14 @@
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6 L9 4 L15 6 L21 4 V18 L15 20 L9 18 L3 20 Z M9 4 V18 M15 6 V20" fill="none" stroke-width="2" stroke-linejoin="round" /></svg>
           Mapa
         </button>
-        <div class="navGap" aria-hidden="true"></div>
+        <button id="findOpen" type="button" class="navItem" aria-label="Encontrar: compartir ubicación o ver a alguien">
+          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5" fill="none" stroke-width="2" /><path d="M5 20 C5 15.5 8 13.5 12 13.5 S19 15.5 19 20" fill="none" stroke-width="2" stroke-linecap="round" /></svg>
+          Encontrar
+        </button>
         <button type="button" data-go="dispositivos" class="navItem">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="12" height="14" rx="2.5" fill="none" stroke-width="2" /><rect x="15" y="8" width="6" height="11" rx="1.5" fill="none" stroke-width="2" /></svg>
-          Dispositivos
+          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7 H20 M4 17 H20" fill="none" stroke-width="2" stroke-linecap="round" /><circle cx="9" cy="7" r="2.6" fill="var(--bg)" stroke-width="2" /><circle cx="15" cy="17" r="2.6" fill="var(--bg)" stroke-width="2" /></svg>
+          Ajustes
         </button>
-        <button id="findOpen" type="button" class="fab" aria-label="Encontrar: guardar un lugar o ver a alguien">
-          <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 4 V22 M4 13 H22" stroke-width="3.2" stroke-linecap="round" /></svg>
-        </button>
-        <span class="fabLabel" aria-hidden="true">Encontrar</span>
       </nav>
     </section>
 
@@ -233,7 +232,6 @@
           <button id="fShareBtn" class="primary" type="button">Compartir mi ubicación</button>
         </div>
         <div class="fActions">
-          <button id="fDrop" class="primary" type="button">Guardar este lugar</button>
           <button id="fSee" class="ghost" type="button">Ver a alguien</button>
           <button id="fShareOpen" class="ghost" type="button">Compartir la mía</button>
         </div>

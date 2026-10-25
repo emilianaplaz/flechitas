@@ -238,8 +238,6 @@ h2 { margin: 0 0 4px; font-size: 20px; }
   .destCard { left: auto; width: min(360px, 44vw); bottom: calc(64px + env(safe-area-inset-bottom) + 12px); padding: 14px; }
   .bottomNav { height: calc(64px + env(safe-area-inset-bottom)); }
   .navItem { flex-direction: row; gap: 8px; }
-  .fab { width: 58px; height: 58px; top: -22px; }
-  .fabLabel { display: none; }
   .page { padding-bottom: calc(64px + env(safe-area-inset-bottom) + 24px); }
 }
 
@@ -332,24 +330,6 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 }
 .navItem { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 10px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .navItem[aria-current='page'] { color: var(--link); }
-.navGap { width: 70px; }
-.fab {
-  position: absolute;
-  left: 50%;
-  top: -32px;
-  transform: translateX(-50%);
-  width: 70px;
-  height: 70px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--pri);
-  color: var(--onpri);
-  border: 6px solid var(--bg);
-}
-.fab:disabled { opacity: 1; filter: saturate(0.55); }
-.fabLabel { position: absolute; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); transform: translateX(-50%); font-size: 12px; font-weight: 700; color: var(--muted); }
 
 /* ---------- Conducir (phone camera AR) ---------- */
 #hud { position: fixed; inset: 0; z-index: 5; pointer-events: none; }

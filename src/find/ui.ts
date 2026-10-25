@@ -1,6 +1,6 @@
-// "Encontrar": the camera with a marker over each place you want to find, drawn from GPS and the
-// phone's compass. Places are spots saved on this phone ("where I parked") and one person who shares
-// their live location. The same screen, without the camera, is where that person shares.
+// "Encontrar": location sharing. The camera with a marker over one person who shares their live
+// location, drawn from GPS and the phone's compass. The same screen, without the camera, is where
+// that person shares. (Saved places live in Ajustes and on the map.)
 import { angleDiff, haversine, type LatLon } from '../core/geo.ts';
 import { formatDistance } from '../core/route.ts';
 import { app } from '../core/state.ts';
@@ -8,9 +8,8 @@ import { $, toast } from '../core/ui.ts';
 import { startCamera } from '../drive/start.ts';
 import { GpsSource } from '../drive/sources.ts';
 import { OrientationSensor } from '../walk/orientation.ts';
-import { aim, lensOnScreen, onEdge, EYE_HEIGHT, type Lens } from './aim.ts';
+import { aim, lensOnScreen, onEdge, type Lens } from './aim.ts';
 import { Sharer, Watcher, type ShareState, type WatchState } from './link.ts';
-import { addPin, loadPins, removePin } from './pins.ts';
 import { STALE_MS, ageLabel, codeFromSearch, normalizeCode, shareLink, type Sighting } from './protocol.ts';
 import { formatCode } from '../remote/protocol.ts';
 
@@ -19,7 +18,7 @@ const EDGE_MARGIN = 56;
 
 interface Target {
   id: string;
-  kind: 'pin' | 'person';
+  kind: 'person';
   label: string;
   p: LatLon;
   acc: number | null;
@@ -50,7 +49,7 @@ function say(id: string, text: string) {
 }
 
 function targets(now: number): Target[] {
-  const list: Target[] = loadPins().map((x) => ({ id: x.id, kind: 'pin', label: x.label, p: x.p, acc: x.acc, note: null }));
+  const list: Target[] = [];
   if (friend) {
     const age = now - friend.seen;
     list.push({ id: 'person', kind: 'person', label: 'Persona', p: friend.s.p, acc: friend.s.acc, note: age > STALE_MS ? ageLabel(age) : null });
@@ -159,7 +158,7 @@ function frame(now: number) {
       el.hidden = true;
       continue;
     }
-    const a = aim(fix.p, t.p, view, lens, screen, t.kind === 'person' ? PERSON_DROP : EYE_HEIGHT);
+    const a = aim(fix.p, t.p, view, lens, screen, PERSON_DROP);
     const shown = a.visible && a.y < room.h - EDGE_MARGIN / 2;
     const e = shown ? a : onEdge(a, room, EDGE_MARGIN);
     const dist = formatDistance(a.dist);
@@ -196,7 +195,7 @@ function markFor(t: Target): HTMLElement {
   return el;
 }
 
-/** The list under the camera: one row per place, distance updated live, rebuilt only when the set changes. */
+/** The list under the camera: one row per person, distance updated live, rebuilt only when the set changes. */
 function renderRows(list: Target[], me: LatLon | null) {
   const key = list.map((t) => t.id).join();
   const box = $('fList');
@@ -213,18 +212,6 @@ function renderRows(list: Target[], me: LatLon | null) {
         const d = document.createElement('span');
         d.className = 'muted fDist';
         row.append(name, d);
-        if (t.kind === 'pin') {
-          const x = document.createElement('button');
-          x.type = 'button';
-          x.className = 'fX';
-          x.setAttribute('aria-label', `Borrar ${t.label}`);
-          x.textContent = '✕';
-          x.onclick = () => {
-            removePin(t.id);
-            toast(`${t.label} borrado`);
-          };
-          row.append(x);
-        }
         return row;
       }),
     );
@@ -319,12 +306,6 @@ function stopSharing() {
 export function initFind() {
   $('findOpen').onclick = () => void openFind({ camera: true });
   $('fClose').onclick = closeFind;
-  $('fDrop').onclick = () => {
-    const fix = gps?.current();
-    if (!fix) return toast('Todavía no tengo tu ubicación');
-    const pin = addPin(fix.p, fix.accuracy);
-    toast(`${pin.label} guardado aquí`);
-  };
   $('fSee').onclick = () => (watcher ? stopWatching() : void startWatching());
   $('fInvite').onclick = () => void shareInvite();
   $('fShareOpen').onclick = () => ($('fShareBox').hidden = !$('fShareBox').hidden);
